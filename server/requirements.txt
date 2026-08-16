@@ -1,0 +1,14 @@
+# Pinned explicitly rather than by `pip freeze`: a freeze captures whatever happened to
+# be in the venv (it picked up psycopg2-binary from an unrelated install), and the point
+# of pinning is to describe what this service actually needs.
+fastapi==0.128.4
+uvicorn[standard]==0.40.0
+sqlalchemy==2.0.42
+psycopg[binary]==3.2.3
+alembic==1.17.0
+pydantic==2.12.5
+pydantic-settings==2.12.0
+pyjwt[crypto]==2.10.1
+cryptography==46.0.4
+httpx[http2]==0.28.1
+redis==7.4.0

@@ -39,3 +39,4 @@ __pycache__/
 
 # Assembled app bundle
 build/
+server/.venv/

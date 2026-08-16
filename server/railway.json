@@ -1,0 +1,19 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "_comment_migrations": "Migrations run as the OWNER before the new revision serves traffic. The API itself connects as builder_app, which is NOBYPASSRLS and cannot alter tables — that separation is what lets boot.py assert the request path is unprivileged.",
+    "preDeployCommand": "alembic upgrade head",
+
+    "_comment_replicas": "One replica. Not a scaling opinion: any scheduled work added later must live in a separate cron service, because an in-process scheduler double-fires at two replicas and loses its job store on redeploy.",
+    "numReplicas": 1,
+
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}
