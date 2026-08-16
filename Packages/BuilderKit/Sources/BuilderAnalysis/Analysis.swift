@@ -143,7 +143,7 @@ public struct Analysis {
 
     // MARK: - Contribution graph
 
-    public struct GraphDay {
+    public struct GraphDay: Sendable {
         public let day: String
         public let activeSeconds: Double
         public let level: Int

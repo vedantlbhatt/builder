@@ -33,6 +33,8 @@ do {
         try SessionsCommand.run()
     case "share":
         try ShareCommand.run()
+    case "preview":
+        try PreviewCommand.run()
     case "doctor":
         try DoctorCommand.run()
     case "groundtruth":
@@ -52,6 +54,7 @@ do {
               builder pair                  link this Mac to your account
               builder sync [--dry-run] [--print-payload]
                                             upload sessions; dry-run prints and sends nothing
+              builder preview [--out DIR]   render the app surfaces to PNG from real data
               builder doctor                records, contribution graph, projects, diagnostics
               builder groundtruth           reproduce the published measurements
                 --project <dir>             which ~/.claude/projects directory
