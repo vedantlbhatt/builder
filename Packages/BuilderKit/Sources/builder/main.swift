@@ -4,8 +4,27 @@ import Foundation
 // first — which means the entire engine is exercisable with `swift run`, before any Xcode
 // project, signing identity or provisioning profile exists.
 
+/// Async commands need a run loop the CLI does not otherwise have.
+func runAsync(_ body: @escaping @Sendable () async throws -> Void) {
+    let semaphore = DispatchSemaphore(value: 0)
+    var failure: Error?
+    Task {
+        do { try await body() } catch { failure = error }
+        semaphore.signal()
+    }
+    semaphore.wait()
+    if let failure {
+        FileHandle.standardError.write(Data("error: \(failure)\n".utf8))
+        exit(1)
+    }
+}
+
 do {
     switch CLIArgs.command {
+    case "sync":
+        runAsync { try await SyncCommand.sync() }
+    case "pair":
+        runAsync { try await SyncCommand.pair() }
     case "scan":
         try ScanCommand.run()
     case "watch":
@@ -30,6 +49,9 @@ do {
                                            recent sessions, with their timeline strips
               builder share [--portrait] [--light] [--legend] [--out PATH] [--session ID]
                                             render a session to PNG and copy it
+              builder pair                  link this Mac to your account
+              builder sync [--dry-run] [--print-payload]
+                                            upload sessions; dry-run prints and sends nothing
               builder doctor                records, contribution graph, projects, diagnostics
               builder groundtruth           reproduce the published measurements
                 --project <dir>             which ~/.claude/projects directory

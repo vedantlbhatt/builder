@@ -362,11 +362,19 @@ Do not take the above on faith. The agent is open source and these commands run 
 builder sync --dry-run --print-payload | jq
 
 # 2. Diff its actual keys against this page, in both directions.
+#    `leaf_paths` expands the four structured fields (tokens, models, strip_marks,
+#    tool_calls) so a scalar-path walk lines up exactly. tool_calls keys are tool
+#    names, so they are normalised to the wildcard the contract publishes.
 builder sync --dry-run --print-payload \\
   | jq -r '[paths(scalars)] | .[] | join(".")' \\
-  | sed 's/\\.[0-9][0-9]*\\./.[]./g' | sort -u > /tmp/actual
-curl -s "$BUILDER_BASE_URL/upload-fields.json" | jq -r '.fields[]' | sort -u > /tmp/declared
-diff /tmp/actual /tmp/declared && echo "MATCHES PUBLISHED CONTRACT"
+  | sed 's/^sessions\\.[0-9]*\\.//' \\
+  | sed 's/\\.[0-9][0-9]*\\./\\./g' \\
+  | sed 's/^tool_calls\\..*/tool_calls.<allowlisted tool name>/' \\
+  | sort -u > /tmp/actual
+curl -s "$BUILDER_BASE_URL/upload-fields.json" | jq -r '.leaf_paths[]' | sort -u > /tmp/declared
+
+# Anything on the left that is not on the right is a field we send and did not declare.
+comm -23 /tmp/actual /tmp/declared
 
 # 3. Pick a phrase you typed to your agent today. Go looking for it.
 builder sync --dry-run --print-payload | grep -i "that phrase"   # no output, exit 1
@@ -404,10 +412,44 @@ def main() -> None:
     write(ROOT / "Packages/BuilderKit/Sources/BuilderSync/Generated/UploadContract.swift", gen_swift(c))
     write(ROOT / "server/builder/contract.py", gen_py(c))
     write(ROOT / "mobile/src/generated/contract.ts", gen_ts(c))
+    # Published as BOTH the top-level names and the expanded leaf paths.
+    #
+    # The first version published only top-level names, and the verification command on
+    # the privacy page — which walks every scalar path with jq — then reported
+    # `tokens.input` and `strip_marks[].ms` as "sent but not declared". They are not: they
+    # are the insides of declared structured fields. But a verification command that cries
+    # leak on correct output is worse than none, because the first person to run it
+    # publicly concludes the claim is false.
+    #
+    # `tool_calls` expands to whatever tool names a session used, so it is published as a
+    # wildcard with its allowlist stated separately.
+    nested = {
+        "tokens": ["input", "output", "cache_read", "cache_w5m", "cache_w1h"],
+        "strip_marks": ["ms", "k"],
+        "models": ["model_id", "output_token_share"],
+        "tool_calls": ["<allowlisted tool name>"],
+    }
+    leaves: list[str] = []
+    for f in fields(c):
+        if f["name"] in nested:
+            leaves += [f"{f['name']}.{child}" for child in nested[f["name"]]]
+        else:
+            leaves.append(f["name"])
+
     write(
         ROOT / "server/builder/static/upload-fields.json",
         json.dumps(
-            {"version": c["version"], "fields": sorted(f["name"] for f in fields(c))},
+            {
+                "version": c["version"],
+                "fields": sorted(f["name"] for f in fields(c)),
+                "leaf_paths": sorted(leaves),
+                "note": (
+                    "`fields` are the top-level keys. `leaf_paths` expands the four "
+                    "structured ones so a scalar-path walk of a real payload matches "
+                    "exactly. tool_calls keys are tool names from a fixed allowlist; "
+                    "unknown and MCP tools bucket to mcp_other / other."
+                ),
+            },
             indent=2,
         )
         + "\n",

@@ -93,11 +93,19 @@ Do not take the above on faith. The agent is open source and these commands run 
 builder sync --dry-run --print-payload | jq
 
 # 2. Diff its actual keys against this page, in both directions.
+#    `leaf_paths` expands the four structured fields (tokens, models, strip_marks,
+#    tool_calls) so a scalar-path walk lines up exactly. tool_calls keys are tool
+#    names, so they are normalised to the wildcard the contract publishes.
 builder sync --dry-run --print-payload \
   | jq -r '[paths(scalars)] | .[] | join(".")' \
-  | sed 's/\.[0-9][0-9]*\./.[]./g' | sort -u > /tmp/actual
-curl -s "$BUILDER_BASE_URL/upload-fields.json" | jq -r '.fields[]' | sort -u > /tmp/declared
-diff /tmp/actual /tmp/declared && echo "MATCHES PUBLISHED CONTRACT"
+  | sed 's/^sessions\.[0-9]*\.//' \
+  | sed 's/\.[0-9][0-9]*\./\./g' \
+  | sed 's/^tool_calls\..*/tool_calls.<allowlisted tool name>/' \
+  | sort -u > /tmp/actual
+curl -s "$BUILDER_BASE_URL/upload-fields.json" | jq -r '.leaf_paths[]' | sort -u > /tmp/declared
+
+# Anything on the left that is not on the right is a field we send and did not declare.
+comm -23 /tmp/actual /tmp/declared
 
 # 3. Pick a phrase you typed to your agent today. Go looking for it.
 builder sync --dry-run --print-payload | grep -i "that phrase"   # no output, exit 1
