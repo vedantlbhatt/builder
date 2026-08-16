@@ -108,6 +108,46 @@ adjacent pairs are already inverted.
 - Codex writes EMPTY STRINGS, not NULLs, for columns added in later migrations.
 - Codex version-stamps its filenames (`state_5.sqlite`). Glob and take the highest integer.
 
+## Later findings, same rule
+
+**A policy predicate that reads another RLS-protected table sees it through the viewer's
+own eyes.** `sessions_public` checked repo exclusion with a NOT EXISTS against
+`repo_visibility`, which is itself RLS-protected — so an anonymous viewer's subquery
+returned zero rows, NOT EXISTS came back true, and an excluded repo's shared sessions
+stayed public. The policy read as though it enforced exclusion and enforced nothing,
+failing OPEN with no error anywhere. Route any such check through a SECURITY DEFINER
+function with a fixed search_path.
+
+**A negative test that cannot reach the code it is trying to violate passes for the wrong
+reason.** The write-isolation test resolved the victim's device inside the restricted
+connection, where `devices` is also RLS-protected, so the SELECT matched nothing, the
+INSERT wrote zero rows, and the assertion held without ever exercising WITH CHECK.
+
+**"Today" is not the calendar date.** At 00:20, mid-session, the menu bar read "0s active
+today" — technically correct and completely wrong. `Tuning.dayBoundaryHour = 4` applies
+identically in ingest, derivation and the graph; three different definitions of "day"
+would disagree about streaks in ways that are very hard to see and impossible to explain.
+
+**Rank sessions by duration alone and the winner is a robot.** The longest session in the
+corpus had ZERO typed prompts — an autonomous run about to become the headline personal
+record. `unattended` sessions count toward hours and can never win a record or fire a
+notification.
+
+**Backfill must be silent.** First launch finalized 71 historical sessions at once and
+announced every one. An alert is only meaningful if it is news, so anything older than
+twice the session threshold is recorded as notified without being delivered.
+
+**A verification command that cries leak on correct output is worse than none.** The
+published privacy check walked every scalar path and compared it against a flat list of
+top-level field names, so `tokens.input` and `strip_marks[].ms` came back as "sent but not
+declared". They are the insides of declared fields — but the first person to run it
+publicly would have concluded the claim was false.
+
+**The density floor is a design constant, not a detail.** At 0.45 the identity amber
+rendered as muddy brown across most of a real strip, because a 71-minute session is 4.2s
+per column and most columns land in the lowest bucket. Density should modulate the colour,
+not dilute it.
+
 ## Commands
 
 ```bash
@@ -116,4 +156,17 @@ make test         the ground-truth regression suite
 make scan         parse everything and report
 make watch        daemon: watch, sessionize, notify on completion
 make doctor       diagnostics, records, rollups
+make share        render the last notable session to a PNG
+
+./scripts/make_app.sh          assemble Builder.app
+cd mobile && bun test          strip conformance, same fixtures as Swift
+cd server && pytest            contract, RLS, boot guard
 ```
+
+## What each suite is actually for
+
+| suite | n | protects |
+|---|---|---|
+| `swift test` | 40 | the measured ground truth, and the strip fixtures |
+| `bun test` | 36 | that the phone decodes the strip identically to the Mac |
+| `pytest` | 24 | that undeclared fields cannot be stored, and that RLS is real |
