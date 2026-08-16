@@ -1,0 +1,38 @@
+# Swift
+.build/
+.swiftpm/
+*.xcuserdatastate
+xcuserdata/
+DerivedData/
+
+# Local data. NEVER commit a parsed store — it is derived from the user's own transcripts.
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Secrets and signing material. The .p12 and the three .p8 keys from WP-0 live in a
+# password manager, never here.
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+.env
+.env.*
+!.env.example
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.pytest_cache/
+
+# macOS
+.DS_Store

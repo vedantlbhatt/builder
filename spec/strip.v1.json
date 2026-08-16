@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "THE SESSION TIMELINE STRIP — the one visual identity of this product.",
+    "",
+    "This file is the ONLY place the class and mark ordinals live. scripts/gen_strip.py emits",
+    "them into Swift, TypeScript and Python. NOBODY HAND-TYPES THE INTEGERS.",
+    "",
+    "Why that rule exists: during design, two independent proposals had classes 1 and 2 swapped",
+    "(1=agent,2=prompting vs 1=prompting,2=agent). A renderer fed the other spec's bytes paints",
+    "every agent run in the prompt colour — producing a plausible-looking strip showing a human",
+    "who typed for three hours straight. It does not crash, it does not look empty, and it",
+    "survives code review. With a Swift renderer AND a TypeScript renderer, that risk doubles.",
+    "spec/fixtures/*.json are decoded and asserted in BOTH languages for exactly this reason."
+  ],
+
+  "spec_version": 1,
+
+  "classes": {
+    "idle": 0,
+    "prompting": 1,
+    "agent": 2,
+    "human_edit": 3
+  },
+
+  "marks": {
+    "prompt": 0,
+    "commit": 1,
+    "compact": 2
+  },
+
+  "columns": 1024,
+
+  "_byte_layout": "bits 0-1 = class, bits 2-3 = density, bits 4-7 RESERVED and MUST be 0",
+
+  "_fill_rule": [
+    "Column fill is PRIORITY-WEIGHTED ARGMAX OVER MILLISECONDS, not raw argmax and not majority.",
+    "MEASURED: a 71-minute session (the mean at tau=900) across 1024 columns is 4.2 s/column;",
+    "at a 400px render width it is 10.6 s/column. Essentially every column contains multiple",
+    "event types, so raw argmax erases prompting entirely — and prompting is only ~6% of events",
+    "(1,456 typed prompts vs 23,838 tool calls on the reference corpus)."
+  ],
+  "classWeights": {
+    "prompting": 6,
+    "human_edit": 4,
+    "agent": 1,
+    "idle": 1
+  },
+
+  "_density_rule": "events (tool_use + typed prompts) per second within the column, bucketed. This is the second channel that makes the bar read as a barcode rather than a solid block.",
+  "densityThresholdsEventsPerSec": [0.05, 0.20, 0.60],
+  "densityAlphas": [0.45, 0.65, 0.85, 1.0],
+
+  "_resample_rule": "1024 -> W is ALWAYS nearest-neighbour on column centres. Never a box filter, never smoothing, in any renderer. A box filter averages ordinals, which is meaningless for a categorical channel.",
+  "resample": "nearest_neighbour_on_column_centres",
+
+  "_mark_rule": "Marks carry absolute ms offsets and are stored SEPARATELY from columns so a 5-second prompt cannot be resampled away. They snap to the nearest output column centre and dedupe within markDedupeMinPx; a collapsed mark bumps that column's density by +1 so it can never vanish silently.",
+  "markDedupeMinPx": 3,
+
+  "presets": {
+    "sparkline": { "trackHeight": 8,  "showMarks": false, "showRuler": false, "densityBuckets": 2 },
+    "row":       { "trackHeight": 12, "showMarks": true,  "showRuler": false, "densityBuckets": 4 },
+    "hero":      { "trackHeight": 28, "showMarks": true,  "showRuler": true,  "densityBuckets": 4 }
+  }
+}
