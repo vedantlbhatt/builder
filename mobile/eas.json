@@ -1,0 +1,24 @@
+{
+  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { "BUILDER_API_URL": "http://localhost:8000" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": { "simulator": false }
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "_comment": "EAS holds the distribution certificate and provisioning profile. This is the whole reason the phone client is Expo: it is the one part of shipping where local signing has never been done on this machine, and EAS removes it entirely. The Mac app still needs a Developer ID certificate, because nothing can do that for it."
+      }
+    }
+  }
+}

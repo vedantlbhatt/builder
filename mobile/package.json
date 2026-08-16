@@ -1,0 +1,40 @@
+{
+  "name": "builder-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src app"
+  },
+  "dependencies": {
+    "expo": "~54.0.0",
+    "expo-apple-authentication": "~8.0.0",
+    "expo-application": "^57.0.2",
+    "expo-camera": "~17.0.0",
+    "expo-constants": "~18.0.0",
+    "expo-device": "^57.0.1",
+    "expo-haptics": "~15.0.0",
+    "expo-linking": "~8.0.0",
+    "expo-notifications": "~0.32.0",
+    "expo-router": "~6.0.0",
+    "expo-secure-store": "~15.0.0",
+    "expo-sharing": "~14.0.0",
+    "expo-sqlite": "~16.0.0",
+    "expo-status-bar": "~3.0.0",
+    "react": "19.1.0",
+    "react-native": "0.81.0",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.16.0",
+    "react-native-svg": "15.12.0",
+    "react-native-view-shot": "~4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "bun-types": "^1.3.14",
+    "typescript": "~5.9.0"
+  }
+}

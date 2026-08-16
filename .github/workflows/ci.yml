@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fastest gate, so it runs first and everything else depends on it. A failure here means
+  # someone hand-edited a generated file — possibly one that defines what may leave the
+  # user's machine.
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: regenerate everything from the specs
+        run: make gen
+      - name: fail if anything changed
+        run: |
+          if ! git diff --exit-code; then
+            echo ""
+            echo "Generated files are stale. Run 'make gen' and commit the result."
+            exit 1
+          fi
+
+  swift:
+    needs: contract
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        # No simulator, no xcodebuild, no signing — the whole engine is a SwiftPM package,
+        # which is why this job is ~60s and needs no certificates.
+        run: swift test --package-path Packages/BuilderKit
+      - name: build the app bundle
+        run: ./scripts/make_app.sh
+
+  mobile:
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - working-directory: mobile
+        run: bun install --frozen-lockfile
+      - name: typecheck
+        working-directory: mobile
+        run: bunx tsc --noEmit
+      - name: strip conformance
+        working-directory: mobile
+        # Decodes the same golden fixtures the Swift suite does. Without this the phone and
+        # the Mac can disagree about what a session looked like while both appear to work.
+        run: bun test
+
+  backend:
+    needs: contract
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: builder_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - working-directory: server
+        run: pip install -r requirements.txt ruff pytest
+      - name: lint
+        working-directory: server
+        run: ruff check . && ruff format --check .
+      - name: migrate
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost/builder_test
+        run: |
+          alembic upgrade head
+          # A migration that cannot be applied twice is a migration that will fail on the
+          # second deploy of the same revision.
+          alembic check
+      - name: grant the test role a login
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d builder_test -c "ALTER ROLE builder_app LOGIN PASSWORD 'postgres';"
+      - name: test
+        working-directory: server
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost/builder_test
+          BUILDER_TEST_DB: postgresql+psycopg://postgres:postgres@localhost/builder_test
+        run: pytest -q
+
+  # NOT here yet: an `xcode` job building the iOS or macOS app targets. It is added after
+  # the first successful TestFlight submission, because until the signing chain is proven
+  # by hand a CI failure teaches nothing about whether the app can actually ship.

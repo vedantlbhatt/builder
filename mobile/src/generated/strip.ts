@@ -53,7 +53,8 @@ export function resample(cols: Uint8Array | number[], width: number): number[] {
   for (let i = 0; i < width; i++) {
     const centre = (i + 0.5) / width;
     const src = Math.min(n - 1, Math.max(0, Math.floor(centre * n)));
-    out[i] = cols[src];
+    // `?? 0` only to satisfy noUncheckedIndexedAccess; `src` is clamped into range above.
+    out[i] = cols[src] ?? 0;
   }
   return out;
 }

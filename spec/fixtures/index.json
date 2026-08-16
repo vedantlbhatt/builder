@@ -1,0 +1,10 @@
+{
+  "fixtures": [
+    "all_agent",
+    "alternating",
+    "edges",
+    "long_session",
+    "realistic",
+    "short_session"
+  ]
+}
