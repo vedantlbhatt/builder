@@ -35,6 +35,9 @@ const config: ExpoConfig = {
     'expo-apple-authentication',
     ['expo-camera', { cameraPermission: 'Scan the pairing code shown by your Mac.' }],
     ['expo-notifications', { color: '#FFB300' }],
+    'expo-sqlite',
+    // Local plugin. Survives `expo prebuild`, which regenerates ios/Podfile.
+    './plugins/withFmtConstevalPatch',
   ],
 
   extra: {
