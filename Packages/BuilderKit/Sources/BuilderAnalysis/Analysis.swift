@@ -166,12 +166,10 @@ public struct Analysis {
             if let d = s.text(0) { byDay[d] = s.double(1) ?? 0 }
         }
 
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
         var out: [GraphDay] = []
         for offset in stride(from: days - 1, through: 0, by: -1) {
             let date = Calendar.current.date(byAdding: .day, value: -offset, to: Date()) ?? Date()
-            let key = df.string(from: date)
+            let key = Tuning.localDay(for: date)
             let seconds = byDay[key] ?? 0
             out.append(GraphDay(day: key, activeSeconds: seconds, level: level(forHours: seconds / 3600)))
         }

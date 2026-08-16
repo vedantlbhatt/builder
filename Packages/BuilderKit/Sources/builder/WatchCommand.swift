@@ -43,7 +43,7 @@ enum WatchCommand {
 
             do {
                 let ingest = try coordinator.run()
-                let sessions = try Derive.run(db: state, verbose: false)
+                let sessions = try SessionDeriver.run(db: state, verbose: false)
 
                 let transitions = try lifecycle.tick(sessions: sessions)
                 let pending = try lifecycle.pendingNotifications(

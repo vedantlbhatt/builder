@@ -70,7 +70,9 @@ public final class StoreWriter {
                 if let ts = e.ts {
                     let date = Date(timeIntervalSince1970: ts)
                     let c = cal.dateComponents([.year, .month, .day, .hour, .weekday], from: date)
-                    day = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+                    // Honours Tuning.dayBoundaryHour: work at 00:20 belongs to the night
+                    // that started it, not to a fresh calendar date.
+                    day = Tuning.localDay(for: date, calendar: cal)
                     hour = c.hour
                     dow = (c.weekday ?? 1) - 1
                     tzOffset = TimeZone.current.secondsFromGMT(for: date) / 60

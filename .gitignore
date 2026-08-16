@@ -36,3 +36,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Assembled app bundle
+build/

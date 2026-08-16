@@ -29,6 +29,7 @@ let package = Package(
             "BuilderUI", "BuilderSync",
         ]),
         .executable(name: "builder", targets: ["builder"]),
+        .executable(name: "BuilderMac", targets: ["BuilderMac"]),
     ],
     targets: [
         // Value types, the generated spec constants, and Tuning. No I/O, no dependencies.
@@ -81,7 +82,7 @@ let package = Package(
         // the same strip from the same spec file — see mobile/src/strip/.
         .target(
             name: "BuilderUI",
-            dependencies: ["BuilderModel", "BuilderStore"],
+            dependencies: ["BuilderModel", "BuilderStore", "BuilderAnalysis"],
             swiftSettings: [swift5]
         ),
 
@@ -91,6 +92,18 @@ let package = Package(
 
         .executableTarget(
             name: "builder",
+            dependencies: [
+                "BuilderIngest", "BuilderAnalysis", "BuilderStore", "BuilderSync", "BuilderUI",
+            ],
+            swiftSettings: [swift5]
+        ),
+
+        // The menu bar agent. Assembled into a real .app bundle by scripts/make_app.sh
+        // rather than by an Xcode project: a bundle is a directory with an Info.plist, and
+        // hand-maintaining a pbxproj to produce one buys nothing while costing a file
+        // format nobody can review in a diff.
+        .executableTarget(
+            name: "BuilderMac",
             dependencies: [
                 "BuilderIngest", "BuilderAnalysis", "BuilderStore", "BuilderSync", "BuilderUI",
             ],

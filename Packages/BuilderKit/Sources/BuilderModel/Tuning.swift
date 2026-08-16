@@ -21,7 +21,7 @@ public enum Tuning {
     /// Bumping this invalidates cache.sqlite and forces a full re-derive. Any change to a
     /// constant in this file must bump it, or users keep numbers computed under the old
     /// rules with no way to notice.
-    public static let version = "2026-08-16.1"
+    public static let version = "2026-08-16.2"
 
     // MARK: - Sessionization
 
@@ -180,4 +180,34 @@ public enum Tuning {
     /// Splitting it manufactures a two-day streak out of one sitting, and the target
     /// audience skews nocturnal, so this materially changes streak records.
     public static let attributeSessionToStartDate = true
+
+    /// The hour at which a new "day" begins, locally.
+    ///
+    /// FOUND BY RUNNING THE APP. At 00:20, mid-session, the menu bar read "0s active
+    /// today" — because calendar midnight had rolled over and the running session was
+    /// attributed to the previous date. Technically correct and completely wrong: nobody
+    /// working at half past midnight thinks they have started a new day.
+    ///
+    /// A 4am boundary matches how the audience actually talks about their time ("I was up
+    /// until 2 finishing it"), keeps a session that crosses midnight in one bucket, and
+    /// stops a late-night sitting from silently breaking a streak by landing alone on a
+    /// date with nothing else in it.
+    ///
+    /// This is a display-and-grouping rule only. Timestamps are never altered.
+    public static let dayBoundaryHour = 4
+
+    /// The local day a moment belongs to, honouring `dayBoundaryHour`.
+    ///
+    /// One implementation, used by ingest, derivation and the contribution graph alike —
+    /// three different definitions of "day" would disagree about streaks in ways that are
+    /// very hard to see and impossible to explain.
+    public static func localDay(for date: Date, calendar: Calendar = .current) -> String {
+        let shifted = date.addingTimeInterval(-Double(dayBoundaryHour) * 3600)
+        let c = calendar.dateComponents([.year, .month, .day], from: shifted)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    public static func localDay(forTimestamp ts: Double, calendar: Calendar = .current) -> String {
+        localDay(for: Date(timeIntervalSince1970: ts), calendar: calendar)
+    }
 }

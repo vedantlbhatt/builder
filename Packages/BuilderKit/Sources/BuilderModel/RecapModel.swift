@@ -1,4 +1,3 @@
-import BuilderModel
 import Foundation
 
 /// Everything a recap card needs, already resolved.
