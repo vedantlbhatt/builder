@@ -34,7 +34,7 @@ public enum SessionDeriver {
 
         let sessions = Sessionizer.sessions(from: events, options: .init(pooling: pooling))
 
-        try writeSessions(sessions, events: events, repoNames: repoNames, to: cache)
+        try writeSessions(sessions, events: events, repoNames: repoNames, state: db, to: cache)
 
         if verbose {
             let counted = sessions.filter(\.counted)
@@ -50,12 +50,65 @@ public enum SessionDeriver {
         return sessions
     }
 
+    /// Commits and line deltas for a session's window, memoised in Tier A.
+    ///
+    /// Cached in `git_cache` rather than recomputed each derive for two reasons: `git log`
+    /// over 558 windows is slow enough to be felt, and — the real one — a repository can be
+    /// DELETED. Once the working copy is gone the numbers are unrecoverable, so they live in
+    /// the durable store next to the events rather than in the disposable index.
+    private static func gitStats(
+        session: DetectedSession, repoID: Int?, roots: [Int: String], state: SQLiteDB,
+        enricher: GitEnricher
+    ) -> GitEnricher.WindowStats {
+        guard let repoID, let root = roots[repoID] else { return .zero }
+
+        let winStart = session.startedAt
+        // Look back a little before the session: a commit is made at the END of a stretch
+        // of work, and the edits that produced it often start before the window does.
+        let lookback = winStart - Tuning.tauCommitAttributionSec
+        let winEnd = session.endedAt
+
+        if let cached = try? state.prepare(
+            "SELECT commits, insertions, deletions, files_changed FROM git_cache "
+                + "WHERE repo_id = ? AND win_start = ? AND win_end = ?") {
+            defer { cached.finalize() }
+            try? cached.bind([.int(repoID), .double(lookback), .double(winEnd)])
+            if (try? cached.step()) == true {
+                return GitEnricher.WindowStats(
+                    commits: cached.int(0) ?? 0, insertions: cached.int(1) ?? 0,
+                    deletions: cached.int(2) ?? 0, filesChanged: cached.int(3) ?? 0)
+            }
+        }
+
+        let stats = enricher.stats(cwd: root, from: lookback, to: winEnd)
+        try? state.run(
+            "INSERT OR REPLACE INTO git_cache "
+                + "(repo_id, win_start, win_end, commits, insertions, deletions, files_changed, "
+                + "author_filtered, computed_at) VALUES (?,?,?,?,?,?,?,0,?)",
+            [
+                .int(repoID), .double(lookback), .double(winEnd),
+                .int(stats.commits), .int(stats.insertions), .int(stats.deletions),
+                .int(stats.filesChanged), .double(Date().timeIntervalSince1970),
+            ])
+        return stats
+    }
+
     private static func writeSessions(
         _ sessions: [DetectedSession],
         events: [NormalizedEvent],
         repoNames: [Int: String],
+        state: SQLiteDB,
         to cache: SQLiteDB
     ) throws {
+        // Where to run git for each repo. `common_root` is the shared .git directory, so
+        // all worktrees of one repository resolve to the same place.
+        var repoRoots: [Int: String] = [:]
+        try state.query(
+            "SELECT repo_id, common_root FROM repo WHERE common_root IS NOT NULL"
+        ) { s in
+            if let id = s.int(0), let root = s.text(1) { repoRoots[id] = root }
+        }
+        let enricher = GitEnricher()
         try cache.exec("DELETE FROM session")
         try cache.exec("DELETE FROM session_repo")
         try cache.exec("DELETE FROM strip")
@@ -113,8 +166,12 @@ public enum SessionDeriver {
                 let day = Tuning.localDay(for: date, calendar: cal)
 
                 let repoID = evs.compactMap { $0.extra?["repo_id"] }.first.flatMap(Int.init)
+                let git = gitStats(
+                    session: s, repoID: repoID, roots: repoRoots, state: state, enricher: enricher)
                 let attrib = TokenAccountant.attribution(
-                    agentAdded: lines.added, gitInsertions: 0, gitCommits: 0,
+                    agentAdded: lines.added,
+                    gitInsertions: git.insertions,
+                    gitCommits: git.commits,
                     humanEditEvents: evs.filter { $0.kind == .humanEdit }.count)
 
                 func count(_ k: EventKind) -> Int { evs.filter { $0.kind == k }.count }
@@ -141,7 +198,7 @@ public enum SessionDeriver {
                     .int(Set(evs.compactMap(\.agentID)).count), .int(count(.compaction)),
                     .int(count(.humanEdit)),
                     .int(lines.added), .int(lines.removed),
-                    .int(0), .int(0), .int(0),
+                    .int(git.commits), .int(git.insertions), .int(git.deletions),
                     .text(attrib.bucket.rawValue), .text(attrib.confidence.rawValue),
                     .int(ledger.buckets.input), .int(ledger.buckets.output),
                     .int(ledger.buckets.cacheRead), .int(ledger.buckets.cacheWrite5m),

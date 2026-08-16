@@ -102,6 +102,13 @@ public struct GitEnricher: Sendable {
         public var deletions: Int
         public var filesChanged: Int
 
+        public init(commits: Int, insertions: Int, deletions: Int, filesChanged: Int) {
+            self.commits = commits
+            self.insertions = insertions
+            self.deletions = deletions
+            self.filesChanged = filesChanged
+        }
+
         public static let zero = WindowStats(commits: 0, insertions: 0, deletions: 0, filesChanged: 0)
     }
 

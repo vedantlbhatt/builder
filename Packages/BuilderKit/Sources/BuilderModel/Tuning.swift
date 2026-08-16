@@ -21,7 +21,7 @@ public enum Tuning {
     /// Bumping this invalidates cache.sqlite and forces a full re-derive. Any change to a
     /// constant in this file must bump it, or users keep numbers computed under the old
     /// rules with no way to notice.
-    public static let version = "2026-08-16.2"
+    public static let version = "2026-08-16.3-git"
 
     // MARK: - Sessionization
 
