@@ -8,6 +8,8 @@ do {
     switch CLIArgs.command {
     case "scan":
         try ScanCommand.run()
+    case "watch":
+        try WatchCommand.run()
     case "sessions":
         try SessionsCommand.run()
     case "doctor":
@@ -21,6 +23,7 @@ do {
 
             USAGE
               builder scan [--rebuild]      parse new transcripts into the store, then derive
+              builder watch [--quiet]       run the completion loop: watch, sessionize, notify
               builder sessions [--limit N] [--all]
                                            recent sessions, with their timeline strips
               builder doctor                records, contribution graph, projects, diagnostics

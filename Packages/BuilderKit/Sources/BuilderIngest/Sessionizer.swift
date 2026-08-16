@@ -32,6 +32,23 @@ public struct DetectedSession: Sendable, Equatable {
     public var promptCount: Int
     public var firstEventUID: String
 
+    public init(
+        clientSessionID: String, harness: Harness, poolKey: String,
+        startedAt: Double, endedAt: Double, activeSeconds: Double,
+        eventIndices: [Int], meaningfulEventCount: Int, promptCount: Int, firstEventUID: String
+    ) {
+        self.clientSessionID = clientSessionID
+        self.harness = harness
+        self.poolKey = poolKey
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.activeSeconds = activeSeconds
+        self.eventIndices = eventIndices
+        self.meaningfulEventCount = meaningfulEventCount
+        self.promptCount = promptCount
+        self.firstEventUID = firstEventUID
+    }
+
     /// Counts toward hours, contribution graph and streaks.
     public var counted: Bool {
         activeSeconds >= Tuning.countedMinActiveSec
