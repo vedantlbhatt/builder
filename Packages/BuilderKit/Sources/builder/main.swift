@@ -12,6 +12,8 @@ do {
         try WatchCommand.run()
     case "sessions":
         try SessionsCommand.run()
+    case "share":
+        try ShareCommand.run()
     case "doctor":
         try DoctorCommand.run()
     case "groundtruth":
@@ -26,6 +28,8 @@ do {
               builder watch [--quiet]       run the completion loop: watch, sessionize, notify
               builder sessions [--limit N] [--all]
                                            recent sessions, with their timeline strips
+              builder share [--portrait] [--light] [--legend] [--out PATH] [--session ID]
+                                            render a session to PNG and copy it
               builder doctor                records, contribution graph, projects, diagnostics
               builder groundtruth           reproduce the published measurements
                 --project <dir>             which ~/.claude/projects directory

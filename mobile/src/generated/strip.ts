@@ -28,7 +28,7 @@ export const CLASS_WEIGHT: Record<number, number> = {
 };
 
 export const DENSITY_THRESHOLDS_EVENTS_PER_SEC = [0.05, 0.2, 0.6];
-export const DENSITY_ALPHAS = [0.45, 0.65, 0.85, 1.0];
+export const DENSITY_ALPHAS = [0.72, 0.84, 0.92, 1.0];
 export const MARK_DEDUPE_MIN_PX = 3;
 
 /** bits 0-1 class, bits 2-3 density, bits 4-7 reserved and MUST be 0. */

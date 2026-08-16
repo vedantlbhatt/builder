@@ -46,9 +46,18 @@
     "idle": 1
   },
 
-  "_density_rule": "events (tool_use + typed prompts) per second within the column, bucketed. This is the second channel that makes the bar read as a barcode rather than a solid block.",
+  "_density_rule": [
+    "events (tool_use + typed prompts) per second within the column, bucketed. This is the",
+    "second channel that makes the bar read as a barcode rather than a solid block.",
+    "",
+    "The alpha FLOOR is deliberately high (0.72, not 0.45). At 1024 columns a 71-minute",
+    "session is 4.2 s/column, so a large share of columns land in the lowest density",
+    "bucket; a low floor turned the identity amber into muddy brown across most of the bar",
+    "and the strip stopped being recognisable at a glance, which is its only job. Density",
+    "should modulate the colour, not dilute it."
+  ],
   "densityThresholdsEventsPerSec": [0.05, 0.20, 0.60],
-  "densityAlphas": [0.45, 0.65, 0.85, 1.0],
+  "densityAlphas": [0.72, 0.84, 0.92, 1.0],
 
   "_resample_rule": "1024 -> W is ALWAYS nearest-neighbour on column centres. Never a box filter, never smoothing, in any renderer. A box filter averages ordinals, which is meaningless for a categorical channel.",
   "resample": "nearest_neighbour_on_column_centres",
