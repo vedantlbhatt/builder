@@ -12,6 +12,17 @@ from ..strip import COLUMNS, non_idle_seconds
 
 router = APIRouter(prefix="/v1/sync", tags=["sync"])
 
+#: Mirrors `Tuning.notableMinActiveSec` (1200 s). The Mac's rule is
+#: `unattended = presence_count == 0 && active_seconds >= notableMinActiveSec`; below the
+#: floor nothing downstream reads the flag, so the server only pins it above it.
+NOTABLE_MIN_ACTIVE_SEC = 1200
+
+#: A live snapshot younger than this is exempt from the strip-vs-active tolerance. The
+#: strip has 1024 columns over the session span, so at 300 s that is 0.3 s per column and
+#: a session that has done one thing so far is mostly one bucket; the 25% tolerance is
+#: calibrated for finished sessions and rejects nearly every honest first snapshot.
+LIVE_STRIP_GRACE_SEC = 300
+
 
 class BatchRequest(BaseModel):
     sessions: list[SessionUpload]
@@ -36,6 +47,33 @@ def sanity_gate(p: SessionUpload) -> str | None:
     # gap credit precisely so this holds; a violation means its arithmetic regressed.
     if p.active_seconds > span + 1:
         return f"active_seconds {p.active_seconds} exceeds span {span:.0f}"
+
+    # `still_running` IS the live upload (docs/session-boundaries.md). A final session
+    # that says it is still running, or a live one that claims an end, is a client that
+    # set one of the two fields and forgot the other.
+    if (p.state == "live") != (p.end_reason == "still_running"):
+        return f"state={p.state!r} does not agree with end_reason={p.end_reason!r}"
+
+    # The two clocks must sum to the headline. They are computed from the same gap walk
+    # on the client, so anything beyond a rounding second means one of them was taken
+    # from a different event set than the other.
+    split = p.attended_seconds + p.autonomous_seconds
+    if abs(split - p.active_seconds) > 1:
+        return (
+            f"attended_seconds {p.attended_seconds} + autonomous_seconds "
+            f"{p.autonomous_seconds} = {split}, but active_seconds is {p.active_seconds}"
+        )
+
+    # `unattended` is derived, not observed, and the server can check the derivation.
+    # Zero presence over a notable span with unattended=false is the 5h40m robot about to
+    # become a personal record again; unattended=true with a presence signal is a real
+    # sitting being denied its notification.
+    if p.presence_count == 0 and p.active_seconds >= NOTABLE_MIN_ACTIVE_SEC and not p.unattended:
+        return (
+            f"presence_count is 0 over {p.active_seconds}s of active time but unattended is false"
+        )
+    if p.presence_count > 0 and p.unattended:
+        return f"unattended is true with presence_count {p.presence_count}"
 
     # MEASURED ratio is roughly 16 tool calls per typed prompt. More prompts than tool
     # calls means the prompt filter broke — most likely counting every `type: "user"`
@@ -65,7 +103,12 @@ def sanity_gate(p: SessionUpload) -> str | None:
         return "strip_columns has non-zero reserved bits"
 
     strip_active = non_idle_seconds(cols, span)
-    if p.active_seconds > 0 and abs(strip_active - p.active_seconds) > 0.25 * p.active_seconds:
+    young_live = p.state == "live" and p.active_seconds < LIVE_STRIP_GRACE_SEC
+    if (
+        not young_live
+        and p.active_seconds > 0
+        and abs(strip_active - p.active_seconds) > 0.25 * p.active_seconds
+    ):
         return (
             f"strip disagrees with active_seconds: strip says {strip_active:.0f}, "
             f"payload says {p.active_seconds}"
@@ -120,6 +163,7 @@ def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_dev
             session_id = _upsert_session(db, device, p, repo_id, existing)
             _upsert_strip(db, session_id, p)
             _upsert_stats(db, session_id, p)
+            _upsert_analysis(db, session_id, p)
             accepted += 1
 
         db.execute(
@@ -154,6 +198,23 @@ def _upsert_repo(db, p: SessionUpload):
 
 
 def _upsert_session(db, device: CurrentDevice, p: SessionUpload, repo_id, existing):
+    """Insert or replace in place.
+
+    The local day is the Mac's day, not the calendar's. `Tuning.dayBoundaryHour = 4`:
+    a session that starts at 01:30 local belongs to the evening before, because that is
+    how the person will describe it and because a late night landing alone on a new date
+    manufactures a streak break. The server used to take the plain calendar date, so any
+    session started between midnight and four disagreed with the menu bar about which day
+    it was — three definitions of "day" is exactly what the Tuning comment warns against.
+    `local_date` and `local_dow` both carry the four-hour shift; `local_hour` does NOT,
+    because it is a clock reading (a 01:30 start is hour 1, not hour 21) and shifting it
+    would store a plausible wrong number that no consumer would ever question.
+
+    ON CONFLICT refreshes everything a later upload can legitimately change. A `live`
+    snapshot becomes `final` in place; a `day_boundary` cut moves `started_at` to 04:00,
+    and with it the local date; a re-sync from a re-paired Mac moves `device_id`.
+    `harness` is not in the list — a session cannot change which tool wrote it.
+    """
     row = db.execute(
         text(
             """
@@ -161,6 +222,7 @@ def _upsert_session(db, device: CurrentDevice, p: SessionUpload, repo_id, existi
               user_id, device_id, client_session_id, content_hash,
               sessionizer_version, active_calc_version, harness, repo_id,
               started_at, ended_at, active_seconds, idle_seconds, tz_offset_minutes,
+              attended_seconds, autonomous_seconds, presence_count, end_reason,
               local_date, local_hour, local_dow,
               state, visible, notable, unattended, time_quality, timeline_fidelity,
               title, title_source, agent_observed_at
@@ -168,26 +230,45 @@ def _upsert_session(db, device: CurrentDevice, p: SessionUpload, repo_id, existi
               :user_id, :device_id, :csid, :chash,
               :sv, :acv, :harness, :repo_id,
               :started, :ended, :active, :idle, :tz,
-              (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz))::date,
+              :attended, :autonomous, :presence, :end_reason,
+              -- local wall clock, then the 4 am day boundary (see the docstring)
+              ((:started AT TIME ZONE 'UTC' + make_interval(mins => :tz))
+                 - interval '4 hours')::date,
               EXTRACT(hour FROM
                 (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz)))::smallint,
               EXTRACT(isodow FROM
-                (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz)))::smallint - 1,
+                ((:started AT TIME ZONE 'UTC' + make_interval(mins => :tz))
+                   - interval '4 hours'))::smallint - 1,
               :state, :visible, :notable, :unattended, :tq, :fidelity,
               :title, :title_source, :observed
             )
             ON CONFLICT (user_id, client_session_id) DO UPDATE SET
               content_hash = EXCLUDED.content_hash,
+              device_id = EXCLUDED.device_id,
+              sessionizer_version = EXCLUDED.sessionizer_version,
+              active_calc_version = EXCLUDED.active_calc_version,
+              repo_id = EXCLUDED.repo_id,
+              started_at = EXCLUDED.started_at,
               ended_at = EXCLUDED.ended_at,
               active_seconds = EXCLUDED.active_seconds,
               idle_seconds = EXCLUDED.idle_seconds,
+              tz_offset_minutes = EXCLUDED.tz_offset_minutes,
+              attended_seconds = EXCLUDED.attended_seconds,
+              autonomous_seconds = EXCLUDED.autonomous_seconds,
+              presence_count = EXCLUDED.presence_count,
+              end_reason = EXCLUDED.end_reason,
+              local_date = EXCLUDED.local_date,
+              local_hour = EXCLUDED.local_hour,
+              local_dow = EXCLUDED.local_dow,
+              state = EXCLUDED.state,
+              visible = EXCLUDED.visible,
               notable = EXCLUDED.notable,
               unattended = EXCLUDED.unattended,
-              visible = EXCLUDED.visible,
+              time_quality = EXCLUDED.time_quality,
+              timeline_fidelity = EXCLUDED.timeline_fidelity,
               title = EXCLUDED.title,
               title_source = EXCLUDED.title_source,
-              timeline_fidelity = EXCLUDED.timeline_fidelity,
-              repo_id = EXCLUDED.repo_id,
+              agent_observed_at = EXCLUDED.agent_observed_at,
               updated_at = now()
             RETURNING id
             """
@@ -206,10 +287,16 @@ def _upsert_session(db, device: CurrentDevice, p: SessionUpload, repo_id, existi
             "active": p.active_seconds,
             "idle": p.idle_seconds,
             "tz": p.tz_offset_minutes,
+            "attended": p.attended_seconds,
+            "autonomous": p.autonomous_seconds,
+            "presence": p.presence_count,
+            "end_reason": p.end_reason,
             "state": p.state,
             "visible": p.visible,
             "notable": p.notable,
-            "unattended": False,
+            # From the payload, checked against presence_count by the gate. v1 hardcoded
+            # False here, which is how an autonomous run could become a record.
+            "unattended": p.unattended,
             "tq": p.time_quality,
             "fidelity": p.timeline_fidelity,
             "title": p.title,
@@ -309,6 +396,48 @@ def _upsert_stats(db, session_id, p: SessionUpload):
             "human_edits": p.human_edit_events,
             "bucket": p.agent_line_bucket,
             "confidence": p.attrib_confidence,
+        },
+    )
+
+
+def _upsert_analysis(db, session_id, p: SessionUpload):
+    """Store the model-written analysis, if the payload carries one.
+
+    A payload WITHOUT an analysis leaves any stored one alone. The field is opt-in and
+    omitted from the wire when off, so its absence means "nothing to say this time" — an
+    agent whose user turned analysis upload off does not retract what it already sent by
+    resyncing, and a live checkpoint that arrived with an analysis is not wiped by the next
+    60-second snapshot that did not run one. Deletion is a separate, explicit action.
+    """
+    a = p.analysis
+    if a is None:
+        return
+    db.execute(
+        text(
+            """
+            INSERT INTO session_analysis (
+              session_id, analysis_version, model, generated_at, digest_hash, body
+            ) VALUES (
+              :sid, :version, :model, :generated_at, :digest_hash, CAST(:body AS jsonb)
+            )
+            ON CONFLICT (session_id) DO UPDATE SET
+              analysis_version = EXCLUDED.analysis_version,
+              model = EXCLUDED.model,
+              generated_at = EXCLUDED.generated_at,
+              digest_hash = EXCLUDED.digest_hash,
+              body = EXCLUDED.body,
+              updated_at = now()
+            """
+        ),
+        {
+            "sid": session_id,
+            "version": a.analysis_version,
+            "model": a.model,
+            "generated_at": a.generated_at,
+            "digest_hash": a.digest_hash,
+            # mode="json" so generated_at is an ISO string inside the document too, and
+            # the phone reads the same bytes whichever path they arrive by.
+            "body": json.dumps(a.model_dump(mode="json")),
         },
     )
 

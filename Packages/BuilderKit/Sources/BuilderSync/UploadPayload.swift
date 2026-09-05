@@ -32,9 +32,26 @@ public struct SessionUpload: Sendable {
     public var idleSeconds: Int
     public var tzOffsetMinutes: Int
     public var timeQuality: String
+    /// `live` for an open/idle snapshot, replaced in place when it finalizes; `final` otherwise.
     public var state: String
+    /// Why the session ended (docs/session-boundaries.md). `still_running` IS the live upload.
+    public var endReason: String
+    /// The two clocks. `attendedSeconds + autonomousSeconds == activeSeconds`, and the
+    /// server rejects a payload where they disagree by more than a second.
+    public var attendedSeconds: Int
+    public var autonomousSeconds: Int
+    /// Typed prompts + interrupts + human file edits.
+    public var presenceCount: Int
+    /// Zero presence signals over a notable span. Counts toward hours only: no record, no
+    /// streak, no notification. The server rejects `false` with zero presence over 1200 s.
+    public var unattended: Bool
     public var visible: Bool
     public var notable: Bool
+
+    // The one field that carries prose. Opt-in, produced locally by the user's own Claude
+    // Code against spec/analysis.v1.json, omitted from the wire — not sent as null — when
+    // analysis upload is off. See the `analysis` entry in privacy/upload-contract.json.
+    public var analysis: SessionAnalysis?
 
     // Shape — no text, no paths, by construction
     public var stripColumns: String  // base64, exactly 1024 bytes
@@ -93,7 +110,12 @@ public struct SessionUpload: Sendable {
         tokenDedupe: String, tokenScope: String, tokenCoverage: String,
         models: [ModelShareWire], modelState: String, repoHash: String?,
         repoPepperVersion: Int, repoIDBasis: String, repoName: String? = nil,
-        title: String? = nil, titleSource: String? = nil, cardPNGURL: String? = nil
+        title: String? = nil, titleSource: String? = nil, cardPNGURL: String? = nil,
+        // Contract v2. Defaulted, at the end, so every v1 call site still compiles; the
+        // defaults describe a fully attended final session, which is what every v1 payload
+        // implicitly claimed. A caller that knows better must pass all six.
+        endReason: String = "idle_gap", attendedSeconds: Int = 0, autonomousSeconds: Int = 0,
+        presenceCount: Int = 0, unattended: Bool = false, analysis: SessionAnalysis? = nil
     ) {
         self.clientSessionID = clientSessionID
         self.machineID = machineID
@@ -111,8 +133,14 @@ public struct SessionUpload: Sendable {
         self.tzOffsetMinutes = tzOffsetMinutes
         self.timeQuality = timeQuality
         self.state = state
+        self.endReason = endReason
+        self.attendedSeconds = attendedSeconds
+        self.autonomousSeconds = autonomousSeconds
+        self.presenceCount = presenceCount
+        self.unattended = unattended
         self.visible = visible
         self.notable = notable
+        self.analysis = analysis
         self.stripColumns = stripColumns
         self.stripMarks = stripMarks
         self.timelineFidelity = timelineFidelity
@@ -186,6 +214,11 @@ extension SessionUpload: Encodable {
         try put(tzOffsetMinutes, .tz_offset_minutes)
         try put(timeQuality, .time_quality)
         try put(state, .state)
+        try put(endReason, .end_reason)
+        try put(attendedSeconds, .attended_seconds)
+        try put(autonomousSeconds, .autonomous_seconds)
+        try put(presenceCount, .presence_count)
+        try put(unattended, .unattended)
         try put(visible, .visible)
         try put(notable, .notable)
 
@@ -224,6 +257,12 @@ extension SessionUpload: Encodable {
         try putIfPresent(title, .title)
         try putIfPresent(titleSource, .title_source)
         try putIfPresent(cardPNGURL, .card_png_url)
+
+        // Omitted, never null, when analysis upload is off — absence is the only honest
+        // encoding of "we did not produce one". `SessionAnalysis` is Codable through its
+        // own generated CodingKeys, and its `generated_at` rides the same ISO-8601 strategy
+        // as every other date in this payload.
+        try putIfPresent(analysis, .analysis)
     }
 
     /// The encoder every caller must use.

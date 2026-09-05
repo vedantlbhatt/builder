@@ -54,6 +54,9 @@ def assert_policies_present() -> None:
         "sessions",
         "session_strips",
         "session_stats",
+        # 0006. The one table that stores prose; a deployment where that migration never
+        # ran must not serve analyses with RLS off.
+        "session_analysis",
         "repo_visibility",
         "devices",
         "push_tokens",

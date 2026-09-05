@@ -24,6 +24,16 @@
     "  MCP server names, terminal commands or output, environment variables, URLs fetched,",
     "  hostname, IP address.",
     "",
+    "THE ONE DELIBERATE EXCEPTION (v2): `analysis`. It is model-written prose about the session,",
+    "produced on the user's own machine by their own Claude Code from a digest of the transcript,",
+    "and its shape is fixed by spec/analysis.v1.json (every string bounded, extra keys rejected).",
+    "It may name files and features in prose, and `decision_patterns[].prompt_excerpt` carries",
+    "SHORT VERBATIM PROMPT QUOTES, capped at 160 characters each. It is OPT-IN, nullable, omitted",
+    "from the wire when off, private to the account under RLS, and leaves the account only when",
+    "the session is explicitly shared. Everything else on the list above still holds: no field",
+    "outside `analysis` carries prose, and `analysis` itself carries no paths, diffs, tool I/O,",
+    "commit messages, branch names, URLs, hostnames or raw prompts.",
+    "",
     "Two design contradictions resolved here, deliberately:",
     "  1. Branch names are DELETED ENTIRELY. One design's never-list banned them while another",
     "     uploaded them for public repos. Branch was read by zero cards and zero queries, so",
@@ -35,7 +45,7 @@
     "     what makes the falsification command on /privacy safe to publish."
   ],
 
-  "version": 1,
+  "version": 2,
   "modes": ["public", "anonymous"],
   "_excluded_note": "visibility 'excluded' is not a mode: an excluded repo produces ZERO uploads, and if ANY event in a session resolves to an excluded repo the ENTIRE session is dropped — never partially uploaded, never uploaded under the primary repo's visibility.",
 
@@ -47,7 +57,7 @@
     { "name": "sessionizer_version",  "type": "int",       "modes": ["public", "anonymous"], "doc": "so a retuned boundary is a recompute, not a migration" },
     { "name": "active_calc_version",  "type": "int",       "modes": ["public", "anonymous"], "doc": "so a retuned active-time formula is a recompute" },
     { "name": "harness",              "type": "enum",      "modes": ["public", "anonymous"], "values": ["claude_code", "cursor_ide", "cursor_agent", "codex"] },
-    { "name": "agent_observed_at",    "type": "datetime",  "modes": ["public", "anonymous"], "doc": "when the agent finalized this session" },
+    { "name": "agent_observed_at",    "type": "datetime",  "modes": ["public", "anonymous"], "doc": "when the agent produced this payload: the finalize instant for final, the snapshot instant for live" },
     { "name": "client_clock_offset_ms", "type": "int",     "modes": ["public", "anonymous"], "doc": "measured against the server Date header" },
 
     { "name": "started_at",           "type": "datetime",  "modes": ["public", "anonymous"] },
@@ -56,7 +66,12 @@
     { "name": "idle_seconds",         "type": "int",       "modes": ["public", "anonymous"] },
     { "name": "tz_offset_minutes",    "type": "int",       "modes": ["public", "anonymous"] },
     { "name": "time_quality",         "type": "enum",      "modes": ["public", "anonymous"], "values": ["ok", "mtime_corrected"] },
-    { "name": "state",                "type": "enum",      "modes": ["public", "anonymous"], "values": ["final"], "doc": "only final sessions are ever uploaded" },
+    { "name": "state",                "type": "enum",      "modes": ["public", "anonymous"], "values": ["live", "final"], "doc": "live = an open/idle session snapshot, replaced in place when it finalizes; final = complete" },
+    { "name": "end_reason",           "type": "enum",      "modes": ["public", "anonymous"], "values": ["idle_gap", "human_returned", "day_boundary", "still_running"], "doc": "why the session ended (docs/session-boundaries.md). still_running IS the live upload" },
+    { "name": "attended_seconds",     "type": "int",       "modes": ["public", "anonymous"], "doc": "active time with a human evidently present (docs/session-boundaries.md)" },
+    { "name": "autonomous_seconds",   "type": "int",       "modes": ["public", "anonymous"], "doc": "active time after the human went quiet for > tauAutonomousSec" },
+    { "name": "presence_count",       "type": "int",       "modes": ["public", "anonymous"], "doc": "typed prompts + interrupts + human file edits" },
+    { "name": "unattended",           "type": "bool",      "modes": ["public", "anonymous"], "doc": "zero presence signals. Hours only: no record, no streak, no notification" },
     { "name": "visible",              "type": "bool",      "modes": ["public", "anonymous"], "doc": "counts toward hours, graph, streaks" },
     { "name": "notable",              "type": "bool",      "modes": ["public", "anonymous"], "doc": "eligible for a card or a record" },
 
@@ -95,6 +110,8 @@
     { "name": "title",                "type": "string",    "nullable": true, "modes": ["public"], "doc": "PUBLIC REPOS ONLY. The title the HARNESS already wrote to your disk. Never model-generated by us" },
     { "name": "title_source",         "type": "enum",      "nullable": true, "modes": ["public"], "values": ["harness", "template"] },
 
-    { "name": "card_png_url",         "type": "url",       "nullable": true, "modes": ["public", "anonymous"], "doc": "populated ONLY when you tap Share. The image you chose to publish; contains no field not listed above" }
+    { "name": "card_png_url",         "type": "url",       "nullable": true, "modes": ["public", "anonymous"], "doc": "populated ONLY when you tap Share. The image you chose to publish; contains no field not listed above" },
+
+    { "name": "analysis",             "type": "analysis",  "nullable": true, "modes": ["public", "anonymous"], "doc": "model-written reading of the session, produced on the user's machine by their own Claude Code from a digest of the transcript (spec/analysis.v1.json). Present only when analysis upload is enabled. Private to the account under RLS; leaves it only when the session is shared. This is the ONE field that carries prose derived from prompts and code, and it is opt-in for exactly that reason." }
   ]
 }
