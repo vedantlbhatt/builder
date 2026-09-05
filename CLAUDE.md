@@ -3,8 +3,11 @@
 Strava for build sessions. Reads the logs your AI coding tools already write to disk,
 turns them into sessions with a shape and a story, and tells you when one finishes.
 
-Scope of this build is **single-player only**. No clubs, feeds, kudos, comments,
-challenges, digests, or co-op. Capture → sessionize → analyze → notify → present.
+Capture → sessionize → analyze → notify → present, then share. The single-player loop is
+the product; the social layer (`docs/social.md`: posts, kudos, comments, follows,
+factions, a reverse-chronological feed) is built server-side on top of it and is
+deliberately small — no challenges, digests, reposts, DMs, or any ranking that is not a
+sum. Co-op detection is still out of scope.
 
 ## The rule that matters most
 
@@ -179,12 +182,17 @@ python -m analysis probe DIR   what record shapes a foreign transcript store hol
 Design notes worth reading before touching the corresponding code: `docs/session-boundaries.md`
 (when a session ends, two clocks, three cuts), `docs/analysis.md` (the digest rules and the
 prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/social.md`
-(the layer that is deliberately not built yet).
+(the layer that is deliberately small).
 
 ## What each suite is actually for
 
 | suite | n | protects |
 |---|---|---|
-| `swift test` | 40 | the measured ground truth, and the strip fixtures |
-| `bun test` | 36 | that the phone decodes the strip identically to the Mac |
-| `pytest` | 24 | that undeclared fields cannot be stored, and that RLS is real |
+| `swift test` | 86 | the measured ground truth, the strip fixtures, the boundary fixtures, the Codex fixture, digest parity with the Python reference |
+| `bun test` | 79 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules |
+| `pytest` | 68 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2, social |
+| `unittest` (analysis/) | 14 | the Codex loader against its fixture; Claude Code stats unchanged |
+| CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
+
+CI runs on `main`, on `claude/**` branches and on demand. The macOS job is the only Swift
+compiler an autonomous session has; push small and read the log.

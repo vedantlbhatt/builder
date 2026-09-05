@@ -34,6 +34,29 @@ can detect it. A timer runs regardless of activity.
 
 **Present** — a recap card you can share, on the Mac and on the phone.
 
+## What arrived on 2026-09-05
+
+- **Sessions end for three reasons now, not one.** Silence (unchanged), the human coming
+  back to a still-running agent after two hours, or 04:00 passing during an autonomous run.
+  Every session carries two clocks — attended and autonomous — and records use attended
+  time, so a kickoff prompt plus an overnight loop no longer becomes your longest session.
+  Unattended runs that stop fire "Agent run finished". `docs/session-boundaries.md`.
+- **Analysis.** When a session ends, your own Claude Code reads a digest of it and writes a
+  structured account: what got built, how you planned and steered, where time went, your
+  signature moves, five scored dimensions with rationale, a growth edge. Runs locally
+  (`claude -p`), nothing goes to a third party, opt-in to upload, private under RLS.
+  `make analyze T=<transcript.jsonl>` · `docs/analysis.md`.
+- **Live sessions** on the phone, replaced in place when they finalize; checkpoint
+  analyses every two hours during autonomous runs.
+- **Sign in with Google** as well as Apple; identities are linkable. **Connect your Mac** from
+  the menu bar with a QR the phone scans (`builder pair` on the CLI).
+- **Codex CLI** rollouts are parsed (engine and analysis) alongside Claude Code and Cursor;
+  `python -m analysis probe DIR` tells you what any transcript store holds before a parser
+  is allowed to report numbers. `docs/integrations.md` maps every other tool.
+- **Social, server side:** posts from shared sessions, kudos, comments, follows, factions
+  with a weekly board ranked by attended hours, a reverse-chronological feed. Photos ride
+  on optional S3-compatible storage. `docs/social.md`.
+
 ## Getting started
 
 ```bash
@@ -44,6 +67,11 @@ make doctor       # records, contribution graph, projects, diagnostics
 make watch        # the daemon: watch, sessionize, notify on completion
 
 ./scripts/make_app.sh     # assemble Builder.app and run it from the menu bar
+
+builder pair              # show the code / QR the phone scans to connect this Mac
+builder analyze --last    # digest the last session and have your Claude Code read it
+make measure              # what the boundary rules do to your own corpus (read-only)
+python -m analysis probe ~/.codex/sessions   # record shapes in a foreign transcript store
 ```
 
 ## Why the numbers are different from every other tool
