@@ -32,7 +32,8 @@ def main() -> int:
         help=(
             "a transcript file or a directory: Codex ~/.codex/sessions, Gemini ~/.gemini/tmp, "
             "Cline ~/.cline/data, opencode ~/.local/share/opencode (or one session as "
-            "opencode.db/<session id>)"
+            "opencode.db/<session id>), Aider a repo directory holding .aider.chat.history.md "
+            "(or one session as .aider.chat.history.md/<YYYYMMDD-HHMMSS>)"
         ),
     )
     pr.add_argument("--json", action="store_true")

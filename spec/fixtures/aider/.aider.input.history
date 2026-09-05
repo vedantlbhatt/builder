@@ -1,0 +1,43 @@
+
+# 2024-11-12 09:10:30.123456
++Add a --dry-run flag to scripts/deploy.sh
+
+# 2024-11-12 09:10:58.000001
++y
+
+# 2024-11-12 09:11:05.400000
++/run pytest -q tests/
+
+# 2024-11-12 09:11:09
++n
+
+# 2024-11-12 09:12:00
++/add tests/test_deploy.py
+
+# 2024-11-12 09:12:20.500000
++also cover the flag in the tests
++keep it short
+
+# 2024-11-12 09:14:00
++/commit
+
+# 2024-11-12 09:14:30
++/exit
+
+# 2024-11-12 14:20:15
++rename run() to invoke() everywhere
+
+# 2024-11-12 14:23:00
++/test pytest -q
+
+# 2024-11-12 14:24:10
++/run pytest -q
+
+# 2024-11-12 14:24:14
++n
+
+# 2024-11-12 14:25:00
++explain the module
+
+# 2024-11-12 23:15:05
++/help

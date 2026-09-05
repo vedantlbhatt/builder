@@ -1,0 +1,353 @@
+{
+ "_generated_by": "scripts/gen_aider_fixture.py — do not hand-edit",
+ "harness": "aider",
+ "sessions": {
+  "20241112-091000": {
+   "events": 10,
+   "stats": {
+    "events": 10,
+    "wall_seconds": 210,
+    "prompts_sent": 2,
+    "replies_received": 2,
+    "interrupts": 0,
+    "human_edits": 0,
+    "compactions": 0,
+    "prompt_words_avg": 8.0,
+    "prompt_words_median": 10,
+    "prompt_words_max": 10,
+    "tool_calls": 6,
+    "tool_mix": {
+     "commit": 3,
+     "apply_edit": 2,
+     "run": 1
+    },
+    "errors": 0,
+    "lines_added_agent": 7,
+    "lines_removed_agent": 1,
+    "files_edited": 2,
+    "files_written_via_shell": 0,
+    "files_read": 0,
+    "git_commits_run": 3,
+    "test_runs": 1,
+    "models": {
+     "claude-3-5-sonnet-20241022": 2
+    },
+    "longest_silence_seconds": 100
+   },
+   "usage": {
+    "messages": 2,
+    "messages_with_cost": 2,
+    "tokens_as_printed": {
+     "sent": 17200,
+     "cache_write": 1100,
+     "cache_hit": 1100,
+     "received": 550
+    },
+    "approximate": true,
+    "sum_message_cost": 0.05,
+    "last_session_cost": 0.05,
+    "session_cost_matches_sum": true
+   },
+   "meta": {
+    "harness": "aider",
+    "session_id": "20241112-091000",
+    "session_ordinal": 1,
+    "sessions_in_file": 3,
+    "session_selected_by": "path",
+    "started_at": "2024-11-12 09:10:00",
+    "started_at_zone": "local, as written (Aider stamps no zone)",
+    "input_history_present": true,
+    "cli_version": "0.86.1",
+    "model": "claude-3-5-sonnet-20241022",
+    "edit_format": "diff",
+    "models_seen": {
+     "claude-3-5-sonnet-20241022": 1
+    },
+    "weak_model": "claude-3-5-haiku-20241022",
+    "editor_model": null,
+    "git_repo": ".git with 42 files",
+    "files_in_chat": 2
+   },
+   "diagnostics": {
+    "container": "aider_chat_history",
+    "files_present": [
+     "chat",
+     "input"
+    ],
+    "lines": 75,
+    "records": 26,
+    "malformed_lines": 0,
+    "partial_trailing_line": false,
+    "looks_like_prompt_no_suffix": 1,
+    "looks_like_tool_no_suffix": 1,
+    "tool_blocks_multiline": 0,
+    "input_history": {
+     "present": true,
+     "entries": 14,
+     "entries_in_window": 8,
+     "malformed_lines": 0,
+     "bad_timestamp": 0,
+     "partial_trailing_line": false
+    },
+    "bad_timestamp": 0,
+    "sessions_in_file": 3,
+    "preamble_lines": 1,
+    "line_kinds": {
+     "prompt": 6,
+     "tool": 19,
+     "text": 49
+    },
+    "types": {
+     "tool": 19,
+     "prompt": 5,
+     "text": 2
+    },
+    "first_ts": "2024-11-12 09:10:00",
+    "no_timestamp": 7,
+    "last_ts": "2024-11-12 09:14:30",
+    "unknown_types": {
+     "pytest -q": 1
+    },
+    "derivation": {
+     "announcement": 4,
+     "announcement_model": 1,
+     "assistant": 2,
+     "command_add": 1,
+     "command_commit": 1,
+     "command_exit": 1,
+     "command_stamped": 3,
+     "commit": 3,
+     "confirm_answer": 2,
+     "edit_block_search_replace": 2,
+     "edit_credit_from_block": 2,
+     "file_added": 2,
+     "prompt": 2,
+     "prompt_stamped": 2,
+     "running": 1,
+     "running_stamped": 1,
+     "tool_line_unclassified": 1,
+     "undo_hint": 1,
+     "usage_line": 2
+    }
+   }
+  },
+  "20241112-142000": {
+   "events": 16,
+   "stats": {
+    "events": 16,
+    "wall_seconds": 285,
+    "prompts_sent": 2,
+    "replies_received": 4,
+    "interrupts": 1,
+    "human_edits": 0,
+    "compactions": 0,
+    "prompt_words_avg": 4.0,
+    "prompt_words_median": 5,
+    "prompt_words_max": 5,
+    "tool_calls": 7,
+    "tool_mix": {
+     "commit": 3,
+     "apply_edit": 2,
+     "run": 2
+    },
+    "errors": 2,
+    "lines_added_agent": 2,
+    "lines_removed_agent": 2,
+    "files_edited": 2,
+    "files_written_via_shell": 0,
+    "files_read": 0,
+    "git_commits_run": 3,
+    "test_runs": 2,
+    "models": {
+     "gpt-4o": 4
+    },
+    "longest_silence_seconds": 165
+   },
+   "usage": {
+    "messages": 4,
+    "messages_with_cost": 4,
+    "tokens_as_printed": {
+     "sent": 30100,
+     "cache_write": 0,
+     "cache_hit": 0,
+     "received": 1340
+    },
+    "approximate": true,
+    "sum_message_cost": 0.13,
+    "last_session_cost": 0.13,
+    "session_cost_matches_sum": true
+   },
+   "meta": {
+    "harness": "aider",
+    "session_id": "20241112-142000",
+    "session_ordinal": 2,
+    "sessions_in_file": 3,
+    "session_selected_by": "path",
+    "started_at": "2024-11-12 14:20:00",
+    "started_at_zone": "local, as written (Aider stamps no zone)",
+    "input_history_present": true,
+    "cli_version": "0.86.1",
+    "model": "gpt-4o",
+    "edit_format": "diff",
+    "models_seen": {
+     "gpt-4o": 1
+    },
+    "weak_model": "gpt-4o-mini",
+    "editor_model": null,
+    "git_repo": ".git with 43 files",
+    "files_in_chat": 2
+   },
+   "diagnostics": {
+    "container": "aider_chat_history",
+    "files_present": [
+     "chat",
+     "input"
+    ],
+    "lines": 115,
+    "records": 60,
+    "malformed_lines": 0,
+    "partial_trailing_line": false,
+    "looks_like_prompt_no_suffix": 0,
+    "looks_like_tool_no_suffix": 0,
+    "tool_blocks_multiline": 1,
+    "input_history": {
+     "present": true,
+     "entries": 14,
+     "entries_in_window": 5,
+     "malformed_lines": 0,
+     "bad_timestamp": 0,
+     "partial_trailing_line": false
+    },
+    "bad_timestamp": 0,
+    "sessions_in_file": 3,
+    "preamble_lines": 1,
+    "line_kinds": {
+     "prompt": 4,
+     "tool": 52,
+     "text": 58
+    },
+    "types": {
+     "tool": 30,
+     "prompt": 4,
+     "text": 4,
+     "toolcont": 22
+    },
+    "first_ts": "2024-11-12 14:20:00",
+    "no_timestamp": 12,
+    "last_ts": "2024-11-12 14:25:00",
+    "unknown_types": {},
+    "derivation": {
+     "announcement": 4,
+     "announcement_model": 1,
+     "assistant": 4,
+     "command_run": 1,
+     "command_stamped": 2,
+     "command_test": 1,
+     "commit": 3,
+     "commit_without_applied_edit": 1,
+     "confirm_answer": 1,
+     "ctrl_c_exit": 1,
+     "ctrl_c_without_reply": 1,
+     "edit_block_search_replace": 4,
+     "edit_credit_from_block": 2,
+     "error_apply_edit": 1,
+     "error_detail_line": 24,
+     "file_added": 2,
+     "interrupt": 1,
+     "prompt": 2,
+     "prompt_stamped": 2,
+     "test_output_added_nonzero_exit": 1,
+     "tool_block_continuation_line": 22,
+     "tool_line_empty": 6,
+     "usage_line": 4
+    }
+   }
+  },
+  "20241112-231500": {
+   "events": 0,
+   "stats": {
+    "events": 0
+   },
+   "usage": {
+    "messages": 0,
+    "messages_with_cost": 0,
+    "tokens_as_printed": {
+     "sent": 0,
+     "cache_write": 0,
+     "cache_hit": 0,
+     "received": 0
+    },
+    "approximate": true,
+    "sum_message_cost": 0.0,
+    "last_session_cost": null,
+    "session_cost_matches_sum": null
+   },
+   "meta": {
+    "harness": "aider",
+    "session_id": "20241112-231500",
+    "session_ordinal": 3,
+    "sessions_in_file": 3,
+    "session_selected_by": "path",
+    "started_at": "2024-11-12 23:15:00",
+    "started_at_zone": "local, as written (Aider stamps no zone)",
+    "input_history_present": true,
+    "cli_version": "0.86.1",
+    "model": "claude-3-5-sonnet-20241022",
+    "edit_format": "diff",
+    "models_seen": {
+     "claude-3-5-sonnet-20241022": 1
+    },
+    "weak_model": "claude-3-5-haiku-20241022",
+    "editor_model": null,
+    "git_repo": ".git with 44 files",
+    "files_in_chat": 1
+   },
+   "diagnostics": {
+    "container": "aider_chat_history",
+    "files_present": [
+     "chat",
+     "input"
+    ],
+    "lines": 17,
+    "records": 14,
+    "malformed_lines": 0,
+    "partial_trailing_line": false,
+    "looks_like_prompt_no_suffix": 0,
+    "looks_like_tool_no_suffix": 0,
+    "tool_blocks_multiline": 0,
+    "input_history": {
+     "present": true,
+     "entries": 14,
+     "entries_in_window": 1,
+     "malformed_lines": 0,
+     "bad_timestamp": 0,
+     "partial_trailing_line": false
+    },
+    "bad_timestamp": 0,
+    "sessions_in_file": 3,
+    "preamble_lines": 1,
+    "line_kinds": {
+     "prompt": 1,
+     "tool": 13,
+     "text": 2
+    },
+    "types": {
+     "tool": 13,
+     "prompt": 1
+    },
+    "first_ts": "2024-11-12 23:15:00",
+    "no_timestamp": 0,
+    "last_ts": "2024-11-12 23:15:05",
+    "unknown_types": {},
+    "derivation": {
+     "announcement": 4,
+     "announcement_model": 1,
+     "command_help": 1,
+     "command_stamped": 1,
+     "file_added": 1,
+     "help_listing_line": 7
+    }
+   }
+  }
+ }
+}

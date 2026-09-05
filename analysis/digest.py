@@ -43,9 +43,12 @@ DEFAULT_BUDGET = 60_000  # characters; ~15k tokens
 # in analysis/gemini.py, the Cline names (`execute_command` / `write_to_file` /
 # `replace_in_file`, plus the SDK-era `run_commands` / `editor`) in analysis/cline.py, the
 # opencode names (`bash` — the shell tool keeps that id for compatibility — `edit`, `write`,
-# `apply_patch`) in analysis/opencode.py. Membership here is what `stats` keys commits,
-# test runs and files-edited on, so a harness whose shell tool is missing from this set
-# reports zero commits on a session that ran twenty.
+# `apply_patch`) in analysis/opencode.py, the Aider names (`run` for `/run` / `/test` /
+# `!` / an LLM-suggested command Aider ran, `apply_edit` for an `Applied edit to` line —
+# Aider has no tool protocol, so these are the loader's names) in analysis/aider.py.
+# Membership here is what `stats` keys commits, test runs and files-edited on, so a harness
+# whose shell tool is missing from this set reports zero commits on a session that ran
+# twenty.
 SHELL_TOOLS = frozenset(
     {
         "Bash",
@@ -57,6 +60,7 @@ SHELL_TOOLS = frozenset(
         "execute_command",
         "run_commands",
         "bash",
+        "run",
     }
 )
 EDIT_TOOLS = frozenset(
@@ -73,8 +77,14 @@ EDIT_TOOLS = frozenset(
         "editor",
         "edit",
         "write",
+        "apply_edit",
     }
 )
+
+# Tools that ARE a git commit, not a shell line that may contain one. Aider commits through
+# GitPython and writes `Commit <sha> <message>` (analysis/aider.py `commit`); the `git commit`
+# regex over shell text cannot see it, and auto-commits are the point of that harness.
+COMMIT_TOOLS = frozenset({"commit"})
 
 # Tools that mean "read a file". FOUND BY A TEST: `files_read` keyed on Claude Code's `Read`
 # alone, so every Gemini, Cline and opencode session reported zero files read — the same
@@ -237,6 +247,18 @@ def _is_opencode(path: pathlib.Path) -> bool:
     return opencode.detect(path) is not None
 
 
+def _is_aider(path: pathlib.Path) -> bool:
+    # Aider keeps `.aider.chat.history.md` (+ `.aider.input.history`) IN THE REPO; a session
+    # is `<chat file>/<YYYYMMDD-HHMMSS>` (virtual last component). Decided on the names
+    # first; a `.md` under another name is opened only for its first line, which must be
+    # `# aider chat started at …` (analysis/aider.py).
+    if path.suffix in (".jsonl", ".json", ".sqlite", ".vscdb", ".db"):
+        return False
+    from . import aider
+
+    return aider.detect(path) is not None
+
+
 def _is_cline_task(path: pathlib.Path) -> bool:
     # A Cline task is a DIRECTORY holding `ui_messages.json` (and usually
     # `api_conversation_history.json`); either file names the task too. Decided on the
@@ -248,8 +270,8 @@ def _is_cline_task(path: pathlib.Path) -> bool:
 
 
 def detect_harness(path: pathlib.Path) -> str:
-    """ "claude_code", "codex", "gemini", "cline" or "opencode", from the first complete
-    non-empty line (or the path shape).
+    """ "claude_code", "codex", "gemini", "cline", "opencode" or "aider", from the first
+    complete non-empty line (or the path shape).
 
     A Codex rollout's first record is `{"type": "session_meta", "payload": …}` (the
     recorder writes it before anything else); a Gemini CLI recording's first line is
@@ -259,12 +281,16 @@ def detect_harness(path: pathlib.Path) -> str:
     `ui_messages.json` / `api_conversation_history.json` inside one); an opencode session
     is `<opencode.db>/<session id>` (a SQLite file with `session`/`message`/`part`
     tables, plus a virtual last component), a `storage/session/<project>/<id>.json`
-    file, or an `opencode export` file (analysis/opencode.py). Anything unrecognised is
-    treated as Claude Code, which is the loader with the measured ground truth behind it.
+    file, or an `opencode export` file (analysis/opencode.py); an Aider session is a repo
+    directory holding `.aider.chat.history.md`, that file, its `.aider.input.history`, or
+    `<chat file>/<session id>` (analysis/aider.py). Anything unrecognised is treated as
+    Claude Code, which is the loader with the measured ground truth behind it.
     """
     path = pathlib.Path(path)
     if _is_cline_task(path):
         return "cline"
+    if _is_aider(path):
+        return "aider"
     if _is_opencode(path):
         return "opencode"
     try:
@@ -322,6 +348,10 @@ def load_events(
         from . import opencode
 
         return opencode.load_events(path, start, end)
+    if harness == "aider":
+        from . import aider
+
+        return aider.load_events(path, start, end)
     return load_claude_code_events(path, start, end)
 
 
@@ -503,7 +533,10 @@ def stats(events: list[Ev]) -> dict:
     shell_written = sum(1 for e in tools if e.tool in SHELL_TOOLS and e.added is not None)
     reads = {e.path for e in tools if e.path and e.tool in READ_TOOLS}
     commits = sum(
-        1 for e in tools if e.tool in SHELL_TOOLS and re.search(r"\bgit commit\b", e.text)
+        1
+        for e in tools
+        if e.tool in COMMIT_TOOLS
+        or (e.tool in SHELL_TOOLS and re.search(r"\bgit commit\b", e.text))
     )
     tests = sum(
         1
@@ -721,6 +754,10 @@ def build(
         from . import opencode
 
         events = opencode.load_events(path, start, end)
+    elif harness == "aider":
+        from . import aider
+
+        events = aider.load_events(path, start, end)
     else:
         events = load_claude_code_events(path, start, end)
     text, coverage = render(events, meta, budget)

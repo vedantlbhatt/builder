@@ -18,7 +18,13 @@ from . import digest as dg
 
 def _walk(root: pathlib.Path) -> list[pathlib.Path]:
     root = pathlib.Path(root).expanduser()
+    from . import aider
+
     if root.is_file():
+        # an Aider chat history is MANY sessions; report each as `<chat file>/<id>`
+        if aider.detect(root) in ("chat_file", "input_file"):
+            chat = aider.resolve(root)[0]
+            return [chat / s.id for s in aider.list_sessions(chat)]
         return [root]
     if not root.exists():
         return [root]  # a virtual `<db>/<session id>`; probe_file reports if it is not one
@@ -52,6 +58,11 @@ def _walk(root: pathlib.Path) -> list[pathlib.Path]:
             sessions |= {db / s["id"] for s in opencode.list_sessions(db)}
     sessions |= {p for p in root.rglob("session/*/*.json") if opencode.is_session_file(p)}
     sessions |= {p for p in root.glob("*.json") if opencode.is_export_file(p)}
+    # Aider keeps `.aider.chat.history.md` in each REPO, every session appended to it; the
+    # root may be one repo or a directory of repos. One virtual path per session.
+    for chat in root.rglob(aider.CHAT_FILE):
+        if chat.is_file():
+            sessions |= {chat / s.id for s in aider.list_sessions(chat)}
     return sorted(set(files) | task_dirs | sessions)
 
 
@@ -143,6 +154,15 @@ def probe_file(path: pathlib.Path) -> dict:
 
         s = opencode.scan(path)
         events, derivation = opencode._derive(s)
+        out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
+        out["meta"] = s.meta
+        out["usage"] = s.usage
+    elif harness == "aider":
+        from . import aider
+
+        s = aider.scan(path)
+        out["bytes"] = sum(p.stat().st_size for p in (s.chat_file, s.input_file) if p)
+        events, derivation = aider._derive(s)
         out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
         out["meta"] = s.meta
         out["usage"] = s.usage
@@ -248,6 +268,30 @@ def _fmt_opencode_usage(u: dict) -> str:
     return "\n".join(lines)
 
 
+def _fmt_aider_usage(u: dict) -> str:
+    t = u["tokens_as_printed"]
+    lines = [
+        (
+            f"  Tokens lines: {u['messages']} (with cost: {u['messages_with_cost']}); figures "
+            f"are AS PRINTED — Aider rounds to 0.1k / 1k, so these are approximate"
+        ),
+        (
+            f"  sum as printed:                sent {t['sent']:,} (cache write {t['cache_write']:,}"
+            f" / hit {t['cache_hit']:,})  received {t['received']:,}"
+        ),
+        (
+            f"  cost: sum of message costs ${u['sum_message_cost']}  last session total "
+            f"{'$' + str(u['last_session_cost']) if u['last_session_cost'] is not None else '(none)'}"
+        ),
+    ]
+    if u["session_cost_matches_sum"] is not None:
+        lines.append(
+            "  session total == sum: "
+            + ("yes" if u["session_cost_matches_sum"] else "NO — a turn's cost went unprinted")
+        )
+    return "\n".join(lines)
+
+
 def _fmt_usage(u: dict) -> str:
     if "deduped_by_message_id" in u:
         return _fmt_gemini_usage(u)
@@ -255,6 +299,8 @@ def _fmt_usage(u: dict) -> str:
         return _fmt_cline_usage(u)
     if "sum_step_finish_tokens" in u:
         return _fmt_opencode_usage(u)
+    if "tokens_as_printed" in u:
+        return _fmt_aider_usage(u)
     naive = u["naive_sum_last_token_usage"]
     final = u["final_total_token_usage"]
     lines = [
@@ -304,12 +350,14 @@ def format_probe(d: dict) -> str:
                 "cli_version",
                 "history_mode",
                 "model",
+                "edit_format",
                 "cwd",
                 "git_branch",
                 "source",
                 "kind",
                 "container",
                 "session_id",
+                "sessions_in_file",
                 "parent_id",
                 "session_selected_by",
             )
