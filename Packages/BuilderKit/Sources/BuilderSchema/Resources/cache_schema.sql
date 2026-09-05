@@ -118,9 +118,11 @@ CREATE TABLE session (
   attended_seconds    REAL NOT NULL DEFAULT 0,
   autonomous_seconds  REAL NOT NULL DEFAULT 0,
   n_presence          INTEGER NOT NULL DEFAULT 0,
-  -- idle_gap is the only end that means the work stopped, and the only one that notifies.
+  -- idle_gap, cleared and switched_repo mean the work stopped, and notify; the two cuts
+  -- (human_returned, day_boundary) do not (docs/session-boundaries.md v3).
   end_reason          TEXT NOT NULL DEFAULT 'idle_gap'
-                      CHECK (end_reason IN ('idle_gap','human_returned','day_boundary','still_running')),
+                      CHECK (end_reason IN ('idle_gap','human_returned','day_boundary',
+                                            'cleared','switched_repo','still_running')),
   -- unattended AND idle_gap: the "Agent run finished" notification class.
   run_finished        INTEGER NOT NULL DEFAULT 0
 );

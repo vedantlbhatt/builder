@@ -8,7 +8,9 @@ Mac's final payload arrives. Four rules, in the order they are checked:
    (the content hash moved because a title arrived, an analysis was revised, a boundary
    was retuned) changes numbers, not the fact that the work stopped.
 2. `human_returned` and `day_boundary` never notify — you are already here, or the work
-   continues. Only `idle_gap` means the work stopped.
+   continues. `idle_gap` means the work stopped; so do the two v3 structural ends,
+   `cleared` (the human typed `/clear`) and `switched_repo` (the human opened a new
+   session in another repository), which are announced exactly as an idle end is.
 3. Unattended runs fire "Agent run finished"; attended sessions fire "Session finished"
    only when notable. Unattended is checked first: the Mac's `notable` folded in
    `!unattended` for a long time, and the whole point of the second title is that an
@@ -65,7 +67,9 @@ NOTIFY_HORIZON_SEC = 2 * TAU_SESSION_SEC
 assert NOTIFY_HORIZON_SEC > EXPECTED_FINAL_LAG_SEC, "an on-time final must clear the horizon"
 
 #: The ends that mean the work stopped. Everything else is a cut, not a stop.
-NOTIFYING_END_REASONS = frozenset({"idle_gap"})
+#: docs/session-boundaries.md v3: `cleared` and `switched_repo` are stops the human made
+#: on purpose, and are announced like silence would have been.
+NOTIFYING_END_REASONS = frozenset({"idle_gap", "cleared", "switched_repo"})
 
 #: The URL scheme the phone registers (`mobile/app.config.ts` → `scheme`). The recap
 #: link is the same string whether it rides in a push, is typed on the Mac, or comes out

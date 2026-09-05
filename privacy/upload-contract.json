@@ -67,7 +67,7 @@
     { "name": "tz_offset_minutes",    "type": "int",       "modes": ["public", "anonymous"] },
     { "name": "time_quality",         "type": "enum",      "modes": ["public", "anonymous"], "values": ["ok", "mtime_corrected"] },
     { "name": "state",                "type": "enum",      "modes": ["public", "anonymous"], "values": ["live", "final"], "doc": "live = an open/idle session snapshot, replaced in place when it finalizes; final = complete" },
-    { "name": "end_reason",           "type": "enum",      "modes": ["public", "anonymous"], "values": ["idle_gap", "human_returned", "day_boundary", "still_running"], "doc": "why the session ended (docs/session-boundaries.md). still_running IS the live upload" },
+    { "name": "end_reason",           "type": "enum",      "modes": ["public", "anonymous"], "values": ["idle_gap", "human_returned", "day_boundary", "cleared", "switched_repo", "still_running"], "doc": "why the session ended (docs/session-boundaries.md). still_running IS the live upload; cleared (a typed /clear) and switched_repo (a new session opened in another repo) are v3 ends that, like idle_gap, mean the work stopped" },
     { "name": "attended_seconds",     "type": "int",       "modes": ["public", "anonymous"], "doc": "active time with a human evidently present (docs/session-boundaries.md)" },
     { "name": "autonomous_seconds",   "type": "int",       "modes": ["public", "anonymous"], "doc": "active time after the human went quiet for > tauAutonomousSec" },
     { "name": "presence_count",       "type": "int",       "modes": ["public", "anonymous"], "doc": "typed prompts + interrupts + human file edits" },

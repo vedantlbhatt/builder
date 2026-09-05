@@ -311,10 +311,21 @@ public struct ClaudeCodeParser: HarnessParser {
                 out.append(e)
             }
 
+            // `/clear`, as the harness writes a slash command: no promptSource, the command
+            // named in the text. The one slash command that is a session boundary and a
+            // presence signal (docs/session-boundaries.md v3); `/model`, `/effort` and
+            // `/compact` stay `.noise`. UNTESTED ON REAL DATA — zero such records in the
+            // container corpus; the `cleared_twice` fixture pins the shape.
+            let isClear =
+                !isHumanPrompt && !isInterrupt && !textParts.isEmpty
+                && textParts.joined(separator: "\n").contains(Tuning.clearCommandMarker)
+
             if isHumanPrompt {
                 out.append(base(.prompt))
             } else if isInterrupt {
                 out.append(base(.interrupt))
+            } else if isClear {
+                out.append(base(.clear))
             } else if out.isEmpty {
                 out.append(base(.noise))
             }

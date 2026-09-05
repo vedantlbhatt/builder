@@ -41,7 +41,7 @@ Every field, in full. `2` is the contract version.
 | `tz_offset_minutes` | int | public + anonymous |  |
 | `time_quality` | enum | public + anonymous |  |
 | `state` | enum | public + anonymous | live = an open/idle session snapshot, replaced in place when it finalizes; final = complete |
-| `end_reason` | enum | public + anonymous | why the session ended (docs/session-boundaries.md). still_running IS the live upload |
+| `end_reason` | enum | public + anonymous | why the session ended (docs/session-boundaries.md). still_running IS the live upload; cleared (a typed /clear) and switched_repo (a new session opened in another repo) are v3 ends that, like idle_gap, mean the work stopped |
 | `attended_seconds` | int | public + anonymous | active time with a human evidently present (docs/session-boundaries.md) |
 | `autonomous_seconds` | int | public + anonymous | active time after the human went quiet for > tauAutonomousSec |
 | `presence_count` | int | public + anonymous | typed prompts + interrupts + human file edits |

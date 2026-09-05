@@ -1,6 +1,6 @@
 SWIFT_PKG := Packages/BuilderKit
 
-.PHONY: help gen check-gen build test scan watch doctor share clean measure analyze fixtures capture-test
+.PHONY: help gen check-gen build test scan watch doctor share clean measure measure-gaps analyze fixtures capture-test
 
 help:
 	@echo "gen        regenerate everything from privacy/, spec/ and design/"
@@ -11,6 +11,7 @@ help:
 	@echo "watch      run the daemon: watch, sessionize, notify on completion"
 	@echo "doctor     diagnostics, per-source row counts, records, rollups"
 	@echo "measure    what the session-boundary rules do to ~/.claude/projects (read-only)"
+	@echo "measure-gaps  the gap distribution, the two-mode fit and the fitted tau for YOUR corpus"
 	@echo "analyze    T=<transcript.jsonl>  digest it and have your own Claude Code read it"
 	@echo "fixtures   regenerate spec/fixtures/boundaries from the reference implementation"
 	@echo "capture-test  the cloud uploader: boundary parity, contract conformance, refresh-on-401"
@@ -64,6 +65,15 @@ clean:
 # corpus before changing either number.
 measure:
 	@python3 scripts/measure_boundaries.py $${ROOT:-$$HOME/.claude/projects}
+
+# Read-only: the inter-event gap histogram, the naive record-gap fit (which finds the
+# harness's write cadence) and the v3 fit on human presence intervals (which is what the
+# sessionizer uses), with the session count at the fitted tau against the 900 s fallback.
+# Pass EXTRA=<dir> for a tree of other harnesses' transcripts; SYNTHETIC=<dir> to also run
+# the boundary fixtures, labelled as such.
+measure-gaps:
+	@python3 scripts/measure_gap_distribution.py --root $${ROOT:-$$HOME/.claude/projects} \
+		$${EXTRA:+--extra $$EXTRA} $${SYNTHETIC:+--synthetic $$SYNTHETIC}
 
 # One session, end to end: digest -> claude -p -> validated SessionAnalysis JSON.
 analyze:

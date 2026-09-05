@@ -1,0 +1,48 @@
+{
+ "tz": "America/New_York",
+ "pooling": "native_session",
+ "constants": {
+  "tau_session": 900.0,
+  "active_gap_cap": 120.0,
+  "tau_autonomous": 1800.0,
+  "tau_return_split": 7200.0,
+  "day_boundary_hour": 4
+ },
+ "switch_min_gap": 120.0,
+ "records": 90,
+ "sessions": [
+  {
+   "started_at": 1773151200.0,
+   "ended_at": 1773151613.0,
+   "active_seconds": 413.0,
+   "attended_seconds": 413.0,
+   "autonomous_seconds": 0.0,
+   "prompts": 1,
+   "presence": 1,
+   "end_reason": "switched_repo",
+   "pool": "00000000-0000-4000-8000-000000000001"
+  },
+  {
+   "started_at": 1773151700.0,
+   "ended_at": 1773152000.0,
+   "active_seconds": 300.0,
+   "attended_seconds": 300.0,
+   "autonomous_seconds": 0.0,
+   "prompts": 1,
+   "presence": 1,
+   "end_reason": "still_running",
+   "pool": "00000000-0000-4000-8000-000000000002"
+  },
+  {
+   "started_at": 1773151900.0,
+   "ended_at": 1773151996.0,
+   "active_seconds": 96.0,
+   "attended_seconds": 0.0,
+   "autonomous_seconds": 96.0,
+   "prompts": 0,
+   "presence": 0,
+   "end_reason": "still_running",
+   "pool": "00000000-0000-4000-8000-000000000001"
+  }
+ ]
+}

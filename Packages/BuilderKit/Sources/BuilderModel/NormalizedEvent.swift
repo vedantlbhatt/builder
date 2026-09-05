@@ -21,6 +21,12 @@ public enum EventKind: String, Sendable, CaseIterable, Codable {
     /// `Tuning.countedMinMeaningfulEvents`.
     case interrupt
 
+    /// The human typed `/clear`. Claude Code: `type == "user"` with no `promptSource` and
+    /// `Tuning.clearCommandMarker` in the text. A presence signal (the harness never
+    /// clears on its own) and a session boundary (`EndReason.cleared`) — the one slash
+    /// command that is either. UNTESTED ON REAL DATA: zero in the container corpus.
+    case clear
+
     case assistantMessage = "assistant_message"
     case thinking
     case toolUse = "tool_use"
@@ -61,7 +67,8 @@ public enum EventKind: String, Sendable, CaseIterable, Codable {
     /// Events that can open or extend a session. Bookkeeping cannot.
     public var isSubstantive: Bool {
         switch self {
-        case .prompt, .interrupt, .assistantMessage, .thinking, .toolUse, .toolResult, .humanEdit:
+        case .prompt, .interrupt, .clear, .assistantMessage, .thinking, .toolUse, .toolResult,
+            .humanEdit:
             return true
         case .turnDuration, .compaction, .title, .noise, .unknown:
             return false
@@ -75,7 +82,7 @@ public enum EventKind: String, Sendable, CaseIterable, Codable {
     /// to split attended time from autonomous time (docs/session-boundaries.md).
     public var isPresence: Bool {
         switch self {
-        case .prompt, .interrupt, .humanEdit: return true
+        case .prompt, .interrupt, .humanEdit, .clear: return true
         default: return false
         }
     }

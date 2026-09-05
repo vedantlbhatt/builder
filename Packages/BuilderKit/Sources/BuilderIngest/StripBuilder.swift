@@ -50,6 +50,9 @@ public enum StripBuilder {
         // deciding what to say next — theirs, not the agent's. No mark: the mark kinds
         // are fixed by spec/strip.v1.json.
         case .interrupt: return .prompting
+        // A `/clear` is the last thing typed into a conversation; the moment after it is
+        // the human's, and the session ends there anyway (`EndReason.cleared`).
+        case .clear: return .prompting
         case .humanEdit: return .human_edit
         case .assistantMessage, .thinking, .toolUse, .toolResult: return .agent
         case .turnDuration, .compaction, .title, .noise, .unknown: return .agent

@@ -21,11 +21,19 @@ public enum Tuning {
     /// Bumping this invalidates cache.sqlite and forces a full re-derive. Any change to a
     /// constant in this file must bump it, or users keep numbers computed under the old
     /// rules with no way to notice.
-    public static let version = "2026-09-05.1-boundaries-v2"
+    public static let version = "2026-09-05.2-boundaries-v3"
 
     // MARK: - Sessionization
 
-    /// Idle gap that ends a session, in seconds.
+    /// The FALLBACK idle gap that ends a session, in seconds.
+    ///
+    /// v3 (docs/session-boundaries.md): the threshold the sessionizer actually cuts with is
+    /// `SessionThresholds.tau` — fitted to the user's own presence-to-presence intervals by
+    /// `ThresholdFitter` (a two-Gaussian mixture on log10 seconds, the valley between the
+    /// modes, Halfaker et al. WWW 2015) and clamped to [`tauSessionMinSec`,
+    /// `tauSessionMaxSec`]. This constant is what it falls back to while the sample has
+    /// fewer than `tauFitMinGaps` intervals or is not bimodal by the rule below, and it is
+    /// what the ground-truth table in CLAUDE.md is stated at. It was chosen like this:
     ///
     /// MEASURED gap distribution over 48,095 consecutive pairs in the reference project:
     ///   p50 1.0s · p75 5s · p90 13s · p95 22s · p98 63s · p99 171s · p99.5 258s
@@ -45,13 +53,80 @@ public enum Tuning {
     ///
     /// NOT user-configurable, on purpose. "Longest session" and any future comparison
     /// between two people are meaningless if two machines disagree about what a session is.
+    /// Fitting it to each person's own data is the opposite of a preference: it is the
+    /// same rule, read off the same kind of evidence, on every machine.
     public static let tauSessionSec: Double = 900
+
+    /// Clamp on a FITTED tau. Below 300 s a valley sits inside the agent's own tool-cadence
+    /// tail (p99 of the reference corpus is 171 s, and 300 s shattered one afternoon into
+    /// 217 sessions); above 3600 s the reference corpus yields 30 sessions with a 4.2 h
+    /// mean, which is a day, not a sitting.
+    public static let tauSessionMinSec: Double = 300
+    public static let tauSessionMaxSec: Double = 3600
+
+    /// Fewer presence intervals than this and no fit is attempted. A two-Gaussian EM has
+    /// five free parameters; 200 points gives the minor component (>= 5% by weight, so
+    /// >= 10 intervals) something to stand on. UNMEASURED JUDGEMENT CALL below that: the
+    /// container corpus has 23 intervals and one sitting, which is not evidence of anything.
+    public static let tauFitMinGaps = 200
+
+    /// The two modes must be at least this far apart on log10 seconds — a factor of 6.3,
+    /// the smallest separation at which two unit-variance log-normal modes still show a dip
+    /// between them at 0.1-decade bins. Halfaker et al. report 2–3 decades on every system
+    /// they studied; the synthetic bimodal fixture has 1.5.
+    public static let tauFitMinSeparationDecades: Double = 0.8
+
+    /// The minor component must hold at least this share of the sample, or "the second
+    /// mode" is a handful of outliers the EM wrapped a Gaussian around. On the reference
+    /// corpus the between-sitting share of presence intervals is ~84/1,456 = 5.8% — this
+    /// floor is the number to watch when that corpus is refitted.
+    public static let tauFitMinComponentWeight: Double = 0.05
+
+    /// The valley must land within half a decade of the clamp range — [95 s, 11,400 s] — or
+    /// the fit found a valley between two MACHINE modes, not between activity and absence,
+    /// and the clamp would turn nonsense into a confident number. MEASURED on the container
+    /// corpus: a fit on raw record gaps found modes at 7 ms (one turn's records flushed
+    /// together) and 3.4 s (the tool cadence), a valley at 0.1 s, and would have clamped it
+    /// to 300 s. That is why the sample is presence intervals, and why this window exists.
+    public static let tauFitValleyMinLog10: Double = log10(300.0) - 0.5
+    public static let tauFitValleyMaxLog10: Double = log10(3600.0) + 0.5
+
+    /// Floor on a component's variance (decades²) so a sample of identical intervals cannot
+    /// drive a sigma to 0 and the responsibilities to NaN. The EM's iteration cap and stop.
+    public static let tauFitVarianceFloor: Double = 1e-4
+    public static let tauFitMaxIterations = 500
+    public static let tauFitTolerance: Double = 1e-10
+
+    /// When to refit: the sample grew by a tenth, or a day passed. UNMEASURED JUDGEMENT
+    /// CALL: a tenth is the smallest growth that can move a 200-point fit's valley by more
+    /// than the 0.1-decade bin it is reported in; daily is one tick of "today".
+    public static let tauRefitGrowthFraction: Double = 0.10
+    public static let tauRefitIntervalSec: Double = 86400
+
+    /// A human opening a NEW native session in a DIFFERENT pool at least this long after
+    /// a session's last record ends that session (`switched_repo`). Equal to
+    /// `activeGapCapSec` on purpose: a gap under the cap is credited in full as continuous
+    /// work, so hopping between two repos inside two minutes is one sitting on two repos.
+    /// MEASURED on the container corpus: the seven `claude -p` runs that started in another
+    /// directory during the sitting all begin with a non-human `sdk` prompt and do not fire
+    /// this; a sibling agent's Codex run did, once, which the rule cannot tell from a person.
+    public static let switchedRepoMinGapSec: Double = activeGapCapSec
+
+    /// How a slash command is written into a user record. `/clear` is the one slash command
+    /// that is a session boundary (`cleared`) and a presence signal. UNTESTED ON REAL DATA:
+    /// zero such records in the container corpus; the `cleared_twice` fixture pins the shape.
+    public static let clearCommandMarker = "<command-name>/clear</command-name>"
 
     /// Bumped whenever the sessionization ALGORITHM changes, not just the threshold.
     ///
     /// 2: attended/autonomous split, `human_returned` and `day_boundary` cuts, presence
     ///    signals (docs/session-boundaries.md). The idle-gap rule itself is unchanged.
-    public static let sessionizerVersion = 2
+    /// 3: pools are folded by session lineage (a native session id lives in ONE pool, its
+    ///    dominant one — MEASURED: one sitting whose shell `cd`d between home and the repo
+    ///    uploaded as two overlapping sessions, the prompts in one and the commits in the
+    ///    other); the idle gap is a fitted `SessionThresholds` with this file's fallback;
+    ///    `cleared` and `switched_repo` end a session regardless of the gap.
+    public static let sessionizerVersion = 3
 
     /// Seconds without a presence signal after which the agent is on its own.
     ///

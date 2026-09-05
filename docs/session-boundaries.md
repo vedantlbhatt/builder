@@ -182,3 +182,178 @@ and pointing at the wrong thing. `Tuning.unattendedBgFraction` is retired.
 
 **Imputing presence from typing cadence in the prompt text.** Never read for this
 purpose; the presence signals above are all record-shape checks.
+
+---
+
+# v3 — a fitted threshold, lineage pooling, and two ends the human makes
+
+v2 fixed the definition — a session is a human sitting — and cut it with four constants
+chosen from one corpus's gap percentiles. v3 keeps the definition and the two clocks and
+changes three things about how the cuts are found, each after measuring real inputs. The
+research behind it, with citations and the numbers, is
+`docs/research/session-boundaries-research.md`; the reference implementation is still
+`scripts/measure_boundaries.py` and the Swift is still held to it by the fixtures.
+
+## 1. Pooling: by lineage, not by where the shell was
+
+**Finding (real input, this workspace).** Claude Code stamps the shell's *current* `cwd`
+on every record. In one 2,231-record sitting the shell `cd`'d between `/home/user` and the
+repository **332 times** (median gap at a change 0.42 s); all 15 human prompts carried
+the home directory and 833 assistant records carried the repo. Pooled by the repository
+each record resolved to — which is what `capture/` did and what the Mac's deriver does via
+per-event `repo_id` — that one sitting uploaded as **two overlapping sessions**: one with
+the prompts and no commits, one with 19 commits and "Prompts you typed 0". Nothing crashed.
+The number on the phone was simply wrong.
+
+**Rule.** A session is one human's sitting; the repository is an *attribute* of it, never
+the partition key. Records are pooled by the transcript's lineage — the project directory
+the file lives in (capture, the reference) or the repository the deriver resolved (the
+Mac) — and then **every record of one native session id is folded into that id's dominant
+pool**: most records wins, ties go to the pool of the id's earliest record, then to the
+smaller key string, so three implementations agree (`fold_by_session_lineage`,
+`Sessionizer.pool`). A record without a session id keeps its own key. Two conversations
+back to back in one pool remain one sitting — v1's rule. The session's repository is then
+the dominant resolvable cwd among its records (`capture.sessions.dominant_repo`; the Mac's
+`repo_id_primary` already worked this way). Fixture: `cwd_interleaved_one_sitting` —
+prompts under one cwd, tool calls and commits under another, seconds apart, ONE session.
+
+Whether the Mac corpus has a cwd change inside a transcript: `Tuning.swift` and
+`NormalizedEvent.swift` already record that it does (5 distinct cwds in one 30-minute
+remote transcript; "it varies within a single file"), so the same split was available
+there. How often it fired is unmeasured until the deriver is re-run on that corpus.
+
+## 2. The idle threshold is fitted per person, with 900 s as the fallback
+
+**Method.** Halfaker et al. (WWW 2015): inter-activity times are bimodal on a log scale,
+and the session threshold belongs at the valley between the two modes, fitted per dataset.
+v3 fits a two-component Gaussian mixture on log10 seconds by EM (`fit_tau`,
+`ThresholdFitter`), finds the crossing of the two weighted densities by bisection, and
+sets `tau = clamp(10^valley, 300 s, 3600 s)`.
+
+**Finding (real input).** Run on **record** gaps, as the brief asked, the fit is
+confidently bimodal on this container's corpus — and the two modes are the harness's
+millisecond flush (records of one turn written 1–10 ms apart) and the agent's 1–10 s tool
+cadence, with the valley at **0.1 s**. Between-sitting gaps are 0.9 % of record gaps and
+cannot form a component. Clamping 0.1 s up to 300 s would have shipped a confident wrong
+tau. Halfaker's events were human acts; a transcript writes thousands of machine records
+per human act.
+
+**Rule.** The sample is **presence-to-presence intervals** (`presence_gaps`,
+`Sessionizer.presenceGaps`): the time between consecutive presence signals in a pool,
+*including* the intervals that span idle gaps, over every pool of every harness the person
+has. The fitted tau is then applied to record gaps by rule 1 — coherent, because a record
+gap is never longer than the human interval containing it. The fit is used only if all of
+these hold, else the fallback `Tuning.tauSessionSec = 900` stands:
+
+| condition | constant | why |
+|---|---|---|
+| at least 200 intervals | `tauFitMinGaps` | five free parameters; the minor component needs ≥ 10 points |
+| modes ≥ 0.8 decades apart | `tauFitMinSeparationDecades` | below that two log-normal humps show no dip at 0.1-decade bins |
+| minor component ≥ 5 % | `tauFitMinComponentWeight` | else "the second mode" is a few outliers; on the reference corpus the between-sitting share is ~5.8 %, the number to watch |
+| valley within half a decade of [300, 3600] s | `tauFitValleyMin/MaxLog10` | a valley at 0.1 s is a machine artefact; it is rejected, never clamped |
+| the mixture dips at the crossing | (derived) | a crossing is only a valley if the density is lower there than at both modes |
+
+Refit whenever the sample grows by 10 % or a day passes (`SessionThresholds.needsRefit`).
+`scripts/measure_boundaries.py --tau auto` prints the fit; `make measure-gaps` prints the
+histogram, both fits (the naive record-gap one, labelled as not used, and the v3 one) and
+the session count at the fitted tau against 900 s. Fixtures: `auto_tau_bimodal` (239
+presence intervals, modes 122 s and 54 min, valley 569 s, 25 sessions against 24 at
+900 s — the extra cut is a planted 700 s mid-sitting silence) and `threshold_fit.json`
+(a bare gap list; the Swift EM must match the Python to 1e-6).
+
+On this container's corpus the answer is the fallback: 23 presence intervals. On the Mac
+corpus (1,456 prompts, 84 sessions) the fit will run; whether it is bimodal by the rule
+above is the first thing to look at when `make measure-gaps` is run there.
+
+Capture uses `--tau auto` by default. **The Mac's deriver still passes the default
+(fallback) tau** — `SessionThresholds` and `ThresholdFitter` exist and are tested, but
+wiring the fit into `SessionDeriver` (fit over `presenceGaps`, store the fit, refit on the
+policy above) is deliberately left for a change that can be run against the reference
+corpus, because the ground-truth table in CLAUDE.md is stated at fixed taus and must not
+move by accident.
+
+## 3. Two ends the human makes on purpose
+
+Both are announced exactly as `idle_gap` is — the work in that session stopped — and both
+are final the moment they are derived, like a cut.
+
+### `cleared` — the previous record was a typed `/clear`
+
+The record shape: `type: user`, no `promptSource`, `<command-name>/clear</command-name>`
+in the text (`Tuning.clearCommandMarker`). A human typed it, so it is also a presence
+signal; it is not a prompt. The session ends there whatever the gap after it — silence
+after a `/clear` is silence *after* the stop. Credit and `ended_at` are computed exactly
+as for `idle_gap`; a `/clear` that is the last record of a pool leaves that session final
+with no trailing credit rather than live. **Untested on real data**: the container corpus
+holds zero `/clear` records (its only slash command was a skill invocation), and it is
+possible that current Claude Code starts a new session id on `/clear` instead of writing
+the marker, in which case the rule never fires. Fixture: `cleared_twice`.
+
+### `switched_repo` — a human opened a new session in a different pool
+
+If a native session id's *first* record anywhere is a presence signal, that instant is a
+human session start in its pool. For every other pool, a start that falls at least
+`Tuning.switchedRepoMinGapSec` (= `activeGapCapSec`, 120 s) after the pool's last record
+and before its next ends the session there, credited as an idle end. Below 120 s the gap
+is credited in full as continuous work anyway, and a person hopping between two repos
+inside two minutes is one sitting on two repos. A `claude -p` run's first prompt is `sdk`
+with no human origin and does not count (MEASURED: 7 of 7 headless runs in the container
+corpus) — a robot starting elsewhere says nothing about where the person is. Fixtures:
+`cross_pool/switched_repo_two_pools` and `cross_pool/headless_start_elsewhere_no_switch`
+(two session ids, pooled per id).
+
+Real count: one, and it is the rule's known limit — a sibling automated session started a
+Codex run in another directory while the coordinator's sitting continued, and the Codex
+loader (rightly, for Codex's own purposes) calls that first prompt a prompt. Within Claude
+Code the `sdk`/`origin.kind` distinction is honoured; across harnesses a per-harness origin
+field is needed before this rule is trusted between them.
+
+## The v3 rules, in evaluation order per gap
+
+| # | end reason | condition | credit / `ended_at` | announced | final on derivation |
+|---|---|---|---|---|---|
+| 0 | `cleared` | previous record is a `/clear` | as idle_gap | **yes** | yes |
+| 1 | `idle_gap` | gap > tau (fitted or 900 s) | capped credit; last record + credit | yes | no (the clock finalizes it) |
+| 2 | `switched_repo` | a human start in another pool ≥ 120 s after the last record and before the next | as idle_gap | **yes** | yes |
+| 3 | `day_boundary` | 04:00 in the gap while autonomous | up to the boundary | no | yes |
+| 4 | `human_returned` | presence after ≥ 2 h autonomy | as idle_gap, autonomous | no | yes |
+| — | `still_running` | last session in the pool | none | — | this IS the live upload |
+
+Notifications: `notify.NOTIFYING_END_REASONS = {idle_gap, cleared, switched_repo}` on the
+server; on the Mac `DetectedSession.isStructuralEnd` sessions are final at once
+(`isFinalOnDerivation`) and, unlike `isCut` ones, go through `pendingNotifications`. The
+"Session finished" / "Agent run finished" split, the notable floor and the stale horizon
+apply unchanged. Contract: `end_reason` gained the two values in
+`privacy/upload-contract.json` (regenerated everywhere by `make gen`); Postgres migration
+`0012_end_reasons_v3` widens the CHECK and, on downgrade, relabels v3 rows `idle_gap`
+before restoring the four-value CHECK rather than deleting them. `sessionizer_version`
+is 3.
+
+## What stays, and what would move it
+
+`tauAutonomousSec` (1800 s), `tauReturnSplitSec` (7200 s) and `dayBoundaryHour` (04:00)
+are unchanged. `make measure-gaps` now prints the measurement each is waiting for:
+
+* **1800 s** — the distribution of presence-to-presence intervals within continuous
+  activity. If its upper hump sits well below 30 min the constant is too high.
+* **7200 s** — the band histogram of intervals that crossed 30 min without an idle gap
+  (30 m–1 h, 1–2 h, 2–4 h, ≥ 4 h). Returns inside afternoons populating 1–2 h say 2 h is
+  right or low; an empty 1–2 h band and a populated ≥ 4 h one say it could come down.
+  Here: one interval, 59 m 54 s.
+* **04:00** — the local hour of every autonomous record and every idle-gap start. The
+  boundary belongs where attended activity is rarest and autonomous runs are not
+  systematically split. Here: one day of one person, not evidence.
+
+## Things considered and not done, v3 additions
+
+**Fitting tau on record gaps.** Measured; finds the machine (above). Reported by
+`make measure-gaps` as "NOT what v3 uses" so the next person does not rediscover it.
+
+**Compaction and `Stop` hooks as boundaries.** 1 and 35 in the real corpus, both mid-flow,
+both harness events with nothing to say about the person.
+
+**A commit followed by a long gap.** 43 commits; every long gap after one is already an
+idle end. A strip mark, not a rule.
+
+**Crop / split / merge after the fact.** Strava's second lesson. The right next step once
+sessions are visible on the phone; nothing in v3 makes it harder.

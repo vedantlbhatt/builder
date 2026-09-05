@@ -53,7 +53,14 @@ export interface SessionStrip {
 export type SessionState = 'live' | 'final';
 
 /** See docs/session-boundaries.md. `still_running` is the end reason of a live snapshot. */
-export type EndReason = 'idle_gap' | 'human_returned' | 'day_boundary' | 'still_running';
+export type EndReason =
+  | 'idle_gap'
+  | 'human_returned'
+  | 'day_boundary'
+  | 'still_running'
+  // v3 (docs/session-boundaries.md): a `/clear`, and a human opening a session in another repo.
+  | 'cleared'
+  | 'switched_repo';
 
 export interface SessionDetail {
   id: string;

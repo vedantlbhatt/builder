@@ -40,6 +40,10 @@ export function describeEnd(s: EndFields): string | null {
       return `You came back after ${hoursText(s.autonomous_seconds ?? 0)} of autonomous work — that started a new session`;
     case 'day_boundary':
       return 'Split at 04:00 while running unattended';
+    case 'cleared':
+      return 'Ended with /clear — the next prompt started a new session';
+    case 'switched_repo':
+      return 'You started working in another repo — that started a new session';
     default:
       return null;
   }

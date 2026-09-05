@@ -6,15 +6,24 @@ The pipeline, and where each step's rules live:
    transcript with its partial-line rule and `classify`; the `extra` hook carries the
    record uuid, `sessionId`, `message.id`, usage, model and `subtype` alongside, so tokens
    and identities come from the same parse as the boundaries.
-2. **pooling** — by resolved repository when git can resolve the record's `cwd`
-   (`claude_code|<identity>`), else by project directory. Never by raw cwd: it varies
-   within one conversation (MEASURED: 5 distinct cwds in a 30-minute transcript). Two
-   conversations back to back in one repo are one sitting.
-3. **sessionize** — `measure_boundaries.sessionize`, unchanged. Its output sessions cover
-   the time-sorted pool contiguously, so each session's records are recovered by slicing
-   at the cumulative `records` counts; an assertion checks the slices tile the pool.
-4. **the open session** — the last session in a pool is `still_running`. Younger than
-   `tauSessionSec` it is LIVE (uploaded only with `--live`, or finalized with
+2. **pooling** — by the transcript's LINEAGE: the project directory the file lives in,
+   with every record of one native session id folded into that id's dominant directory
+   (`measure_boundaries.fold_by_session_lineage`). NOT by the repository each record's
+   `cwd` resolves to. Claude Code stamps the shell's current cwd on every record, so a
+   conversation whose shell `cd`s between home and a repo scatters across two keys —
+   MEASURED on the container corpus: 332 cwd runs in one 2,231-record session, all 15
+   human prompts under `/home/user` and 833 assistant records under the repo — and pooled
+   per record that one sitting uploaded as TWO overlapping sessions, one with the prompts
+   and no commits, one with the commits and "0 prompts typed". The repository is an
+   attribute of the session (the dominant resolvable cwd, `Session.repo`), never the
+   partition key. Two conversations back to back in one directory are one sitting.
+3. **sessionize** — `measure_boundaries.sessionize_pools`, unchanged: every pool sees the
+   human session starts of the others (rule `switched_repo`), and the idle-gap threshold
+   is fitted to the pool's presence intervals (`tau="auto"`, v3) or given. Output sessions
+   cover the time-sorted pool contiguously, so each session's records are recovered by
+   slicing at the cumulative `records` counts; an assertion checks the slices tile the pool.
+4. **the open session** — the last session in a pool is `still_running` (or `cleared`,
+   which is final where it stands). Younger than the tau in force it is LIVE (uploaded only with `--live`, or finalized with
    `--finalize` when the container is about to disappear); older, it ended on an idle gap
    nobody was there to observe, and it is finalized the way the reference finalizes an
    idle-gap cut: the boundary gap credited, capped, to whichever clock was running, and
@@ -60,7 +69,6 @@ from .tuning import (
     SYNTHETIC_MODEL_SENTINEL,
     TAU_AUTONOMOUS_SEC,
     TAU_COMMIT_ATTRIBUTION_SEC,
-    TAU_SESSION_SEC,
 )
 
 #: The tool names the Mac uploads counts for. Everything else is not on the wire.
@@ -112,11 +120,29 @@ def load_source(t: Transcript) -> Source:
 # ----------------------------------------------------------------------------- pooling
 
 
-def pool_key(rec: dict, project_dir: str) -> tuple[str, repo.RepoIdentity | None]:
-    ident = repo.identity_for(rec.get("cwd"))
-    if ident is not None:
-        return f"claude_code|{ident.identity}", ident
-    return f"claude_code|dir:{project_dir}", None
+def pool_key(project_dir: str) -> str:
+    """The lineage key: harness and project directory. Never a cwd (module docstring)."""
+    return f"claude_code|dir:{project_dir}"
+
+
+def dominant_repo(records: list[dict]) -> repo.RepoIdentity | None:
+    """The repository most of a session's resolvable records were stamped with — an
+    attribute of the session, decided after the cut. Ties go to the earliest seen."""
+    counts: Counter[str] = Counter()
+    first: dict[str, repo.RepoIdentity] = {}
+    for r in sorted(records, key=lambda r: r["ts"]):
+        ident = repo.identity_for(r.get("cwd"))
+        if ident is None:
+            continue
+        counts[ident.identity] += 1
+        first.setdefault(ident.identity, ident)
+    if not counts:
+        return None
+    best = max(counts.values())
+    for key in first:  # insertion order == earliest seen
+        if counts[key] == best:
+            return first[key]
+    return None
 
 
 # ----------------------------------------------------------------------------- sessions
@@ -187,20 +213,33 @@ def sessionize_sources(
     tz: dt.tzinfo,
     now: float | None = None,
     finalize_open: bool = False,
+    tau: str | float = "auto",
+    report: dict | None = None,
 ) -> list[Session]:
-    """Cut every pool with the reference and attach records and events to each session."""
+    """Cut every pool with the reference and attach records and events to each session.
+
+    `tau` is `"auto"` (fit to the presence intervals of every pool together — the v3 rule,
+    falling back to 900 s below 200 intervals or when the fit is not bimodal), or seconds.
+    `report`, when given, receives `tau` and the `TauFit` so the CLI can print it.
+    """
     now = time.time() if now is None else now
-    pools: dict[str, tuple[list[dict], repo.RepoIdentity | None]] = {}
+    keyed: list[tuple[str, dict]] = []
     events_by_source: dict[str, list[digest.Ev]] = {}
     for src in sources:
         events_by_source[src.source_id] = src.events
-        for r in src.records:
-            key, ident = pool_key(r, src.transcript.project_dir)
-            pools.setdefault(key, ([], ident))[0].append(r)
+        key = pool_key(src.transcript.project_dir)
+        keyed.extend((key, r) for r in src.records)
+    pools = mb.fold_by_session_lineage(keyed)
+
+    tau_value, fit = mb.resolve_tau(tau, pools)
+    if report is not None:
+        report["tau"] = tau_value
+        report["fit"] = fit
+    cuts = mb.sessionize_pools(pools, tz, tau=tau_value)
 
     out: list[Session] = []
-    for key, (recs, ident) in pools.items():
-        cut = mb.sessionize(recs, tz)
+    for key, recs in pools.items():
+        cut = cuts[key]
         ordered = sorted(recs, key=lambda r: r["ts"])  # the reference's own sort, stable
         assert sum(s["records"] for s in cut) == len(ordered), "sessions must tile the pool"
         src_ids = {r["source_id"] for r in recs}
@@ -214,7 +253,7 @@ def sessionize_sources(
             state = "final"
             if s["end_reason"] == "still_running":
                 age = now - members[-1]["ts"]
-                if age < TAU_SESSION_SEC and not finalize_open:
+                if age < tau_value and not finalize_open:
                     state = "live"
                 else:
                     _finalize_open(s, members, now)
@@ -223,7 +262,7 @@ def sessionize_sources(
             out.append(
                 Session(
                     pool=key,
-                    repo=ident,
+                    repo=dominant_repo(members),
                     records=members,
                     events=evs,
                     started_at=s["started_at"],

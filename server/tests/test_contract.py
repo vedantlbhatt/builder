@@ -246,10 +246,12 @@ def test_contract_v2_boundary_fields_and_enums():
     assert CONTRACT_VERSION == 2
     assert sorted(ENUM_VALUES["state"]) == ["final", "live"]
     assert sorted(ENUM_VALUES["end_reason"]) == [
+        "cleared",
         "day_boundary",
         "human_returned",
         "idle_gap",
         "still_running",
+        "switched_repo",
     ]
     for bad_state in ("open", "idle", "finalizing"):
         with pytest.raises(ValidationError):

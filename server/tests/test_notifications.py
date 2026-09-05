@@ -275,6 +275,22 @@ def test_cuts_and_quiet_sessions_send_nothing(client, paired, sent):
     assert _recorded(uid) == {}
 
 
+def test_structural_ends_are_announced_like_silence(client, paired, sent):
+    """v3: `cleared` (the human typed /clear) and `switched_repo` (the human opened a new
+    session in another repo) mean the work in that session stopped, on purpose. Both are
+    announced exactly as an idle end is, and recorded once."""
+    uid, headers = paired
+    cleared = _fresh_final(end_reason="cleared")
+    switched = _fresh_final(end_reason="switched_repo")
+    assert _upload(client, headers, cleared, switched)["accepted"] == 2
+    assert len(sent) == 2
+    assert all(c["title"].startswith("Session finished: 1h 42m") for c in sent)
+    assert _recorded(uid) == {
+        cleared["client_session_id"]: "session_finished",
+        switched["client_session_id"]: "session_finished",
+    }
+
+
 def test_a_push_failure_never_rolls_back_the_upload(client, paired, monkeypatch):
     import builder.routes.push as push
 

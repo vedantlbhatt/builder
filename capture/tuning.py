@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from . import reference as _ref
 
-#: Tuning.tauSessionSec — the idle gap that ends a session. From the reference.
-TAU_SESSION_SEC: float = _ref.mb.TAU_SESSION
+#: Tuning.tauSessionSec — the FALLBACK idle gap that ends a session, used until a user has
+#: 200 presence intervals and a bimodal fit (`measure_boundaries.fit_tau`). From the reference.
+TAU_SESSION_SEC: float = _ref.mb.TAU_SESSION_FALLBACK
 #: Tuning.activeGapCapSec — the most one gap credits to active time. From the reference.
 ACTIVE_GAP_CAP_SEC: float = _ref.mb.ACTIVE_GAP_CAP
 #: Tuning.tauAutonomousSec — silence after which the agent is on its own. From the reference.
@@ -22,7 +23,8 @@ DAY_BOUNDARY_HOUR: int = _ref.mb.DAY_BOUNDARY_HOUR
 
 #: Tuning.sessionizerVersion / activeCalcVersion — carried on every payload so a retuned
 #: rule is a recompute on the server, not a migration.
-SESSIONIZER_VERSION = 2
+#: 3: lineage pooling, fitted tau, `cleared` and `switched_repo` (docs/session-boundaries.md v3).
+SESSIONIZER_VERSION = 3
 ACTIVE_CALC_VERSION = 1
 
 #: Tuning.liveUploadMinIntervalSec (60). "Minimum interval between two uploads of the

@@ -1,10 +1,12 @@
 import BuilderModel
 import Foundation
 
-/// Why a session ended. Only `idleGap` means *the work stopped*; the two cuts mean the
-/// human's sitting changed while the agent kept going. See docs/session-boundaries.md.
+/// Why a session ended. `idleGap`, `cleared` and `switchedRepo` mean *the work stopped*
+/// and are announced; the two cuts mean the human's sitting changed while the agent kept
+/// going, and are not. See docs/session-boundaries.md (v3).
 public enum EndReason: String, Sendable, CaseIterable {
-    /// Nothing happened for `Tuning.tauSessionSec`. The only end that fires a notification.
+    /// Nothing happened for the tau in force (`SessionThresholds.tau`, fallback
+    /// `Tuning.tauSessionSec`). Announced.
     case idleGap = "idle_gap"
     /// A presence signal arrived after >= `Tuning.tauReturnSplitSec` of autonomy. The human
     /// came back to a still-running agent: a new sitting begins with that signal.
@@ -12,6 +14,16 @@ public enum EndReason: String, Sendable, CaseIterable {
     /// The 04:00 local day boundary fell inside a gap while the run was autonomous. An
     /// attended late night is never split.
     case dayBoundary = "day_boundary"
+    /// The human typed `/clear` (v3). The conversation was ended on purpose, so the
+    /// session ends at that record whatever the gap after it. Final where it stands,
+    /// announced like silence. UNTESTED ON REAL DATA: zero `/clear` records in the
+    /// container corpus; the `cleared_twice` fixture pins the shape.
+    case cleared
+    /// A human opened a NEW native session in a DIFFERENT pool at least
+    /// `Tuning.switchedRepoMinGapSec` after this session's last record and before its next
+    /// (v3). The sitting moved; this session ends, credited as an idle end would be.
+    /// Final where it stands, announced like silence.
+    case switchedRepo = "switched_repo"
     /// The last session in its pool. This IS the live session.
     case stillRunning = "still_running"
 }
@@ -128,14 +140,27 @@ public struct DetectedSession: Sendable, Equatable {
     public var isCut: Bool {
         endReason == .humanReturned || endReason == .dayBoundary
     }
+
+    /// Ended by something the human did on purpose (v3): `/clear`, or opening a new
+    /// session in another repo. Final the moment it is derived, like a cut — and
+    /// announced, like silence, because the work in this session stopped.
+    public var isStructuralEnd: Bool {
+        endReason == .cleared || endReason == .switchedRepo
+    }
+
+    /// Nothing more can ever be added: a cut or a structural end. The lifecycle marks these
+    /// final without waiting `tauSessionSec` for silence.
+    public var isFinalOnDerivation: Bool { isCut || isStructuralEnd }
 }
 
 /// Turns a normalized event stream into build sessions.
 ///
-/// The algorithm is: pool, sort by time, walk the gaps. Rule 1 cuts on silence exactly as
-/// it always has; rules 2 and 3 cut a run the human is not part of. The reference
-/// implementation is `scripts/measure_boundaries.py`, and `BoundaryFixtureTests` holds
-/// this code to it on the fixtures under `spec/fixtures/boundaries/`.
+/// The algorithm is: pool, fold by lineage, sort by time, walk the gaps. Silence cuts
+/// exactly as it always has (at a tau that may now be fitted); `/clear` and a switch to
+/// another repo end a session the human ended; `human_returned` and `day_boundary` cut a
+/// run the human is not part of. The reference implementation is
+/// `scripts/measure_boundaries.py`, and `BoundaryFixtureTests` holds this code to it on
+/// the fixtures under `spec/fixtures/boundaries/`.
 public enum Sessionizer {
 
     /// How events are grouped before cutting.
@@ -172,7 +197,15 @@ public enum Sessionizer {
         public var tauReturnSplit: Double
         /// Supplies the local time zone for the `Tuning.dayBoundaryHour` rule.
         public var calendar: Calendar
+        /// A human session start in another pool at least this long after a session's
+        /// last record ends it (`switchedRepo`).
+        public var switchMinGap: Double
 
+        /// `tau` is the FALLBACK unless the caller fitted one: pass
+        /// `SessionThresholds.fitted(gaps: Sessionizer.presenceGaps(from:options:)).tau`.
+        /// The deriver still passes the default today, so the Mac cuts at 900 s until it
+        /// is wired; the ground-truth table in CLAUDE.md is stated at fixed taus and uses
+        /// this default on purpose.
         public init(
             tau: Double = Tuning.tauSessionSec,
             activeGapCap: Double = Tuning.activeGapCapSec,
@@ -180,7 +213,8 @@ public enum Sessionizer {
             machineID: String = "local",
             tauAutonomous: Double = Tuning.tauAutonomousSec,
             tauReturnSplit: Double = Tuning.tauReturnSplitSec,
-            calendar: Calendar = .current
+            calendar: Calendar = .current,
+            switchMinGap: Double = Tuning.switchedRepoMinGapSec
         ) {
             self.tau = tau
             self.activeGapCap = activeGapCap
@@ -189,7 +223,133 @@ public enum Sessionizer {
             self.tauAutonomous = tauAutonomous
             self.tauReturnSplit = tauReturnSplit
             self.calendar = calendar
+            self.switchMinGap = switchMinGap
         }
+    }
+
+    /// Pools after the lineage fold, each sorted by (ts, ordinal); the content-block
+    /// events that share a record with a pooled one; and the instants a HUMAN opened a new
+    /// native session in each pool.
+    private struct Pooled {
+        var pools: [String: [(Int, NormalizedEvent)]]
+        var extras: [String: [Int]]
+        var humanStarts: [String: [Double]]
+    }
+
+    /// Pool, then fold by session lineage, then find the human session starts.
+    ///
+    /// THE FOLD (v3). A session is one human's sitting, and the repository is an attribute
+    /// of it, not a partition key. Claude Code stamps the shell's CURRENT cwd on every
+    /// record, so a conversation whose shell `cd`s between home and a repo scatters across
+    /// two keys under any per-event pooling — MEASURED on the container corpus: one
+    /// 2,231-record session held 332 runs of alternating cwd, all 15 human prompts under
+    /// `/home/user` and 833 of the assistant's records under the repository, with a median
+    /// gap of 0.4 s at each change. Pooled per record that sitting became two overlapping
+    /// sessions, one with the prompts and zero commits and one with the commits and
+    /// "0 prompts typed" — the plausible wrong number. (The reference machine shows the
+    /// same shape in miniature: 5 distinct cwds in one 30-minute transcript.) So every
+    /// record of one native session id goes to that id's DOMINANT key: by record count,
+    /// ties to the key of the id's earliest record, then the smaller key string — the
+    /// same three steps as `measure_boundaries.fold_by_session_lineage`. Records with no
+    /// session id keep their own key. Two conversations back to back under one key still
+    /// share a pool: that rule is unchanged from v1.
+    ///
+    /// HUMAN STARTS. A native session id is new at its earliest record anywhere; the start
+    /// counts only if that record is a presence signal — a `claude -p` run stamps its
+    /// prompt `sdk` with no human origin (MEASURED: 7 of 7 headless runs in the container
+    /// corpus), and a robot starting in another repo says nothing about where the person is.
+    private static func pool(_ events: [NormalizedEvent], options: Options) -> Pooled {
+        var seenRecords = Set<String>()
+        var extras: [String: [Int]] = [:]
+        var keyed: [(key: String, index: Int, event: NormalizedEvent)] = []
+        for (i, e) in events.enumerated() {
+            guard e.ts != nil else { continue }
+            let recordKey = "\(e.sourceID)|\(recordBaseID(e))"
+            if seenRecords.insert(recordKey).inserted {
+                keyed.append((poolKey(e, options), i, e))
+            } else {
+                extras[recordKey, default: []].append(i)
+            }
+        }
+
+        var counts: [String: [String: Int]] = [:]
+        var earliest: [String: (ts: Double, key: String)] = [:]
+        for k in keyed {
+            guard let sid = k.event.nativeSessionID, let ts = k.event.ts else { continue }
+            counts[sid, default: [:]][k.key, default: 0] += 1
+            if let cur = earliest[sid] {
+                if ts < cur.ts || (ts == cur.ts && k.key < cur.key) { earliest[sid] = (ts, k.key) }
+            } else {
+                earliest[sid] = (ts, k.key)
+            }
+        }
+        var home: [String: String] = [:]
+        for (sid, byKey) in counts {
+            let best = byKey.values.max() ?? 0
+            let candidates = byKey.filter { $0.value == best }.map { $0.key }.sorted()
+            let firstKey = earliest[sid]?.key ?? candidates[0]
+            home[sid] = candidates.contains(firstKey) ? firstKey : candidates[0]
+        }
+
+        var pools: [String: [(Int, NormalizedEvent)]] = [:]
+        for k in keyed {
+            let key = k.event.nativeSessionID.flatMap { home[$0] } ?? k.key
+            pools[key, default: []].append((k.index, k.event))
+        }
+        for key in pools.keys {
+            pools[key]!.sort { a, b in
+                let at = a.1.ts ?? 0
+                let bt = b.1.ts ?? 0
+                return at == bt ? a.1.ordinal < b.1.ordinal : at < bt
+            }
+        }
+
+        // Earliest record of each native session id, over the folded pools (sorted, so the
+        // first hit per id is its earliest by (ts, ordinal)).
+        var first: [String: (ts: Double, key: String, presence: Bool)] = [:]
+        for key in pools.keys.sorted() {
+            for (_, e) in pools[key]! {
+                guard let sid = e.nativeSessionID, let ts = e.ts else { continue }
+                if let cur = first[sid], cur.ts <= ts { continue }
+                first[sid] = (ts, key, e.kind.isPresence)
+            }
+        }
+        var starts: [String: [Double]] = [:]
+        for key in pools.keys { starts[key] = [] }
+        for (_, f) in first where f.presence {
+            starts[f.key, default: []].append(f.ts)
+        }
+        for key in starts.keys { starts[key]!.sort() }
+
+        return Pooled(pools: pools, extras: extras, humanStarts: starts)
+    }
+
+    /// The sample `SessionThresholds` is fitted on: every strictly positive interval between
+    /// consecutive presence signals in a pool, across idle gaps too (that is where the
+    /// between-sitting mode lives), over every pool. Mirrors `measure_boundaries.presence_gaps`.
+    public static func presenceGaps(
+        from events: [NormalizedEvent], options: Options = Options()
+    ) -> [Double] {
+        var out: [Double] = []
+        for (_, sorted) in pool(events, options: options).pools {
+            var ts: [Double] = []
+            for (_, e) in sorted where e.kind.isPresence {
+                if let t = e.ts { ts.append(t) }
+            }
+            ts.sort()
+            if ts.count < 2 { continue }
+            for i in 1..<ts.count {
+                let g = ts[i] - ts[i - 1]
+                if g > 0 { out.append(g) }
+            }
+        }
+        return out
+    }
+
+    /// The first human session start in another pool at or after `lo` and before `hi`.
+    private static func foreignStart(in starts: [Double], notBefore lo: Double, before hi: Double) -> Double? {
+        guard let f = starts.first(where: { $0 >= lo }) else { return nil }
+        return f < hi ? f : nil
     }
 
     /// The session being accumulated while walking one pool's gaps.
@@ -244,28 +404,18 @@ public enum Sessionizer {
         // arithmetic is per record. The record's kind — prompt, interrupt, presence — is
         // read from its first event, which is the prompt or interrupt event itself on
         // every user record that is one.
-        var pools: [String: [(Int, NormalizedEvent)]] = [:]
-        var seenRecords = Set<String>()
-        var extras: [String: [Int]] = [:]  // record key -> other event indices
-
-        for (i, e) in events.enumerated() {
-            guard e.ts != nil else { continue }
-            let recordKey = "\(e.sourceID)|\(recordBaseID(e))"
-            if seenRecords.insert(recordKey).inserted {
-                pools[poolKey(e, options), default: []].append((i, e))
-            } else {
-                extras[recordKey, default: []].append(i)
-            }
-        }
+        let pooled = pool(events, options: options)
+        let extras = pooled.extras
 
         var out: [DetectedSession] = []
 
-        for (key, entries) in pools {
-            let sorted = entries.sorted { a, b in
-                let at = a.1.ts ?? 0
-                let bt = b.1.ts ?? 0
-                return at == bt ? a.1.ordinal < b.1.ordinal : at < bt
+        for (key, sorted) in pooled.pools {
+            // Rule 2 (v3) reads the human session starts of every OTHER pool.
+            var foreign: [Double] = []
+            for (otherKey, starts) in pooled.humanStarts where otherKey != key {
+                foreign.append(contentsOf: starts)
             }
+            foreign.sort()
             guard let firstEntry = sorted.first, let firstTS = firstEntry.1.ts else { continue }
 
             func cut(_ acc: Accumulator, endIndex: Int, reason: EndReason) {
@@ -318,12 +468,34 @@ public enum Sessionizer {
                     autonomous = true
                 }
 
+                // Rule 0 (v3): the previous record was a `/clear`. The human ended the
+                // conversation on purpose, so the session ends there whatever the gap —
+                // silence after it is silence AFTER the stop, not the stop itself.
                 // Rule 1: idle gap. Unchanged, and still the boundary that ends 99.8% of
                 // sessions (MEASURED: 997 of 48,095 gaps exceed 60 s; p99.9 is 32.5 min).
-                if gap > options.tau {
-                    cur.credit(credit, autonomous: autonomous)
-                    cur.endedAt = prevTS + credit
-                    cut(cur, endIndex: i, reason: .idleGap)
+                // Rule 2 (v3): a human opened a new session in another pool at least
+                // `switchMinGap` after our last record and before our next. The sitting
+                // moved; this session ends, credited exactly as an idle end would be.
+                // All three credit the boundary gap the same way and differ in name only,
+                // so the arithmetic below is shared and cannot drift between them.
+                let prevIsClear = sorted[i - 1].1.kind == .clear
+                let switchAt = foreign.isEmpty
+                    ? nil
+                    : foreignStart(in: foreign, notBefore: prevTS + options.switchMinGap, before: ts)
+                if prevIsClear || gap > options.tau || switchAt != nil {
+                    let reason: EndReason
+                    var boundaryCredit = credit
+                    if prevIsClear {
+                        reason = .cleared
+                    } else if gap > options.tau {
+                        reason = .idleGap
+                    } else {
+                        reason = .switchedRepo
+                        boundaryCredit = min(switchAt! - prevTS, options.activeGapCap)
+                    }
+                    cur.credit(boundaryCredit, autonomous: autonomous)
+                    cur.endedAt = prevTS + boundaryCredit
+                    cut(cur, endIndex: i, reason: reason)
                     cur = Accumulator(firstIndex: i, startedAt: ts, endedAt: ts)
                     lastPresence = rec.kind.isPresence ? ts : nil
                     runStart = rec.kind.isPresence ? nil : ts
@@ -384,9 +556,11 @@ public enum Sessionizer {
                 }
             }
 
-            // The last session in the pool is the live one. No trailing credit: there is
-            // no next record to measure a gap against.
-            cut(cur, endIndex: sorted.count, reason: .stillRunning)
+            // The last session in the pool is the live one — unless its last record is a
+            // `/clear`, in which case it ended there and is final. No trailing credit
+            // either way: there is no next record to measure a gap against.
+            let lastIsClear = sorted[sorted.count - 1].1.kind == .clear
+            cut(cur, endIndex: sorted.count, reason: lastIsClear ? .cleared : .stillRunning)
         }
 
         return out.sorted { $0.startedAt < $1.startedAt }

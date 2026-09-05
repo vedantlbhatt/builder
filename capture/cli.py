@@ -171,7 +171,11 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
     now = time.time() if now is None else now
     transcripts = iter_root_transcripts(root)
     sources = [sessions.load_source(t) for t in transcripts]
-    cut = sessions.sessionize_sources(sources, tz, now=now, finalize_open=a.finalize)
+    fit_report: dict = {}
+    cut = sessions.sessionize_sources(
+        sources, tz, now=now, finalize_open=a.finalize, tau=getattr(a, "tau", "auto"),
+        report=fit_report,
+    )
 
     creds = cl.read_json(cl.credentials_path())
     machine_id = cl.machine_identity(creds)
@@ -189,6 +193,10 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
         "live": 0,
         "final": 0,
         "with_analysis": 0,
+        "tau": fit_report.get("tau"),
+        "tau_fit": (
+            sessions.mb.describe_fit(fit_report["fit"]) if fit_report.get("fit") else None
+        ),
     }
     for s in cut:
         if s.repo is not None and s.repo.identity in excluded:
@@ -226,6 +234,7 @@ def cmd_sync(a: argparse.Namespace) -> int:
         + (f", {info['excluded']} excluded" if info["excluded"] else "")
         + (f", {info['with_analysis']} with an analysis" if info["with_analysis"] else "")
         + (f"; auth: capture key {cl.key_prefix(key)}… (no pairing needed)" if key else "")
+        + (f"; {info['tau_fit']}" if info.get("tau_fit") else "")
     )
 
     if a.dry_run:
@@ -333,6 +342,12 @@ def make_parser() -> argparse.ArgumentParser:
         "replaces pairing",
     )
     s.add_argument("--tz", help="IANA zone for the 04:00 day rule (or BUILDER_TZ / TZ)")
+    s.add_argument(
+        "--tau",
+        default="auto",
+        help="idle-gap threshold: 'auto' fits it to your presence intervals (v3; 900 s "
+        "until there are 200 of them and the fit is bimodal), or a number of seconds",
+    )
     s.add_argument("--dry-run", action="store_true", help="print the payloads; send nothing")
     s.add_argument("--live", action="store_true", help="also upload the open session as state=live")
     s.add_argument(

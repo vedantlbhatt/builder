@@ -94,10 +94,13 @@ public final class SessionLifecycle {
             for s in sessions {
                 let quiet = now - s.endedAt
                 let next: SessionState
-                if s.isCut {
+                if s.isFinalOnDerivation {
                     // Ended by a boundary rule, not by silence: the human came back to a
-                    // running agent, or 04:00 passed during an autonomous run. Nothing
+                    // running agent, 04:00 passed during an autonomous run, the human
+                    // typed `/clear`, or opened a new session in another repo. Nothing
                     // more can ever be added to it, so it is final the moment it exists.
+                    // The two structural ends are still ANNOUNCED below — unlike a cut,
+                    // they mean the work stopped (docs/session-boundaries.md v3).
                     next = .final
                 } else if quiet < Tuning.tauIdleSegSec {
                     next = .open

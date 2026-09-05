@@ -82,6 +82,20 @@ record or extend a streak, and when they stop they fire "Agent run finished" rat
 the run; an attended late night is never split. The reference implementation is
 `scripts/measure_boundaries.py` and the design is `docs/session-boundaries.md`.
 
+**Pooling by the repository each record's `cwd` resolves to.** Claude Code stamps the
+shell's CURRENT cwd on every record. One 2,231-record sitting `cd`'d between home and the
+repo 332 times; all 15 prompts landed in one pool and 833 tool calls (19 commits) in
+another, and the phone showed a 1h09m session with "Prompts you typed 0". A session is one
+human's sitting and the repo is an attribute of it: pool by transcript lineage and fold every
+record of one native session id into that id's dominant pool (v3, `fold_by_session_lineage`).
+
+**Fitting the idle threshold to record gaps.** The Halfaker (WWW 2015) two-mode fit on
+record gaps is confidently bimodal — between the harness's millisecond flush and the agent's
+3 s tool cadence, valley 0.1 s, which the clamp would have turned into 300 s. The fit runs
+on presence-to-presence intervals, needs 200 of them and a real dip inside [95 s, 11,400 s],
+and otherwise falls back to 900 s. `make measure-gaps` prints both fits, labelled.
+`docs/research/session-boundaries-research.md` has the literature and the numbers.
+
 **Treating `type: "user"` as a prompt.** 18,836 user records, 1,456 typed prompts. The rest
 are tool results and system injections. Checked whether records missing `promptSource` were
 real prompts: they are slash commands (`/model`, `/effort`) and `isMeta` injections. The

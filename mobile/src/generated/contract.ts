@@ -39,7 +39,7 @@ export interface SessionWire {
   time_quality: string;
   /** live = an open/idle session snapshot, replaced in place when it finalizes; final = complete */
   state: string;
-  /** why the session ended (docs/session-boundaries.md). still_running IS the live upload */
+  /** why the session ended (docs/session-boundaries.md). still_running IS the live upload; cleared (a typed /clear) and switched_repo (a new session opened in another repo) are v3 ends that, like idle_gap, mean the work stopped */
   end_reason: string;
   /** active time with a human evidently present (docs/session-boundaries.md) */
   attended_seconds: number;

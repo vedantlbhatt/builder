@@ -130,3 +130,11 @@ describe('live lines', () => {
     );
   });
 });
+
+describe('describeEnd — v3 structural ends', () => {
+  test('a /clear and a repo switch each get a note; idle_gap still none', () => {
+    expect(describeEnd({ end_reason: 'cleared', autonomous_seconds: 0 })).toContain('/clear');
+    expect(describeEnd({ end_reason: 'switched_repo', autonomous_seconds: 0 })).toContain('another repo');
+    expect(describeEnd({ end_reason: 'idle_gap', autonomous_seconds: 0 })).toBeNull();
+  });
+});

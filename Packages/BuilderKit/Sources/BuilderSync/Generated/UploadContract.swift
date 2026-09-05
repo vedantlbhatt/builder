@@ -204,7 +204,7 @@ public enum UploadContract {
         "harness": ["claude_code", "cline", "codex", "cursor_agent", "cursor_ide", "gemini_cli"],
         "time_quality": ["mtime_corrected", "ok"],
         "state": ["final", "live"],
-        "end_reason": ["day_boundary", "human_returned", "idle_gap", "still_running"],
+        "end_reason": ["cleared", "day_boundary", "human_returned", "idle_gap", "still_running", "switched_repo"],
         "timeline_fidelity": ["coarse", "full", "header_only"],
         "prompt_count_basis": ["typed_promptsource", "user_bubble"],
         "agent_line_bucket": ["about_half", "almost_all_agent", "mostly_you", "nine_in_ten", "three_in_four", "unknown"],
