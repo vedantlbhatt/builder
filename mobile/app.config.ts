@@ -36,6 +36,14 @@ const config: ExpoConfig = {
     ['expo-camera', { cameraPermission: 'Scan the pairing code shown by your Mac.' }],
     ['expo-notifications', { color: '#FFB300' }],
     'expo-sqlite',
+    // Post media. The picker plugin would also stamp a generic microphone string; expo-av
+    // runs after it and its explicit string wins (an explicit value beats an existing one
+    // in `IOSConfig.Permissions.applyPermissions`).
+    [
+      'expo-image-picker',
+      { photosPermission: 'Builder attaches the photos you choose to the sessions you share.' },
+    ],
+    ['expo-av', { microphonePermission: 'Builder records the voice note you add to a shared session.' }],
     // Local plugin. Survives `expo prebuild`, which regenerates ios/Podfile.
     './plugins/withFmtConstevalPatch',
   ],

@@ -133,7 +133,7 @@ export default function PostScreen() {
             <Text style={{ color: c.textDim, fontSize: 13 }}>{error}</Text>
           </View>
         )}
-        {post && <PostRow item={post} onKudos={onKudos} linkToPost={false} />}
+        {post && <PostRow item={post} onKudos={onKudos} linkToPost={false} photoLayout="full" />}
 
         <Text style={sectionTitle}>COMMENTS</Text>
         {comments && comments.length === 0 && (

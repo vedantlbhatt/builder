@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -17,11 +18,25 @@ import { AnalysisView } from '../../src/analysis/AnalysisView';
 import { describeEnd } from '../../src/analysis/format';
 import { RecapCard, toCardModel, type CardModel } from '../../src/card/RecapCard';
 import { shareCard } from '../../src/card/export';
-import type { FeedItem, SessionDetail, Visibility } from '../../src/data/api';
+import {
+  PRESIGN_UNCONFIGURED_MESSAGE,
+  type FeedItem,
+  type SessionDetail,
+  type Visibility,
+} from '../../src/data/api';
 import * as cache from '../../src/data/cache';
 import { api, SAMPLE_SESSION } from '../../src/data/client';
 import { VISIBILITIES, visibilityLabel } from '../../src/social/format';
 import { rememberMyHandle } from '../../src/social/identity';
+import {
+  formatClock,
+  mediaPlan,
+  type MediaJob,
+  type PickedPhoto,
+  type RecordedAudio,
+} from '../../src/social/media';
+import { MediaPicker } from '../../src/social/MediaPicker';
+import { runUploads, type UploadState } from '../../src/social/upload';
 import { TimelineStrip } from '../../src/strip/TimelineStrip';
 import { classShare, decodeColumns, decodeMarks } from '../../src/strip/decode';
 import { StripClass } from '../../src/generated/strip';
@@ -239,12 +254,18 @@ export default function SessionScreen() {
 
 const CAPTION_MAX = 1000;
 
+/** One line per planned upload while the sheet is in its upload phase. */
+type UploadRow = { job: MediaJob; state: UploadState };
+
 /**
- * Visibility, a caption, and whether the whole analysis travels with the post (the feed
- * shows headline + summary either way). Photos are deliberately absent from this pass:
- * TODO wire an image picker to `api.presignMedia` → PUT → `api.attachMedia`, downscaling
- * to a 2048 long edge first; the server answers 503 with a plain sentence until object
- * storage is configured.
+ * Visibility, a caption, whether the whole analysis travels with the post (the feed shows
+ * headline + summary either way), up to six photos and one voice note.
+ *
+ * Two phases. `compose` is the form. Post creates the row first — the post exists the
+ * moment the server answers, media or not — then `upload` runs the plan against it one
+ * object at a time and shows each line's state. A failed line can be retried; a presign
+ * 503 (object storage not configured on this server) is said once, in plain words, and
+ * the post stands without its media rather than being rolled back.
  */
 function ComposeModal({
   visible,
@@ -262,108 +283,309 @@ function ComposeModal({
   const [visibility, setVisibility] = useState<Visibility>('followers');
   const [caption, setCaption] = useState('');
   const [shareAnalysis, setShareAnalysis] = useState(false);
+  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+  const [audio, setAudio] = useState<RecordedAudio | null>(null);
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState<FeedItem | null>(null);
+  const [rows, setRows] = useState<UploadRow[]>([]);
+  const saidUnconfigured = useRef(false);
+
+  // The sheet stays mounted between openings. Reopening it (after deleting the post, say)
+  // must start a fresh compose, not land in the previous post's upload list.
+  useEffect(() => {
+    if (!visible) return;
+    setCreated(null);
+    setRows([]);
+    setPhotos([]);
+    setAudio(null);
+    setBusy(false);
+    saidUnconfigured.current = false;
+  }, [visible]);
+
+  const setRow =(i: number, state: UploadState) =>
+    setRows((prev) => prev.map((r, k) => (k === i ? { ...r, state } : r)));
+
+  const run = async (post: FeedItem, indices: number[], all: UploadRow[]) => {
+    setBusy(true);
+    try {
+      const jobs = indices.map((i) => all[i]!.job);
+      await runUploads(post.id, jobs, (k, state) => {
+        const i = indices[k]!;
+        setRow(i, state);
+        if (state.phase === 'failed' && state.unconfigured && !saidUnconfigured.current) {
+          saidUnconfigured.current = true;
+          Alert.alert('Posted without media', PRESIGN_UNCONFIGURED_MESSAGE);
+        }
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (busy) return;
-    setBusy(true);
+    let jobs: MediaJob[];
     try {
-      const p = await api.createPost({
+      jobs = mediaPlan(photos, audio);
+    } catch (e) {
+      Alert.alert('Check the media', e instanceof Error ? e.message : 'try again');
+      return;
+    }
+    setBusy(true);
+    let p: FeedItem;
+    try {
+      p = await api.createPost({
         session_id: sessionId,
         caption: caption.trim() || null,
         visibility,
         share_analysis: shareAnalysis,
       });
       void rememberMyHandle(p.author.handle);
-      onPosted(p);
     } catch (e) {
-      Alert.alert('Could not post', e instanceof Error ? e.message : 'try again');
-    } finally {
       setBusy(false);
+      Alert.alert('Could not post', e instanceof Error ? e.message : 'try again');
+      return;
     }
+    if (jobs.length === 0) {
+      setBusy(false);
+      onPosted(p);
+      return;
+    }
+    const all: UploadRow[] = jobs.map((job) => ({ job, state: { phase: 'queued' } }));
+    setCreated(p);
+    setRows(all);
+    await run(
+      p,
+      all.map((_, i) => i),
+      all
+    );
   };
 
+  const retry = () => {
+    if (!created || busy) return;
+    const failed = rows
+      .map((r, i) => (r.state.phase === 'failed' && !r.state.unconfigured ? i : -1))
+      .filter((i) => i >= 0);
+    if (failed.length === 0) return;
+    void run(created, failed, rows);
+  };
+
+  const finish = async () => {
+    if (!created) return;
+    // Re-read so the "Posted" row and any feed cache carry the attached media with urls.
+    let final = created;
+    try {
+      final = await api.post(created.id);
+    } catch {
+      // The post exists either way; the feed will show the media on its next refresh.
+    }
+    onPosted(final);
+  };
+
+  const uploading = created !== null;
+  const allDone = uploading && rows.every((r) => r.state.phase === 'done');
+  const retryable = rows.some((r) => r.state.phase === 'failed' && !r.state.unconfigured);
+
+  // Every upload landed: close on its own. Anything else waits for a tap so the failures
+  // are read rather than flashed.
+  useEffect(() => {
+    if (allDone && !busy) void finish();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allDone, busy]);
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => (uploading ? void finish() : onClose())}
+    >
       <ScrollView
         style={{ flex: 1, backgroundColor: c.bg }}
         contentContainerStyle={{ padding: space.md, paddingBottom: space.xxl }}
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.lg }}>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <Text style={{ color: c.textDim, fontSize: 15 }}>Cancel</Text>
-          </Pressable>
+          {uploading ? (
+            <View style={{ width: 48 }} />
+          ) : (
+            <Pressable onPress={onClose} hitSlop={8} disabled={busy}>
+              <Text style={{ color: c.textDim, fontSize: 15 }}>Cancel</Text>
+            </Pressable>
+          )}
           <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center' }}>
-            Post session
+            {uploading ? 'Uploading' : 'Post session'}
           </Text>
-          <Pressable onPress={() => void submit()} disabled={busy} hitSlop={8}>
-            <Text style={{ color: c.accent, fontSize: 15, fontWeight: '700', opacity: busy ? 0.5 : 1 }}>
-              {busy ? 'Posting…' : 'Post'}
-            </Text>
-          </Pressable>
-        </View>
-
-        <Text style={composeLabel}>WHO CAN SEE IT</Text>
-        <View style={{ flexDirection: 'row', backgroundColor: c.card, borderRadius: 10, padding: 3 }}>
-          {VISIBILITIES.map((v) => (
-            <Pressable
-              key={v}
-              onPress={() => setVisibility(v)}
-              style={{
-                flex: 1,
-                paddingVertical: space.sm,
-                borderRadius: 8,
-                alignItems: 'center',
-                backgroundColor: v === visibility ? c.accent : 'transparent',
-              }}
-            >
-              <Text style={{ color: v === visibility ? '#1C1917' : c.text, fontWeight: '600', fontSize: 14 }}>
-                {visibilityLabel(v)}
+          {uploading ? (
+            <Pressable onPress={() => void finish()} disabled={busy} hitSlop={8}>
+              <Text style={{ color: c.accent, fontSize: 15, fontWeight: '700', opacity: busy ? 0.5 : 1 }}>
+                Done
               </Text>
             </Pressable>
-          ))}
+          ) : (
+            <Pressable onPress={() => void submit()} disabled={busy} hitSlop={8}>
+              <Text style={{ color: c.accent, fontSize: 15, fontWeight: '700', opacity: busy ? 0.5 : 1 }}>
+                {busy ? 'Posting…' : 'Post'}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
-        <Text style={[composeLabel, { marginTop: space.lg }]}>CAPTION</Text>
-        <TextInput
-          value={caption}
-          onChangeText={(t) => setCaption(t.slice(0, CAPTION_MAX))}
-          placeholder="What did you build?"
-          placeholderTextColor={c.textDim}
-          multiline
-          style={{
-            color: c.text,
-            backgroundColor: c.card,
-            borderRadius: 10,
-            padding: space.md,
-            minHeight: 96,
-            fontSize: 15,
-            textAlignVertical: 'top',
-          }}
-        />
-        <Text style={{ color: c.textDim, fontSize: 11, textAlign: 'right', marginTop: 4 }}>
-          {caption.length}/{CAPTION_MAX}
-        </Text>
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: space.lg, backgroundColor: c.card, borderRadius: 10, padding: space.md }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.text, fontSize: 15 }}>Include full analysis</Text>
-            <Text style={{ color: c.textDim, fontSize: 12, marginTop: 2 }}>
-              {hasAnalysis
-                ? 'Off shares only the headline and summary.'
-                : 'This session has no analysis yet.'}
+        {uploading ? (
+          <View>
+            <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 18, marginBottom: space.md }}>
+              Your post is up. Its photos and voice note are on their way.
             </Text>
+            {rows.map((r, i) => (
+              <UploadLine key={i} row={r} />
+            ))}
+            {!busy && retryable && (
+              <Pressable
+                onPress={retry}
+                style={({ pressed }) => [
+                  {
+                    backgroundColor: c.accent,
+                    borderRadius: 12,
+                    paddingVertical: space.md,
+                    alignItems: 'center',
+                    marginTop: space.md,
+                  },
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <Text style={{ color: '#1C1917', fontWeight: '700', fontSize: 15 }}>Retry failed uploads</Text>
+              </Pressable>
+            )}
           </View>
-          <Switch
-            value={shareAnalysis}
-            onValueChange={setShareAnalysis}
-            disabled={!hasAnalysis}
-            trackColor={{ true: c.accent }}
-          />
-        </View>
+        ) : (
+          <>
+            <Text style={composeLabel}>WHO CAN SEE IT</Text>
+            <View style={{ flexDirection: 'row', backgroundColor: c.card, borderRadius: 10, padding: 3 }}>
+              {VISIBILITIES.map((v) => (
+                <Pressable
+                  key={v}
+                  onPress={() => setVisibility(v)}
+                  style={{
+                    flex: 1,
+                    paddingVertical: space.sm,
+                    borderRadius: 8,
+                    alignItems: 'center',
+                    backgroundColor: v === visibility ? c.accent : 'transparent',
+                  }}
+                >
+                  <Text style={{ color: v === visibility ? '#1C1917' : c.text, fontWeight: '600', fontSize: 14 }}>
+                    {visibilityLabel(v)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={[composeLabel, { marginTop: space.lg }]}>CAPTION</Text>
+            <TextInput
+              value={caption}
+              onChangeText={(t) => setCaption(t.slice(0, CAPTION_MAX))}
+              placeholder="What did you build?"
+              placeholderTextColor={c.textDim}
+              multiline
+              style={{
+                color: c.text,
+                backgroundColor: c.card,
+                borderRadius: 10,
+                padding: space.md,
+                minHeight: 96,
+                fontSize: 15,
+                textAlignVertical: 'top',
+              }}
+            />
+            <Text style={{ color: c.textDim, fontSize: 11, textAlign: 'right', marginTop: 4 }}>
+              {caption.length}/{CAPTION_MAX}
+            </Text>
+
+            <View style={{ marginTop: space.lg }}>
+              <MediaPicker
+                photos={photos}
+                onPhotos={setPhotos}
+                audio={audio}
+                onAudio={setAudio}
+                disabled={busy}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: space.lg, backgroundColor: c.card, borderRadius: 10, padding: space.md }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: c.text, fontSize: 15 }}>Include full analysis</Text>
+                <Text style={{ color: c.textDim, fontSize: 12, marginTop: 2 }}>
+                  {hasAnalysis
+                    ? 'Off shares only the headline and summary.'
+                    : 'This session has no analysis yet.'}
+                </Text>
+              </View>
+              <Switch
+                value={shareAnalysis}
+                onValueChange={setShareAnalysis}
+                disabled={!hasAnalysis}
+                trackColor={{ true: c.accent }}
+              />
+            </View>
+          </>
+        )}
       </ScrollView>
     </Modal>
+  );
+}
+
+/** One upload's line: a thumbnail or the note's length, and where it is. */
+function UploadLine({ row }: { row: UploadRow }) {
+  const { job, state } = row;
+  const what =
+    job.kind === 'photo' ? `Photo ${job.index + 1}` : `Voice note · ${formatClock(job.duration_ms)}`;
+  const status =
+    state.phase === 'queued'
+      ? 'waiting'
+      : state.phase === 'uploading'
+        ? 'uploading…'
+        : state.phase === 'done'
+          ? 'done'
+          : state.unconfigured
+            ? 'not configured'
+            : `failed · ${state.message}`;
+  const failed = state.phase === 'failed';
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.sm,
+        backgroundColor: c.card,
+        borderRadius: 10,
+        padding: space.sm,
+        marginBottom: space.sm,
+      }}
+    >
+      {job.kind === 'photo' ? (
+        <Image
+          source={{ uri: job.uri }}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+          style={{ width: 40, height: 40, borderRadius: 6, backgroundColor: c.border }}
+        />
+      ) : (
+        <View style={{ width: 40, height: 40, borderRadius: 6, backgroundColor: c.border, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: c.text, fontSize: 16 }}>▶</Text>
+        </View>
+      )}
+      <Text style={{ color: c.text, fontSize: 14, flex: 1 }}>{what}</Text>
+      {state.phase === 'uploading' ? (
+        <ActivityIndicator color={c.accent} />
+      ) : (
+        <Text
+          style={{ color: failed ? '#E5484D' : state.phase === 'done' ? c.accent : c.textDim, fontSize: 12, fontWeight: '600', maxWidth: 160 }}
+          numberOfLines={2}
+        >
+          {status}
+        </Text>
+      )}
+    </View>
   );
 }
 

@@ -15,6 +15,8 @@ import { api } from '../data/client';
 import { TimelineStrip } from '../strip/TimelineStrip';
 import { decodeMarks } from '../strip/decode';
 import { colors, duration, space } from '../theme';
+import { AudioChip } from './AudioChip';
+import { PhotoGrid } from './PhotoGrid';
 import {
   applyKudos,
   authorName,
@@ -161,10 +163,13 @@ export function PostRow({
   item,
   onKudos,
   linkToPost = true,
+  photoLayout = 'grid',
 }: {
   item: FeedItem;
   onKudos: (item: FeedItem) => void;
   linkToPost?: boolean;
+  /** `grid` in the feed (square thumbnails); `full` on the post screen. */
+  photoLayout?: 'grid' | 'full';
 }) {
   const { width } = useWindowDimensions();
   const router = useRouter();
@@ -227,10 +232,18 @@ export function PostRow({
           {item.caption}
         </Text>
       ) : null}
-      {item.photos.length > 0 && (
-        <Text style={[meta, { marginTop: space.sm }]}>
-          {item.photos.length} photo{item.photos.length === 1 ? '' : 's'}
-        </Text>
+      <PhotoGrid
+        photos={item.photos}
+        width={stripWidth}
+        layout={photoLayout}
+        style={{ marginTop: space.sm }}
+      />
+      {item.audio && (
+        <AudioChip
+          uri={item.audio.url}
+          durationMs={item.audio.duration_ms}
+          style={{ marginTop: space.sm }}
+        />
       )}
 
       <View style={{ flexDirection: 'row', gap: space.md, marginTop: space.md, alignItems: 'center' }}>
