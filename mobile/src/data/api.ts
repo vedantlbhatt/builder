@@ -371,13 +371,14 @@ export class Api {
       res = await this.fetchJson('POST', '/v1/auth/refresh', { refresh_token: token }, null);
       parsed = await parseBody(res);
     } catch (e) {
-      // A network failure mid-refresh is not proof the token is dead, but the retry that
-      // follows would fail anyway; clearing keeps "signed in" honest.
-      await this.clearTokens();
+      // A network failure or timeout mid-refresh is not proof the token is dead. Keep the
+      // pair; the caller shows the banner and the next sync retries. Clearing here signed
+      // people out on every flaky connection.
       throw e;
     }
     if (!res.ok) {
-      await this.clearTokens();
+      // Only a definitive auth answer ends the session. A 5xx is the server's problem.
+      if (res.status === 401 || res.status === 403) await this.clearTokens();
       throw new ApiError(res.status, errorMessage(parsed, res));
     }
     const pair = parsed as Partial<TokenPair>;

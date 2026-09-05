@@ -165,8 +165,12 @@ public final class SessionLifecycle {
             guard finalized.contains(s.clientSessionID) else { continue }
             guard !alreadyTold.contains(s.clientSessionID) else { continue }
 
-            // Only silence means the work stopped.
-            guard s.endReason == .idleGap else { continue }
+            // Only silence means the work stopped. A session the clock finalized is the
+            // last one in its pool, so the sessionizer labels it `stillRunning` — silence
+            // ended it all the same. Requiring `.idleGap` alone here silenced every
+            // notification on the normal path (found by review, not by the tests, which
+            // built sessions with `.idleGap` by hand).
+            guard !s.isCut else { continue }
 
             // A four-minute question should not interrupt anyone. An autonomous run with
             // nobody at the keyboard has no one to congratulate — but it IS news that it

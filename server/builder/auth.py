@@ -151,7 +151,25 @@ def redeem_refresh_token(db, raw: str) -> tuple[str, str, str]:
     if revoked is None or revoked.revoked_at is not None:
         raise HTTPException(401, "device revoked")
 
-    db.execute(text("UPDATE device_tokens SET used_at = now() WHERE id = :i"), {"i": str(row.id)})
+    # Compare-and-set, not check-then-act. Under READ COMMITTED two presentations of the
+    # same token both pass the Python-side check above; the second's unconditional UPDATE
+    # would wait on the row lock, re-match, and succeed, leaving two live chains and no
+    # reuse ever detected. Zero rows here means someone else spent it first — treat it as
+    # reuse, exactly like an already-used row.
+    spent = db.execute(
+        text(
+            "UPDATE device_tokens SET used_at = now() "
+            "WHERE id = :i AND used_at IS NULL AND revoked_at IS NULL RETURNING id"
+        ),
+        {"i": str(row.id)},
+    ).first()
+    if spent is None:
+        db.execute(
+            text("UPDATE device_tokens SET revoked_at = now() WHERE device_id = :d"),
+            {"d": str(row.device_id)},
+        )
+        db.commit()
+        raise HTTPException(401, "refresh token reuse detected; all tokens for this device revoked")
     new_refresh = issue_refresh_token(db, str(row.device_id), prev_id=str(row.id))
     access = issue_access_token(str(user_id), str(row.device_id))
     return access, new_refresh, str(user_id)
@@ -261,14 +279,37 @@ _jwks_cache: dict[str, tuple[dict, float]] = {}
 def _fetch_jwks_uncached(url: str) -> dict:
     import httpx
 
-    return httpx.get(url, timeout=10).json()
+    resp = httpx.get(url, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+_FORCED_REFETCH_MIN_INTERVAL = 60.0
+_last_forced_fetch: dict[str, float] = {}
 
 
 def _jwks(url: str, *, force: bool = False) -> dict:
     cached = _jwks_cache.get(url)
     if cached and not force and cached[1] > time.monotonic():
         return cached[0]
-    jwks = _fetch_jwks_uncached(url)
+    if force:
+        # An unknown `kid` is attacker-supplied. Without a floor, every request with a
+        # bogus kid becomes an outbound fetch to the provider — a cache bypass on demand.
+        last = _last_forced_fetch.get(url, 0.0)
+        if cached and time.monotonic() - last < _FORCED_REFETCH_MIN_INTERVAL:
+            return cached[0]
+        _last_forced_fetch[url] = time.monotonic()
+    try:
+        jwks = _fetch_jwks_uncached(url)
+    except Exception:
+        # Keep serving the last good key set rather than caching a failure.
+        if cached:
+            return cached[0]
+        raise
+    if not isinstance(jwks.get("keys"), list):
+        if cached:
+            return cached[0]
+        raise HTTPException(503, "identity provider returned an invalid key set")
     _jwks_cache[url] = (jwks, time.monotonic() + _JWKS_TTL_SECONDS)
     return jwks
 
@@ -446,15 +487,11 @@ def resolve_or_create_user(
                 text(
                     """
                     INSERT INTO users (apple_sub, email_relay, email)
-                    VALUES (:apple_sub, :relay, :email)
+                    VALUES (NULL, :relay, :email)
                     RETURNING id
                     """
                 ),
-                {
-                    "apple_sub": subject if provider == "apple" else None,
-                    "relay": email if provider == "apple" else None,
-                    "email": email,
-                },
+                {"relay": email if provider == "apple" else None, "email": email},
             ).scalar()
         )
         user_id = created
@@ -472,6 +509,15 @@ def resolve_or_create_user(
         {"u": user_id, "p": provider, "s": subject, "email": email, "verified": email_verified},
     ).scalar()
     if inserted is not None:
+        # apple_sub is written only AFTER the identities row won, so the identities PK is
+        # the single race arbiter. Writing it on the users INSERT first made the loser of
+        # two racing first sign-ins die on users.apple_sub UNIQUE with a 500 before it could
+        # reach the adopt-the-winner branch below.
+        if provider == "apple":
+            db.execute(
+                text("UPDATE users SET apple_sub = COALESCE(apple_sub, :s) WHERE id = :u"),
+                {"s": subject, "u": user_id},
+            )
         return user_id
 
     # Lost the race. Discard the user we minted (users has no RLS) and adopt the winner's.

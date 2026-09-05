@@ -198,11 +198,19 @@ const DETAIL_CAP_PER_SYNC = 30;
 export async function sync(api: Api): Promise<void> {
   let failure: unknown = null;
 
-  const page = await api.sessions({ limit: SYNC_LIST_LIMIT, notable_only: true });
-  for (const s of page.sessions) await upsert(s, false);
-
+  // Which rows were live BEFORE this pass touches anything: a live session that arrives
+  // in the finals page below would otherwise be upserted as final first, drop out of
+  // `liveIds()`, and never be re-read — keeping its live-era strip, stats and checkpoint
+  // analysis forever.
   const wasLive = await liveIds();
+  const wasLiveSet = new Set(wasLive);
   const staleLive: string[] = [];
+
+  const page = await api.sessions({ limit: SYNC_LIST_LIMIT, notable_only: true });
+  for (const s of page.sessions) {
+    await upsert(s, false);
+    if (wasLiveSet.has(s.id) && (s.state ?? 'final') === 'final') staleLive.push(s.id);
+  }
   let liveNow: SessionDetail[] | null = null;
   try {
     liveNow = (await api.liveSessions()).sessions;

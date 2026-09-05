@@ -119,7 +119,7 @@ public struct DetectedSession: Sendable, Equatable {
     /// An unattended run that stopped on its own: the "Agent run finished" notification.
     /// It is the moment you want to look at what happened. Not a record, not a streak.
     public var runFinished: Bool {
-        unattended && endReason == .idleGap && activeSeconds >= Tuning.notableMinActiveSec
+        unattended && !isCut && activeSeconds >= Tuning.notableMinActiveSec
     }
 
     /// Ended by a boundary rule rather than by silence. Final the moment it is derived,
