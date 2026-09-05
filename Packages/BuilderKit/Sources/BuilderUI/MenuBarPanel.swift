@@ -44,6 +44,13 @@ public struct MenuBarPanel: View {
         }
     }
 
+    /// Whether this Mac is linked to the phone app. `nil` in the model hides the row
+    /// entirely, which is what offscreen previews and screenshots want.
+    public enum PhoneLink: Sendable, Equatable {
+        case notPaired
+        case paired(label: String)
+    }
+
     public struct Model: Sendable {
         public let todayActiveSeconds: Double
         public let streakDays: Int
@@ -52,11 +59,12 @@ public struct MenuBarPanel: View {
         public let live: SessionRow?
         public let recent: [SessionRow]
         public let graph: [Analysis.GraphDay]
+        public let phone: PhoneLink?
 
         public init(
             todayActiveSeconds: Double, streakDays: Int, totalSessions: Int,
             allTimeSeconds: Double, live: SessionRow?, recent: [SessionRow],
-            graph: [Analysis.GraphDay]
+            graph: [Analysis.GraphDay], phone: PhoneLink? = nil
         ) {
             self.todayActiveSeconds = todayActiveSeconds
             self.streakDays = streakDays
@@ -65,6 +73,7 @@ public struct MenuBarPanel: View {
             self.live = live
             self.recent = recent
             self.graph = graph
+            self.phone = phone
         }
     }
 
@@ -85,6 +94,9 @@ public struct MenuBarPanel: View {
                 if let live = model.live { liveCard(live) }
                 recentSection
                 graphSection
+                if let phone = model.phone {
+                    PhoneConnectRow(status: phone, dark: dark)
+                }
             }
             .padding(16)
 
@@ -239,5 +251,81 @@ public struct MenuBarPanel: View {
         let df = DateFormatter()
         df.dateFormat = "d MMM HH:mm"
         return df.string(from: Date(timeIntervalSince1970: ts))
+    }
+}
+
+/// The last row of the panel: how to get sessions onto the phone, or the fact that they
+/// already arrive there.
+///
+/// Shared between the pure-data panel and the live app so the two cannot drift. The
+/// closures are optional because the offscreen panel has nothing to call — a row with no
+/// action renders the same text without a button.
+public struct PhoneConnectRow: View {
+
+    let status: MenuBarPanel.PhoneLink
+    let dark: Bool
+    let onConnect: (() -> Void)?
+    let onDisconnect: (() -> Void)?
+
+    public init(
+        status: MenuBarPanel.PhoneLink, dark: Bool = true,
+        onConnect: (() -> Void)? = nil, onDisconnect: (() -> Void)? = nil
+    ) {
+        self.status = status
+        self.dark = dark
+        self.onConnect = onConnect
+        self.onDisconnect = onDisconnect
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("PHONE")
+                .font(.system(size: 10, weight: .bold)).kerning(0.8)
+                .foregroundStyle(StripPalette.textDim(dark: dark))
+
+            switch status {
+            case .notPaired:
+                HStack(spacing: 8) {
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 12))
+                        .foregroundStyle(StripPalette.accent(dark: dark))
+                    Text("Connect your phone")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(StripPalette.text(dark: dark))
+                    Spacer(minLength: 8)
+                    if let onConnect {
+                        Button(action: onConnect) {
+                            Text("Show code")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(StripPalette.accent(dark: dark))
+                    }
+                }
+                Text("Scan a code once and finished sessions arrive on your phone on their own.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(StripPalette.textDim(dark: dark))
+
+            case .paired(let label):
+                HStack(spacing: 6) {
+                    Image(systemName: "iphone")
+                        .font(.system(size: 11))
+                    Text("Phone connected")
+                    Text("·")
+                    Text(label).lineLimit(1)
+                    Spacer(minLength: 8)
+                    if let onDisconnect {
+                        Button(action: onDisconnect) {
+                            Text("Disconnect")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(StripPalette.accent(dark: dark))
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(StripPalette.textDim(dark: dark))
+            }
+        }
     }
 }

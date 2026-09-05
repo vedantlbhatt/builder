@@ -5,6 +5,7 @@ import BuilderModel
 import BuilderSchema
 import BuilderSQLite
 import BuilderStore
+import BuilderSync
 import BuilderUI
 import Foundation
 import Observation
@@ -33,6 +34,20 @@ final class AppStore {
         static func == (a: SessionRow, b: SessionRow) -> Bool { a.id == b.id }
     }
 
+    /// Where the "Connect your phone" flow is. Driven entirely by `SyncClient`'s RFC 8628
+    /// pair: `startPairing` yields the code, `awaitPairing` blocks on the server's poll
+    /// interval until the phone approves, and the Keychain is the durable record —
+    /// `.paired` at launch means a refresh token was found, from this app or from
+    /// `builder pair` on the command line, which write the same items.
+    enum PairingState: Equatable {
+        case idle
+        case starting
+        case waiting(userCode: String, deepLink: String, expiresAt: Date)
+        case approved(label: String)
+        case failed(String)
+        case paired
+    }
+
     // MARK: Observable state
 
     var todayActiveSeconds: Double = 0
@@ -48,6 +63,11 @@ final class AppStore {
         didSet { if !isPaused { refresh(force: false) } }
     }
 
+    var pairing: PairingState = .idle
+    /// The label this Mac was paired under, kept so the row can say which link it is
+    /// after a relaunch. The server does not echo it back on approval.
+    var pairedLabel: String? = UserDefaults.standard.string(forKey: AppStore.pairedLabelKey)
+
     var onSummaryChange: ((String) -> Void)?
     var notifier: (any Notifier)?
 
@@ -61,8 +81,16 @@ final class AppStore {
     private var repoNames: [Int: String] = [:]
     private let work = DispatchQueue(label: "dev.builder.mac.work", qos: .utility)
 
+    private let sync = SyncClient(baseURL: AppStore.apiBaseURL())
+    private var pairingTask: Task<Void, Never>?
+    private static let pairedLabelKey = "dev.builder.pairedLabel"
+
     func start() {
         work.async { [weak self] in self?.openStores() }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if await self.sync.isPaired { self.pairing = .paired }
+        }
     }
 
     private nonisolated func openStores() {
@@ -185,6 +213,113 @@ final class AppStore {
                 self.onSummaryChange?(Self.shortDuration(capturedToday))
             }
         }
+    }
+
+    // MARK: Pairing
+
+    /// Same resolution order as the CLI (`SyncCommand.baseURL`), so a Mac paired from the
+    /// terminal and the menu bar talk to the same server. The defaults key is for
+    /// pointing an installed app at a staging server without relaunching from a shell.
+    private nonisolated static func apiBaseURL() -> URL {
+        let raw =
+            ProcessInfo.processInfo.environment["BUILDER_API_URL"]
+            ?? UserDefaults.standard.string(forKey: "BuilderAPIURL")
+            ?? "http://localhost:8000"
+        return URL(string: raw) ?? URL(string: "http://localhost:8000")!
+    }
+
+    /// What the QR encodes. The phone's scanner takes a bare code or any URL with
+    /// `?code=`, so this is readable by the scanner AND opens the app when tapped.
+    private nonisolated static func deepLink(for userCode: String) -> String {
+        "builder://pair?code=\(userCode)"
+    }
+
+    func startPairing() {
+        guard pairingTask == nil else { return }
+        if case .paired = pairing { return }
+        pairing = .starting
+
+        let client = sync
+        let label = Host.current().localizedName ?? "Mac"
+        // The server's `expires_in` is 900s; the client does not decode it, so the same
+        // constant bounds the poll here and dates the "expires" line in the sheet.
+        let timeout: TimeInterval = 900
+
+        pairingTask = Task { @MainActor [weak self] in
+            defer { self?.pairingTask = nil }
+            do {
+                let machineID = await Task.detached { AppStore.machineID() }.value
+                let start = try await client.startPairing(machineID: machineID, label: label)
+                if Task.isCancelled { return }
+                self?.pairing = .waiting(
+                    userCode: start.userCode,
+                    deepLink: AppStore.deepLink(for: start.userCode),
+                    expiresAt: Date().addingTimeInterval(timeout))
+
+                try await client.awaitPairing(
+                    deviceCode: start.deviceCode, intervalSeconds: start.intervalSeconds,
+                    timeout: timeout)
+                if Task.isCancelled { return }
+
+                UserDefaults.standard.set(label, forKey: AppStore.pairedLabelKey)
+                self?.pairedLabel = label
+                self?.pairing = .approved(label: label)
+
+                // Long enough to read "Paired" before the sheet goes away.
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                self?.pairing = .paired
+            } catch {
+                if Task.isCancelled { return }
+                let message = (error as? SyncClient.SyncError)?.description
+                    ?? error.localizedDescription
+                self?.pairing = .failed(message)
+            }
+        }
+    }
+
+    /// Closing the sheet mid-wait abandons the grant; the server expires it on its own.
+    func cancelPairing() {
+        pairingTask?.cancel()
+        pairingTask = nil
+        if case .paired = pairing { return }
+        pairing = .idle
+    }
+
+    func disconnectPhone() {
+        pairingTask?.cancel()
+        pairingTask = nil
+        let client = sync
+        Task { @MainActor [weak self] in
+            await client.signOut()
+            UserDefaults.standard.removeObject(forKey: AppStore.pairedLabelKey)
+            self?.pairedLabel = nil
+            self?.pairing = .idle
+        }
+    }
+
+    /// Identical to `SyncCommand.machineID()` in the CLI, on purpose: the server keys a
+    /// device on this value, so the app and `builder pair` must present the same one.
+    nonisolated static func machineID() -> String {
+        let platformUUID = hardwareUUID() ?? NSFullUserName()
+        return Hashing.machineID(platformUUID: platformUUID)
+    }
+
+    private nonisolated static func hardwareUUID() -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/ioreg")
+        process.arguments = ["-rd1", "-c", "IOPlatformExpertDevice"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        try? process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let text = String(decoding: data, as: UTF8.self)
+        guard let line = text.split(separator: "\n").first(where: { $0.contains("IOPlatformUUID") }),
+              let value = line.split(separator: "\"").dropLast().last
+        else { return nil }
+        return String(value)
     }
 
     // MARK: Sharing

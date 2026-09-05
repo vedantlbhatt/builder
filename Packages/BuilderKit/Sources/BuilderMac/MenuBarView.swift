@@ -11,6 +11,7 @@ import SwiftUI
 struct MenuBarView: View {
 
     @Environment(AppStore.self) private var store
+    @State private var showPairing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,6 +25,7 @@ struct MenuBarView: View {
                     }
                     recentSection
                     graphSection
+                    phoneRow
                 }
                 .padding(16)
             }
@@ -34,6 +36,12 @@ struct MenuBarView: View {
         .frame(width: 420, height: 560)
         .background(StripPalette.card(dark: true))
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showPairing, onDismiss: { store.cancelPairing() }) {
+            pairingSheet
+        }
+        .onChange(of: store.pairing) { _, now in
+            if now == .paired { showPairing = false }
+        }
     }
 
     // MARK: Header
@@ -177,6 +185,89 @@ struct MenuBarView: View {
             .font(.system(size: 10))
             .foregroundStyle(StripPalette.textDim(dark: true))
         }
+    }
+
+    // MARK: Phone
+
+    private var phoneRow: some View {
+        PhoneConnectRow(
+            status: store.pairing == .paired
+                ? .paired(label: store.pairedLabel ?? "this Mac")
+                : .notPaired,
+            dark: true,
+            onConnect: {
+                showPairing = true
+                store.startPairing()
+            },
+            onDisconnect: { store.disconnectPhone() })
+    }
+
+    /// The QR sheet. Same card colour and dark scheme as the panel underneath it, so it
+    /// reads as part of the popover rather than a system dialog.
+    private var pairingSheet: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Connect your phone")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(StripPalette.text(dark: true))
+                Spacer()
+                Button {
+                    showPairing = false
+                } label: {
+                    Text("Close")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(StripPalette.accent(dark: true))
+            }
+
+            switch store.pairing {
+            case .idle, .starting:
+                Text("Requesting a code…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(StripPalette.textDim(dark: true))
+                    .frame(height: 220)
+
+            case .waiting(let userCode, let deepLink, let expiresAt):
+                PairingQRView(userCode: userCode, payload: deepLink, dark: true)
+                Text("Waiting for your phone · code expires \(relativeTime(expiresAt))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(StripPalette.textDim(dark: true))
+
+            case .approved(let label):
+                Text("Paired — this Mac is linked as “\(label)”.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(StripPalette.text(dark: true))
+                    .frame(height: 220)
+
+            case .paired:
+                Text("Phone connected.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(StripPalette.text(dark: true))
+                    .frame(height: 220)
+
+            case .failed(let message):
+                VStack(spacing: 10) {
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundStyle(StripPalette.textDim(dark: true))
+                        .multilineTextAlignment(.center)
+                    Button {
+                        store.startPairing()
+                    } label: {
+                        Text("Try again")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(StripPalette.accent(dark: true))
+                }
+                .frame(height: 220)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+        .background(StripPalette.card(dark: true))
+        .preferredColorScheme(.dark)
     }
 
     // MARK: Footer

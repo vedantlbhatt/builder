@@ -24,7 +24,7 @@ do {
     case "sync":
         runAsync { try await SyncCommand.sync() }
     case "pair":
-        runAsync { try await SyncCommand.pair() }
+        runAsync { try await PairCommand.run() }
     case "scan":
         try ScanCommand.run()
     case "watch":
