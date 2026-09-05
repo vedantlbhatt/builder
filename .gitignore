@@ -6,7 +6,7 @@ xcuserdata/
 DerivedData/
 
 # Local data. NEVER commit a parsed store — it is derived from the user's own transcripts.
-data/
+/data/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
