@@ -21,6 +21,10 @@ enum WatchCommand {
         let lifecycle: SessionLifecycle
         let notifier: any Notifier
         let coordinator: IngestCoordinator
+        /// Queues `claude -p` runs for sessions that just finalized and checkpoints for
+        /// a live autonomous run; they execute on their own queue with their own state
+        /// connection, so the pass never waits on a model.
+        let analysis: AnalysisScheduler
         var repoNames: [Int: String] = [:]
         var lastLiveDescription = ""
         let lock = NSLock()
@@ -34,6 +38,9 @@ enum WatchCommand {
                 quiet
                 ? ConsoleNotifier()
                 : MultiNotifier([ConsoleNotifier(), MacOSNotifier()])
+            analysis = AnalysisScheduler(
+                openState: { try SchemaManager.openState() },
+                log: { line in print("\u{1B}[2K\r  \(line)") })
             repoNames = (try? IngestCoordinator.repoNames(db: state)) ?? [:]
         }
 
@@ -81,8 +88,22 @@ enum WatchCommand {
                     repoNames = (try? IngestCoordinator.repoNames(db: state)) ?? repoNames
                 }
 
+                let live = try lifecycle.openSession(among: sessions)
+
+                // Analyses: every session that just finalized, and a checkpoint for a
+                // live autonomous run. Queued here, run elsewhere; a failure to even
+                // read the store is reported, never thrown into the pass.
+                do {
+                    let queued = try analysis.consider(
+                        sessions: sessions, transitions: transitions, live: live,
+                        state: state, repoNames: repoNames)
+                    if queued > 0 { print("\u{1B}[2K\r  queued \(queued) analysis run(s)") }
+                } catch {
+                    print("\u{1B}[2K\r  analysis scheduling failed: \(error)")
+                }
+
                 // Live session line, redrawn only when it changes.
-                if let live = try lifecycle.openSession(among: sessions) {
+                if let live {
                     let repoID = try? cache.scalarInt(
                         "SELECT repo_id_primary FROM session WHERE client_session_id = ?",
                         [.text(live.clientSessionID)])
@@ -118,6 +139,11 @@ enum WatchCommand {
         print("  tick         every 30s, independent of file events — a session ends")
         print("               because nothing happens, so nothing can be the trigger")
         print("  notify       \(quiet ? "console only" : "console + macOS notification")")
+        print(
+            "  analysis     "
+                + (AnalysisSettings.runnerEnabled()
+                    ? "claude -p (\(AnalysisSettings.model())) on finalization; BUILDER_ANALYSIS=0 disables"
+                    : "off (BUILDER_ANALYSIS=0)"))
         print("")
 
         let daemon = Daemon(

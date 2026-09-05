@@ -32,6 +32,7 @@ check-gen: gen
 		Packages/BuilderKit/Sources/BuilderSync/Generated \
 		mobile/src/generated server/builder/contract.py server/builder/strip.py \
 		server/builder/analysis_spec.py analysis \
+		Packages/BuilderKit/Sources/BuilderAnalysis/Resources/analysis_schema.json \
 		server/builder/static/upload-fields.json PRIVACY.md spec/fixtures \
 		|| (echo ""; echo "FAIL: generated files are stale or hand-edited. Run 'make gen' and commit."; exit 1)
 	@echo "generated files match their specs"

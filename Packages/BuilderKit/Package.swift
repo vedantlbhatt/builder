@@ -65,9 +65,17 @@ let package = Package(
         ),
 
         // Records, day rollups, project arcs, human-vs-agent trend. Pure SQL over cache.sqlite.
+        // Plus the session digest and the `claude -p` analyst: BuilderParse supplies the
+        // LineReader/JSONLine pair so the digest re-reads a transcript exactly the way the
+        // parser does (partial trailing line never consumed); BuilderIngest supplies the
+        // DetectedSession/LifecycleTransition the scheduler decides from, so the trigger
+        // rule lives once rather than in each host; and the two resources are the analyst
+        // prompt (shared byte-for-byte with analysis/prompt.py) and the generated JSON
+        // schema handed to `--json-schema`.
         .target(
             name: "BuilderAnalysis",
-            dependencies: ["BuilderModel", "BuilderSQLite"],
+            dependencies: ["BuilderModel", "BuilderSQLite", "BuilderParse", "BuilderIngest"],
+            resources: [.process("Resources")],
             swiftSettings: [swift5]
         ),
 

@@ -49,7 +49,10 @@ public enum SchemaManager {
 
     /// Bump when state_schema.sql gains a table or column. Migrations are forward-only
     /// and each one is additive; there is no down path, by design.
-    public static let stateVersion = 1
+    ///
+    /// 2: `live_upload` (rate limit for live-session snapshots) and `session_analysis`
+    ///    (the model-written reading; Tier A because it costs money to regenerate).
+    public static let stateVersion = 2
 
     // MARK: - Tier A
 
@@ -75,9 +78,34 @@ public enum SchemaManager {
     }
 
     private static func migrateState(_ db: SQLiteDB, from: Int) throws {
-        // Forward-only, additive, one numbered step per version. When the first real
-        // migration lands, it goes here as `if from < 2 { try db.exec("ALTER TABLE ...") }`
+        // Forward-only, additive, one numbered step per version. Each step goes here as
+        // `if from < N { try db.exec("ALTER TABLE ..." / "CREATE TABLE IF NOT EXISTS ...") }`
         // and NEVER as a drop-and-rebuild.
+        if from < 2 {
+            try db.exec(
+                """
+                CREATE TABLE IF NOT EXISTS live_upload (
+                  client_session_id TEXT PRIMARY KEY,
+                  last_uploaded_at  REAL NOT NULL,
+                  content_hash      TEXT
+                )
+                """)
+            try db.exec(
+                """
+                CREATE TABLE IF NOT EXISTS session_analysis (
+                  client_session_id TEXT PRIMARY KEY,
+                  analysis_version  INTEGER NOT NULL,
+                  digest_hash       TEXT NOT NULL,
+                  digest_coverage   REAL NOT NULL,
+                  model             TEXT,
+                  generated_at      REAL NOT NULL,
+                  cost_usd          REAL,
+                  body              TEXT NOT NULL,
+                  checkpoint        INTEGER NOT NULL DEFAULT 0,
+                  created_at        REAL NOT NULL
+                )
+                """)
+        }
         try db.setUserVersion(stateVersion)
     }
 

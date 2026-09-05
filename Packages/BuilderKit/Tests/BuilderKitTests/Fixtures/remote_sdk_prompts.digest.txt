@@ -1,0 +1,64 @@
+# SESSION DIGEST
+harness: claude_code
+wall: 7m  prompts sent: 3  replies: 0  tool calls: 54  errors: 0  interrupts: 1  agent lines +0/-0  files edited: 0  git commits run: 0  test runs: 0
+tool mix: Bash 54
+
+# TIMELINE  ([n] = event ordinal, +m = minutes from start)
+[0] +  0.0m PROMPT: "hello"
+[1] +  0.1m Bash
+[2] +  0.2m Bash
+[3] +  0.3m Bash
+[4] +  0.5m Bash
+[5] +  0.6m Bash
+[6] +  0.7m Bash
+[7] +  0.8m Bash
+[8] +  1.0m Bash
+[9] +  1.1m PROMPT: "do it"
+[10] +  1.1m Bash
+[11] +  1.3m Bash
+[12] +  1.4m Bash
+[13] +  1.6m Bash
+[14] +  1.7m Bash
+[15] +  1.8m Bash
+[16] +  1.9m Bash
+[17] +  2.1m Bash
+[18] +  2.2m Bash
+[19] +  2.4m Bash
+[20] +  2.5m Bash
+[21] +  2.6m Bash
+[22] +  2.8m Bash
+[23] +  2.9m Bash
+[24] +  3.0m Bash
+[25] +  3.1m Bash
+[26] +  3.3m Bash
+[27] +  3.4m Bash
+[28] +  3.5m Bash
+[29] +  3.7m Bash
+[30] +  3.8m Bash
+[31] +  4.0m Bash
+[32] +  4.1m Bash
+[33] +  4.2m Bash
+[34] +  4.3m Bash
+[35] +  4.5m Bash
+[36] +  4.6m Bash
+[37] +  4.8m Bash
+[38] +  4.9m Bash
+[39] +  5.0m Bash
+[40] +  5.2m Bash
+[41] +  5.3m Bash
+[42] +  5.4m Bash
+[43] +  5.5m Bash
+[44] +  5.7m Bash
+[45] +  5.8m Bash
+[46] +  6.0m Bash
+[47] +  6.1m Bash
+[48] +  6.2m INTERRUPT (human stopped the agent)
+[49] +  6.2m PROMPT: "no, the other one"
+[50] +  6.3m Bash
+[51] +  6.4m Bash
+[52] +  6.5m Bash
+[53] +  6.7m Bash
+[54] +  6.8m Bash
+[55] +  7.0m Bash
+[56] +  7.1m Bash
+[57] +  7.2m Bash

@@ -230,6 +230,38 @@ CREATE TABLE IF NOT EXISTS notification_log (
   channel           TEXT NOT NULL      -- local | push
 );
 
+-- ---- live_upload -----------------------------------------------------------
+-- Rate limit for `state: "live"` snapshots of an open/idle session. A live payload is
+-- uploaded on any pass where its content hash changed, at most once per
+-- Tuning.liveUploadMinIntervalSec; the final upload for the same client_session_id
+-- replaces the live row server-side. Tier A rather than the cache so a cache rebuild
+-- cannot re-send every live snapshot in one burst.
+CREATE TABLE IF NOT EXISTS live_upload (
+  client_session_id TEXT PRIMARY KEY,
+  last_uploaded_at  REAL NOT NULL,
+  content_hash      TEXT
+);
+
+-- ---- session_analysis ------------------------------------------------------
+-- The model-written reading of one session (spec/analysis.v1.json), produced locally by
+-- the user's own `claude -p` from a digest of the transcript. Tier A ON PURPOSE: MEASURED
+-- at $0.33 and 150 s per session on sonnet, so it costs real money to regenerate and a
+-- cache rebuild must not throw it away. `checkpoint = 1` marks a live mid-run reading
+-- (every Tuning.analysisCheckpointSec during an autonomous run); the final analysis
+-- replaces it under the same key.
+CREATE TABLE IF NOT EXISTS session_analysis (
+  client_session_id TEXT PRIMARY KEY,
+  analysis_version  INTEGER NOT NULL,
+  digest_hash       TEXT NOT NULL,
+  digest_coverage   REAL NOT NULL,
+  model             TEXT,
+  generated_at      REAL NOT NULL,
+  cost_usd          REAL,
+  body              TEXT NOT NULL,      -- SessionAnalysis JSON
+  checkpoint        INTEGER NOT NULL DEFAULT 0,  -- 1 = live checkpoint, replaced when final
+  created_at        REAL NOT NULL
+);
+
 -- ---- upload_queue ----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS upload_queue (
   id                INTEGER PRIMARY KEY,

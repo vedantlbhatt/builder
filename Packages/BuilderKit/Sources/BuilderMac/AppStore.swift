@@ -82,6 +82,12 @@ final class AppStore {
     private let work = DispatchQueue(label: "dev.builder.mac.work", qos: .utility)
 
     private let sync = SyncClient(baseURL: AppStore.apiBaseURL())
+    /// Same trigger rule as `builder watch`, in one place (`AnalysisScheduler`): a
+    /// finalized session gets a `claude -p` reading, a live autonomous run a checkpoint.
+    /// Runs on its own queue with its own state connection; the pass never waits on it.
+    private let analysisScheduler = AnalysisScheduler(
+        openState: { try SchemaManager.openState() },
+        log: { line in NSLog("builder: \(line)") })
     private var pairingTask: Task<Void, Never>?
     private static let pairedLabelKey = "dev.builder.pairedLabel"
 
@@ -138,6 +144,7 @@ final class AppStore {
 
         scanning = true
         let notifier = self.notifier
+        let scheduler = self.analysisScheduler
 
         work.async { [weak self] in
             var rows: [SessionRow] = []
@@ -176,6 +183,18 @@ final class AppStore {
                     try? notifier?.deliver(alert)
                 }
 
+                let openSession = try lifecycle.openSession(among: sessions)
+
+                // Model-written analyses, queued off this pass. A scheduling error is
+                // logged rather than allowed to abort the refresh.
+                do {
+                    _ = try scheduler.consider(
+                        sessions: sessions, transitions: transitions, live: openSession,
+                        state: state, repoNames: names)
+                } catch {
+                    NSLog("builder: analysis scheduling failed: \(error)")
+                }
+
                 let analysis = Analysis(cache: cache, state: state)
                 graphDays = try analysis.contributionGraph(days: 119)
                 streak = try analysis.longestStreak().length
@@ -183,7 +202,7 @@ final class AppStore {
                 today = graphDays.last?.activeSeconds ?? 0
 
                 rows = try Self.loadRows(cache: cache, names: names, limit: 12)
-                if let openSession = try lifecycle.openSession(among: sessions) {
+                if let openSession {
                     live = rows.first { $0.id == openSession.clientSessionID }
                         ?? Self.row(from: openSession, names: names)
                 }

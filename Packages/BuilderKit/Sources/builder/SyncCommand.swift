@@ -1,3 +1,4 @@
+import BuilderAnalysis
 import BuilderIngest
 import BuilderModel
 import BuilderSchema
@@ -10,6 +11,13 @@ import Foundation
 /// `--dry-run --print-payload` is the command the privacy page tells people to run. It
 /// prints every byte that would be sent and sends nothing, so the claim is checkable
 /// rather than merely stated.
+///
+/// Contract v2: a session the lifecycle still holds `open`/`idle` goes up as a
+/// `state: "live"` snapshot with `end_reason: "still_running"`, at most once per
+/// `Tuning.liveUploadMinIntervalSec`, and is replaced in place by the final upload under
+/// the same `client_session_id`. The stored analysis rides along under `analysis` when
+/// analysis upload is on (UserDefaults `BuilderAnalysisUpload`, default true;
+/// `BUILDER_ANALYSIS_UPLOAD=0` overrides) and is omitted from the wire otherwise.
 enum SyncCommand {
 
     static func baseURL() -> URL {
@@ -59,6 +67,9 @@ enum SyncCommand {
             return
         }
 
+        let liveCount = payloads.filter { $0.state == "live" }.count
+        let withAnalysis = payloads.filter { $0.analysis != nil }.count
+
         if dryRun || printPayload {
             let encoder = SessionUpload.encoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -70,11 +81,15 @@ enum SyncCommand {
                     Data(
                         """
 
-                        \(payloads.count) session(s) would be sent. Nothing was.
+                        \(payloads.count) session(s) would be sent (\(liveCount) live, \
+                        \(payloads.count - liveCount) final, \(withAnalysis) with an analysis). Nothing was.
 
                         Every key above is declared in privacy/upload-contract.json, and the
                         client encodes through a generated key enum with no synthesized
                         Codable — a field absent from that enum has no way to be sent.
+                        `analysis` is the one field that carries prose; it is
+                        \(AnalysisSettings.uploadEnabled() ? "ON" : "OFF") here \
+                        (UserDefaults BuilderAnalysisUpload, or BUILDER_ANALYSIS_UPLOAD=0).
 
                         Diff it against the published contract:
                           builder sync --dry-run --print-payload \\
@@ -96,16 +111,57 @@ enum SyncCommand {
         // lost its sync state and replays everything then costs bandwidth, not
         // correctness — and on a slow link, not much bandwidth either.
         let known = (try? await client.knownHashes()) ?? [:]
-        let toSend = payloads.filter { known[$0.clientSessionID] != $0.contentHash }
+
+        // Live snapshots are additionally rate-limited per session: on any pass where the
+        // payload hash changed, at most once per `liveUploadMinIntervalSec`. The record is
+        // Tier A so a cache rebuild cannot re-send every live snapshot in one burst.
+        let now = Date().timeIntervalSince1970
+        var lastLive: [String: (at: Double, hash: String?)] = [:]
+        try state.query("SELECT client_session_id, last_uploaded_at, content_hash FROM live_upload") { s in
+            if let id = s.text(0) { lastLive[id] = (s.double(1) ?? 0, s.text(2)) }
+        }
+
+        let toSend = payloads.filter { p in
+            if known[p.clientSessionID] == p.contentHash { return false }
+            if p.state == "live", let last = lastLive[p.clientSessionID] {
+                if now - last.at < Tuning.liveUploadMinIntervalSec { return false }
+                if last.hash == p.contentHash { return false }
+            }
+            return true
+        }
 
         if toSend.isEmpty {
-            print("Already up to date (\(payloads.count) sessions).")
+            print("Already up to date (\(payloads.count) sessions, \(liveCount) live).")
             return
         }
 
         let result = try await client.upload(toSend)
+        let rejected = Set(result.rejected.map(\.sessionID))
+
+        // Remember what went up. A final upload retires the session's live row: the
+        // server replaced the snapshot, and the limiter has nothing left to limit.
+        try state.transaction {
+            for p in toSend where !rejected.contains(p.clientSessionID) {
+                if p.state == "live" {
+                    try state.run(
+                        """
+                        INSERT INTO live_upload (client_session_id, last_uploaded_at, content_hash)
+                        VALUES (?,?,?)
+                        ON CONFLICT(client_session_id) DO UPDATE SET
+                          last_uploaded_at = excluded.last_uploaded_at,
+                          content_hash = excluded.content_hash
+                        """,
+                        [.text(p.clientSessionID), .double(now), .text(p.contentHash)])
+                } else if lastLive[p.clientSessionID] != nil {
+                    try state.run(
+                        "DELETE FROM live_upload WHERE client_session_id = ?", [.text(p.clientSessionID)])
+                }
+            }
+        }
+
         print("  accepted   \(result.accepted)")
         print("  unchanged  \(result.unchanged)")
+        print("  live       \(toSend.filter { $0.state == "live" }.count)")
         if !result.rejected.isEmpty {
             print("  rejected   \(result.rejected.count)")
             for r in result.rejected.prefix(10) {
@@ -134,9 +190,24 @@ enum SyncCommand {
             strips[id] = (cols, marks)
         }
 
+        // The lifecycle table, not the cache row, decides live vs final: the deriver
+        // writes every row as `final` and the state machine is what knows a session is
+        // still capable of growing.
+        var lifecycle: [String: String] = [:]
+        try state.query("SELECT client_session_id, state FROM session_lifecycle") { s in
+            if let id = s.text(0), let st = s.text(1) { lifecycle[id] = st }
+        }
+
+        let attachAnalysis = AnalysisSettings.uploadEnabled()
+        let analyses = attachAnalysis ? try AnalysisStore.all(in: state) : [:]
+
         let machineID = Self.machineID()
+        let now = Date().timeIntervalSince1970
         var out: [SessionUpload] = []
 
+        // Column indices below are positional. The tail of the list, for checking by eye:
+        //   39 repo_id_primary  40 title  41 title_source  42 unattended
+        //   43 attended_seconds  44 autonomous_seconds  45 n_presence  46 end_reason
         try cache.query(
             """
             SELECT client_session_id, harness, started_at, ended_at, active_seconds,
@@ -148,9 +219,10 @@ enum SyncCommand {
                    tokens_reported, tok_in, tok_out, tok_cache_read, tok_cache_w5m,
                    tok_cache_w1h, abandoned_branch_tokens, token_dedupe, token_scope,
                    token_coverage, models_json, model_state, repo_id_primary, title,
-                   title_source, unattended
+                   title_source, unattended, attended_seconds, autonomous_seconds,
+                   n_presence, end_reason
             FROM session
-            WHERE state = 'final' AND visible = 1
+            WHERE visible = 1
             ORDER BY started_at DESC
             """
         ) { s in
@@ -190,14 +262,80 @@ enum SyncCommand {
                 if let n = s.int(Int32(idx)), n > 0 { tools[name] = n }
             }
 
-            let started = Date(timeIntervalSince1970: s.double(2) ?? 0)
-            let ended = Date(timeIntervalSince1970: s.double(3) ?? 0)
+            let startedTS = s.double(2) ?? 0
+            let endedTS = s.double(3) ?? 0
+            let started = Date(timeIntervalSince1970: startedTS)
+            let ended = Date(timeIntervalSince1970: endedTS)
+
+            // Live or final. Open/idle in the lifecycle is live. A session the lifecycle has
+            // never seen (`builder sync` without `builder watch`) is judged by the clock the
+            // same way `SessionLifecycle.tick` would. A finalized session whose row still
+            // says `still_running` — the last in its pool, quiet past the threshold — ended
+            // on an idle gap; the server rejects `final` paired with `still_running`.
+            let rowEndReason = s.text(46) ?? "idle_gap"
+            let isLive: Bool
+            switch lifecycle[id] {
+            case "open", "idle":
+                isLive = true
+            case nil:
+                isLive = rowEndReason == "still_running" && now - endedTS < Tuning.tauSessionSec
+            default:
+                isLive = false
+            }
+            let uploadState = isLive ? "live" : "final"
+            let endReason: String
+            if isLive {
+                endReason = "still_running"
+            } else if rowEndReason == "still_running" {
+                endReason = "idle_gap"
+            } else {
+                endReason = rowEndReason
+            }
+
+            // The two clocks are rounded the same way from the same doubles and the
+            // headline is their SUM, never rounded independently: the server rejects
+            // `attended + autonomous != active` beyond a second, and three separate
+            // roundings can disagree by two.
+            let attended = Int((s.double(43) ?? 0).rounded())
+            let autonomous = Int((s.double(44) ?? 0).rounded())
+            let active = attended + autonomous
+            let presence = s.int(45) ?? 0
+            // The row's flag, held to the server's derivation: zero presence over a
+            // notable span is unattended, any presence at all is not.
+            let unattended = presence == 0 && (s.bool(42) || active >= Int(Tuning.notableMinActiveSec))
+
+            // The stored analysis, whichever is newest (a checkpoint until the final one
+            // lands). Attached only when upload is on, so it is also folded into the
+            // hash only then.
+            var analysis: SessionAnalysis?
+            var analysisTag = "-"
+            if attachAnalysis, let rec = analyses[id] {
+                if let decoded = try? rec.decoded() {
+                    analysis = decoded
+                    analysisTag = "\(rec.digestHash)|\(rec.generatedAt)|\(rec.checkpoint)"
+                } else {
+                    FileHandle.standardError.write(
+                        Data("warning: stored analysis for \(id.prefix(8)) did not decode; not attached\n".utf8))
+                }
+            }
+
+            let title = isPublic ? s.text(40) : nil
 
             // The content hash is what makes re-sync free. It covers everything that can
-            // change, so an unchanged session is skipped without the server being asked.
+            // change, so an unchanged session is skipped without the server being asked —
+            // and everything that CAN change must be in it, or a live→final flip, a title
+            // that arrives later, a re-derived strip or a fresh analysis comes back
+            // `unchanged` from /v1/sync/known and is never refreshed.
+            let stripTag =
+                strip.map {
+                    Hashing.sha256Hex(Data($0.cols)) + "|"
+                        + $0.marks.map { "\($0.ms):\($0.k)" }.joined(separator: ",")
+                } ?? "nostrip"
             let hashInput =
-                "\(id)|\(s.double(3) ?? 0)|\(s.double(4) ?? 0)|\(s.int(19) ?? 0)"
+                "\(id)|\(endedTS)|\(s.double(4) ?? 0)|\(s.int(19) ?? 0)"
                 + "|\(s.int(21) ?? 0)|\(s.int(11) ?? 0)|\(tokensReported)|\(isPublic)"
+                + "|\(uploadState)|\(endReason)|\(attended)|\(autonomous)|\(presence)|\(unattended)"
+                + "|\(title ?? "")|\(stripTag)|\(analysisTag)"
 
             out.append(
                 SessionUpload(
@@ -212,11 +350,11 @@ enum SyncCommand {
                     clientClockOffsetMs: 0,
                     startedAt: started,
                     endedAt: ended,
-                    activeSeconds: Int(s.double(4) ?? 0),
+                    activeSeconds: active,
                     idleSeconds: Int(s.double(5) ?? 0),
                     tzOffsetMinutes: s.int(6) ?? 0,
                     timeQuality: s.text(7) ?? "ok",
-                    state: "final",
+                    state: uploadState,
                     visible: s.bool(8),
                     notable: s.bool(9),
                     stripColumns: Data(strip?.cols ?? []).base64EncodedString(),
@@ -248,8 +386,14 @@ enum SyncCommand {
                     repoIDBasis: repo?.basis ?? "origin",
                     // Public repos only. Absent — not null — for anonymous ones.
                     repoName: isPublic ? repo?.name : nil,
-                    title: isPublic ? s.text(40) : nil,
-                    titleSource: isPublic ? s.text(41) : nil))
+                    title: title,
+                    titleSource: isPublic ? s.text(41) : nil,
+                    endReason: endReason,
+                    attendedSeconds: attended,
+                    autonomousSeconds: autonomous,
+                    presenceCount: presence,
+                    unattended: unattended,
+                    analysis: analysis))
         }
 
         return out

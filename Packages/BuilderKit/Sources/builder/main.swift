@@ -31,6 +31,8 @@ do {
         try WatchCommand.run()
     case "sessions":
         try SessionsCommand.run()
+    case "analyze":
+        try AnalyzeCommand.run()
     case "share":
         try ShareCommand.run()
     case "preview":
@@ -53,7 +55,15 @@ do {
                                             render a session to PNG and copy it
               builder pair                  link this Mac to your account
               builder sync [--dry-run] [--print-payload]
-                                            upload sessions; dry-run prints and sends nothing
+                                            upload sessions; dry-run prints and sends nothing.
+                                            Open sessions go up as live snapshots. The stored
+                                            analysis is attached unless BuilderAnalysisUpload
+                                            (defaults) is false or BUILDER_ANALYSIS_UPLOAD=0
+              builder analyze <id | --last | --all-missing> [--print-digest] [--dry-run]
+                                            digest a session and have your own Claude Code
+                                            read it (claude -p). --print-digest never calls
+                                            the model. BUILDER_ANALYSIS_MODEL / defaults
+                                            BuilderAnalysisModel pick the model (sonnet)
               builder preview [--out DIR]   render the app surfaces to PNG from real data
               builder doctor                records, contribution graph, projects, diagnostics
               builder groundtruth           reproduce the published measurements

@@ -566,7 +566,12 @@ def main() -> None:
     )
     write(ROOT / "mobile/src/generated/analysis.ts", gen_ts(s))
     write(ROOT / "server/builder/analysis_spec.py", gen_py(s))
-    write(ROOT / "analysis/schema.json", gen_schema(s))
+    schema = gen_schema(s)
+    write(ROOT / "analysis/schema.json", schema)
+    # The same bytes, shipped inside the Swift package as a Bundle.module resource so the
+    # agent's `claude -p --json-schema` receives exactly what the Python runner does.
+    # Generated here rather than copied by hand: a copy is a second definition.
+    write(ROOT / "Packages/BuilderKit/Sources/BuilderAnalysis/Resources/analysis_schema.json", schema)
 
 
 if __name__ == "__main__":
