@@ -22,7 +22,43 @@ export const CAPTURE_KEY_DEFAULT_NAME = 'claude.ai/code';
  * block in docs/cloud-capture.md.
  */
 export const CAPTURE_KEY_PASTE_HINT =
-  'Paste it as BUILDER_CAPTURE_KEY in your Claude Code cloud environment settings; the Stop and SessionEnd hooks from docs/cloud-capture.md then upload every session from that environment, with no pairing.';
+  'Run the setup below once on the machine (or set the two variables in your claude.ai/code environment). Claude Code then posts each session itself — nothing to install, nothing to pair.';
+
+/** The three hook events that ship a session: the prompt (live), each turn, and exit. */
+export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'SessionEnd'] as const;
+
+/** The `hooks` block for ~/.claude/settings.json, as documented in docs/hooks-capture.md. */
+export function hooksSettingsJson(): string {
+  const entry = { hooks: [{ type: 'command', command: 'bash ~/.builder/hook.sh' }] };
+  return JSON.stringify(
+    { hooks: Object.fromEntries(HOOK_EVENTS.map((e) => [e, [entry]])) },
+    null,
+    2
+  );
+}
+
+/**
+ * Everything a person pastes into a terminal, with the key filled in: the env file, the
+ * served script, and a merge of the hooks block into settings.json (python3 is on every
+ * Mac and Linux box; it only rewrites the `hooks` keys). One paste, then forget it.
+ */
+export function hookInstallSnippet(baseUrl: string, key: string): string {
+  const url = baseUrl.replace(/\/+$/, '');
+  return [
+    'mkdir -p ~/.builder ~/.claude',
+    `printf 'BUILDER_URL=${url}\\nBUILDER_CAPTURE_KEY=${key}\\n' > ~/.builder/env && chmod 600 ~/.builder/env`,
+    `curl -fsSL "${url}/v1/ingest/hook.sh" -o ~/.builder/hook.sh`,
+    `python3 - <<'PY'
+import json, os
+p = os.path.expanduser('~/.claude/settings.json')
+s = json.load(open(p)) if os.path.exists(p) else {}
+h = s.setdefault('hooks', {})
+for ev in ${JSON.stringify([...HOOK_EVENTS])}:
+    h[ev] = [{'hooks': [{'type': 'command', 'command': 'bash ~/.builder/hook.sh'}]}]
+json.dump(s, open(p, 'w'), indent=2)
+PY`,
+  ].join('\n');
+}
 
 /** Same rule as the server: trimmed, 1-64 characters. Null when fine. */
 export function captureKeyNameProblem(raw: string): string | null {

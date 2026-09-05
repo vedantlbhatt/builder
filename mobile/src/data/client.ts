@@ -2,10 +2,12 @@ import Constants from 'expo-constants';
 
 import { Api, type SessionDetail } from './api';
 
-export const api = new Api(
+/** Where this build talks to. Settings prints it in the hook recipe. */
+export const API_BASE_URL =
   (Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined)?.apiBaseUrl ??
-    'http://localhost:8000'
-);
+  'http://localhost:8000';
+
+export const api = new Api(API_BASE_URL);
 
 /**
  * The sample session.

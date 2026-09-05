@@ -8,6 +8,9 @@ import { describe, expect, test } from 'bun:test';
 
 import type { CaptureKey } from '../src/data/api';
 import {
+  HOOK_EVENTS,
+  hookInstallSnippet,
+  hooksSettingsJson,
   appendKey,
   atKeyCap,
   CAPTURE_KEY_MAX_LIVE,
@@ -90,5 +93,20 @@ describe('list edits', () => {
     const nine = Array.from({ length: CAPTURE_KEY_MAX_LIVE - 1 }, (_, i) => key(String(i)));
     expect(atKeyCap(nine)).toBe(false);
     expect(atKeyCap([...nine, key('last')])).toBe(true);
+  });
+});
+
+describe('hook recipe', () => {
+  test('the settings block names the three events and one command', () => {
+    const parsed = JSON.parse(hooksSettingsJson()) as { hooks: Record<string, unknown[]> };
+    expect(Object.keys(parsed.hooks)).toEqual([...HOOK_EVENTS]);
+    expect(JSON.stringify(parsed)).toContain('bash ~/.builder/hook.sh');
+  });
+  test('the install snippet carries the key and the server once each, trailing slash trimmed', () => {
+    const s = hookInstallSnippet('https://b.example.com/', 'bck_abc');
+    expect(s.split('bck_abc').length - 1).toBe(1);
+    expect(s).toContain('https://b.example.com/v1/ingest/hook.sh');
+    expect(s).not.toContain('example.com//');
+    expect(s).toContain("~/.claude/settings.json");
   });
 });

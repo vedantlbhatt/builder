@@ -19,8 +19,9 @@ import {
   keyLabel,
   lastUsedLabel,
   withoutKey,
+  hookInstallSnippet,
 } from '../src/data/captureKeys';
-import { api } from '../src/data/client';
+import { api, API_BASE_URL } from '../src/data/client';
 import { getMachineId } from '../src/data/machine';
 import { PixelSprite } from '../src/pixel/PixelSprite';
 import { registerForPush } from '../src/push/push';
@@ -311,6 +312,7 @@ function CaptureKeysPanel() {
   const [minting, setMinting] = useState(false);
   const [mintError, setMintError] = useState<string | null>(null);
   const [created, setCreated] = useState<CaptureKeyCreated | null>(null);
+  const [setupCopied, setSetupCopied] = useState(false);
   const [copied, setCopied] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
 
@@ -338,6 +340,7 @@ function CaptureKeysPanel() {
     try {
       const made = await api.createCaptureKey(chosen);
       setCreated(made);
+      setSetupCopied(false);
       setCopied(false);
       setName('');
       setKeys((prev) => appendKey(prev ?? [], { ...made, last_used_at: null }));
@@ -462,6 +465,47 @@ function CaptureKeysPanel() {
               <Text style={{ color: c.onAccent, fontSize: 14, fontWeight: '700' }}>{copied ? 'Copied' : 'Copy'}</Text>
             </Pressable>
           </View>
+          <Text style={{ color: c.text, fontSize: 14, fontWeight: '600', marginTop: space.md }}>
+            Set up the hook (paste once in a terminal)
+          </Text>
+          <Text
+            selectable
+            style={{
+              color: c.textDim,
+              fontFamily: 'Menlo',
+              fontSize: 11,
+              lineHeight: 15,
+              marginTop: space.xs,
+            }}
+          >
+            {hookInstallSnippet(API_BASE_URL, created.key)}
+          </Text>
+          <Pressable
+            onPress={() => {
+              ReactNative.Clipboard.setString(hookInstallSnippet(API_BASE_URL, created.key));
+              setSetupCopied(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Copy hook setup commands"
+            style={({ pressed }) => [
+              {
+                minHeight: TAP_TARGET,
+                justifyContent: 'center',
+                alignSelf: 'flex-start',
+                paddingHorizontal: space.md,
+                borderRadius: 10,
+                backgroundColor: c.bg,
+                borderWidth: 1,
+                borderColor: c.accent,
+                marginTop: space.sm,
+              },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Text style={{ color: c.accent, fontSize: 14, fontWeight: '700' }}>
+              {setupCopied ? 'Setup copied' : 'Copy setup'}
+            </Text>
+          </Pressable>
         </View>
       )}
 
