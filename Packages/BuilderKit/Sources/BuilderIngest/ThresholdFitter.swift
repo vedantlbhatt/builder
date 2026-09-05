@@ -98,7 +98,9 @@ public struct SessionThresholds: Sendable, Equatable {
         gapsAtLastFit: Int?, gapsNow: Int, lastFitAt: Double?, now: Double
     ) -> Bool {
         guard let last = gapsAtLastFit, let at = lastFitAt else { return true }
-        if Double(gapsNow) >= Double(last) * (1.0 + Tuning.tauRefitGrowthFraction) { return true }
+        // Growth as a ratio, not `last * 1.1`: 200 * 1.1 is 220.00000000000003 in binary
+        // floating point, so exactly ten percent more gaps would never refit. 20 / 200 is 0.1.
+        if last > 0, Double(gapsNow - last) / Double(last) >= Tuning.tauRefitGrowthFraction { return true }
         return now - at >= Tuning.tauRefitIntervalSec
     }
 }
