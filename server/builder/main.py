@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .boot import run_startup_checks
-from .routes import auth_routes, privacy, push, sessions, social, sync
+from .routes import auth_routes, privacy, push, sessions, social, sync, users
 from .settings import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +38,9 @@ app.include_router(sync.router)
 app.include_router(sessions.router)
 app.include_router(push.router)
 app.include_router(privacy.router)
+# users BEFORE social: `/v1/users/me` must be registered ahead of `/v1/users/{handle}`,
+# or the literal "me" is handed to the profile route as a handle.
+app.include_router(users.router)
 app.include_router(social.router)
 
 

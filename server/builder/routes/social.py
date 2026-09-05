@@ -89,8 +89,10 @@ def _before(value: str | None) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _author(handle, display_name) -> dict:
-    return {"handle": handle, "display_name": display_name}
+def _author(handle, display_name, is_you: bool) -> dict:
+    # `is_you` is compared server-side against the viewer. The phone used to infer it by
+    # matching handles, which was wrong for the one person who had not picked one yet.
+    return {"handle": handle, "display_name": display_name, "is_you": is_you}
 
 
 def _media_dict(m) -> dict:
@@ -109,7 +111,8 @@ def _media_dict(m) -> dict:
 # One statement per page. `s.*` supplies everything `_row_to_session` reads; the post's
 # own columns are aliased so nothing collides with the session's.
 _ITEM_SELECT = """
-    SELECT p.id AS post_id, p.caption, p.visibility, p.share_analysis,
+    SELECT p.id AS post_id, p.user_id AS post_user_id,
+           p.caption, p.visibility, p.share_analysis,
            p.kudos_count, p.comment_count,
            p.created_at AS post_created_at, p.updated_at AS post_updated_at,
            u.handle, u.display_name,
@@ -127,7 +130,7 @@ _ITEM_SELECT = """
 """
 
 
-def _item(r, media: list) -> dict:
+def _item(r, media: list, viewer: str) -> dict:
     strip = None
     if r.cols is not None:
         strip = {
@@ -150,7 +153,7 @@ def _item(r, media: list) -> dict:
     audio = next((_media_dict(m) for m in media if m.kind == "audio"), None)
     return {
         "id": str(r.post_id),
-        "author": _author(r.handle, r.display_name),
+        "author": _author(r.handle, r.display_name, str(r.post_user_id) == viewer),
         "caption": r.caption,
         "visibility": r.visibility,
         "share_analysis": r.share_analysis,
@@ -222,7 +225,7 @@ def _page(
 
     full = len(rows) == limit
     return {
-        "items": [_item(r, media.get(r.post_id, [])) for r in rows],
+        "items": [_item(r, media.get(r.post_id, []), viewer) for r in rows],
         "next_before": rows[-1].post_created_at.isoformat() if full else None,
         "next_before_id": str(rows[-1].post_id) if full else None,
     }
@@ -632,11 +635,11 @@ class CommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=500)
 
 
-def _comment_dict(c) -> dict:
+def _comment_dict(c, viewer: str) -> dict:
     return {
         "id": str(c.id),
         "post_id": str(c.post_id),
-        "author": _author(c.handle, c.display_name),
+        "author": _author(c.handle, c.display_name, str(c.user_id) == viewer),
         "body": c.body,
         "created_at": c.created_at.isoformat(),
     }
@@ -664,7 +667,8 @@ def create_comment(
         row = db.execute(
             text(
                 """
-                SELECT c.id, c.post_id, c.body, c.created_at, u.handle, u.display_name,
+                SELECT c.id, c.post_id, c.user_id, c.body, c.created_at,
+                       u.handle, u.display_name,
                        (SELECT comment_count FROM posts WHERE id = c.post_id) AS comment_count
                 FROM comments c JOIN users u ON u.id = c.user_id
                 WHERE c.id = :c
@@ -672,7 +676,7 @@ def create_comment(
             ),
             {"c": cid},
         ).one()
-    return {**_comment_dict(row), "comment_count": row.comment_count}
+    return {**_comment_dict(row, uid), "comment_count": row.comment_count}
 
 
 @router.get("/posts/{post_id}/comments")
@@ -688,7 +692,8 @@ def list_comments(post_id: str, device: CurrentDevice = Depends(current_device))
         rows = db.execute(
             text(
                 """
-                SELECT c.id, c.post_id, c.body, c.created_at, u.handle, u.display_name
+                SELECT c.id, c.post_id, c.user_id, c.body, c.created_at,
+                       u.handle, u.display_name
                 FROM comments c JOIN users u ON u.id = c.user_id
                 WHERE c.post_id = CAST(:p AS uuid) AND c.deleted_at IS NULL
                 ORDER BY c.created_at, c.id LIMIT 500
@@ -696,7 +701,7 @@ def list_comments(post_id: str, device: CurrentDevice = Depends(current_device))
             ),
             {"p": pid},
         ).all()
-    return {"comments": [_comment_dict(c) for c in rows]}
+    return {"comments": [_comment_dict(c, uid) for c in rows]}
 
 
 @router.delete("/comments/{comment_id}", status_code=204)
@@ -1078,6 +1083,7 @@ def faction_board(
                 **_author(
                     people[r.member_id].handle if r.member_id in people else None,
                     people[r.member_id].display_name if r.member_id in people else None,
+                    str(r.member_id) == uid,
                 ),
                 "role": r.member_role,
                 "share_hours": r.member_share_hours,
