@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     apple_key_id: str = ""
     apple_private_key: str = ""
 
+    # Google Sign-In. Comma-separated because the iOS, Android and web OAuth clients are
+    # DISTINCT client ids and each one is the `aud` of the tokens it issues; a single value
+    # would 401 every platform but one.
+    google_client_ids: str = ""
+
     # Ed25519 signing keys for access tokens. Two of them, always: rotation with a single
     # key 401s every in-flight token at the moment of the swap.
     jwt_private_key: str = ""
@@ -58,6 +63,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def google_client_id_list(self) -> list[str]:
+        return [c.strip() for c in self.google_client_ids.split(",") if c.strip()]
 
 
 @lru_cache

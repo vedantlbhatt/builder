@@ -76,7 +76,10 @@ def send_session_finished(user_id: str, title: str, body: str, session_id: str) 
     if not settings().apns_private_key:
         return 0
 
-    with db_session() as db:
+    # `push_tokens` is RLS-protected with an owner policy. This runs from a job, not a
+    # request, but it still knows exactly whose tokens it wants — and viewer-less it got
+    # zero rows, every time, with no error: the push silently never went out.
+    with db_session(viewer_id=user_id) as db:
         rows = db.execute(
             text("SELECT id, token, environment FROM push_tokens WHERE user_id = :u"),
             {"u": user_id},
@@ -124,7 +127,7 @@ def send_session_finished(user_id: str, title: str, body: str, session_id: str) 
             if resp.status_code == 200:
                 sent += 1
                 if env != row.environment:
-                    with db_session() as db:
+                    with db_session(viewer_id=user_id) as db:
                         db.execute(
                             text("UPDATE push_tokens SET environment = :e WHERE id = :i"),
                             {"e": env, "i": str(row.id)},
@@ -137,7 +140,7 @@ def send_session_finished(user_id: str, title: str, body: str, session_id: str) 
 
             if reason in {"Unregistered", "BadDeviceToken"} and env == _other(row.environment):
                 # Failed against both hosts: the install is genuinely gone.
-                with db_session() as db:
+                with db_session(viewer_id=user_id) as db:
                     db.execute(text("DELETE FROM push_tokens WHERE id = :i"), {"i": str(row.id)})
             elif reason not in {"BadDeviceToken", "Unregistered"}:
                 break

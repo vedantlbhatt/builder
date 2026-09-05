@@ -52,3 +52,17 @@ def db_session(viewer_id: str | None = None) -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+def set_viewer(db: Session, user_id: str) -> None:
+    """Raise the viewer from "nobody" to a resolved user, mid-transaction.
+
+    Only the sign-in paths call this. They open the transaction before anyone is known —
+    a pairing code, a refresh token or an identity token is all they have — and the tables
+    they must then write (`devices`, `push_tokens`, `identities`) are RLS-protected with an
+    owner policy. With the viewer still '', `INSERT INTO devices` fails WITH CHECK and a
+    JOIN through `devices` matches nothing, which is how `/v1/auth/refresh` came to 401
+    every valid token. `set_config(..., true)` is transaction-local, so overriding it here
+    is safe; the direction only ever goes from unset to a user the caller has just proven.
+    """
+    db.execute(text("SELECT set_config('app.viewer_id', :vid, true)"), {"vid": user_id})

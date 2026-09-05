@@ -50,7 +50,15 @@ def assert_policies_present() -> None:
     A table with RLS disabled is readable by everyone regardless of role, so this catches
     a migration that was written but never run.
     """
-    required = {"sessions", "session_strips", "session_stats", "repo_visibility"}
+    required = {
+        "sessions",
+        "session_strips",
+        "session_stats",
+        "repo_visibility",
+        "devices",
+        "push_tokens",
+        "identities",
+    }
     with engine().connect() as conn:
         rows = conn.execute(
             text(

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -6,14 +6,18 @@ from sqlalchemy import text
 
 from ..auth import (
     CurrentDevice,
+    ProviderIdentity,
     current_device,
     issue_access_token,
     issue_refresh_token,
     new_user_code,
+    optional_current_device,
     redeem_refresh_token,
+    register_device,
+    resolve_or_create_user,
     sha256,
-    upsert_user_from_apple,
-    verify_apple_identity_token,
+    verify_apple_identity,
+    verify_google_id_token,
 )
 from ..db import db_session
 from ..settings import settings
@@ -109,29 +113,19 @@ def device_poll(body: DevicePollRequest):
         if grant.approved_at is None or grant.user_id is None:
             return {"status": "authorization_pending"}
 
-        device = db.execute(
-            text(
-                """
-                INSERT INTO devices (user_id, label, platform, agent_version, machine_id)
-                VALUES (:u, :label, :platform, :ver, :mid)
-                ON CONFLICT (user_id, machine_id) DO UPDATE
-                  SET agent_version = EXCLUDED.agent_version,
-                      label = EXCLUDED.label,
-                      revoked_at = NULL
-                RETURNING id
-                """
-            ),
-            {
-                "u": str(grant.user_id),
-                "label": grant.label,
-                "platform": grant.platform,
-                "ver": grant.agent_version,
-                "mid": grant.machine_id,
-            },
-        ).one()
+        # The grant names the user; `register_device` raises the viewer to them before the
+        # INSERT. `device_grants` has no RLS, which is why the read above worked without one.
+        device_id = register_device(
+            db,
+            str(grant.user_id),
+            grant.machine_id,
+            grant.label,
+            grant.platform,
+            grant.agent_version,
+        )
 
-        access = issue_access_token(str(grant.user_id), str(device.id))
-        refresh = issue_refresh_token(db, str(device.id))
+        access = issue_access_token(str(grant.user_id), device_id)
+        refresh = issue_refresh_token(db, device_id)
 
         # Single use. A grant that stayed valid would let anyone who saw the code over a
         # shoulder mint a second device later.
@@ -172,54 +166,78 @@ def device_approve(body: DeviceApproveRequest, device: CurrentDevice = Depends(c
     return {"status": "approved", "label": updated.label, "platform": updated.platform}
 
 
-# ------------------------------------------------------------------ Sign in with Apple
+# ------------------------------------------------------- Sign in with Apple / Google
+#
+# ACCOUNT LINKING. Both endpoints accept an OPTIONAL bearer token. Without one, an unknown
+# identity creates a new user; with a valid one, it is linked to the caller's existing
+# user, and an identity that already belongs to someone else is a 409. A bearer that is
+# present but invalid is a 401 rather than "treat as anonymous" — silently creating a
+# second account for a person whose token merely expired is the failure linking exists
+# to prevent. Nothing is ever merged on email. See `resolve_or_create_user`.
 
 
-class AppleSignInRequest(BaseModel):
-    identity_token: str
+class ProviderSignInRequest(BaseModel):
     machine_id: str
-    label: str = "iPhone"
+    label: str = "Phone"
     platform: str = "ios"
     agent_version: str = "ios"
 
 
-@router.post("/apple")
-def apple_sign_in(body: AppleSignInRequest):
-    audiences = [settings().apple_primary_bundle_id]
-    if settings().apple_service_id:
-        audiences.append(settings().apple_service_id)
+class AppleSignInRequest(ProviderSignInRequest):
+    identity_token: str
+    label: str = "iPhone"
 
-    apple_sub = verify_apple_identity_token(body.identity_token, audiences)
 
+class GoogleSignInRequest(ProviderSignInRequest):
+    id_token: str
+
+
+def _sign_in(
+    identity: ProviderIdentity, body: ProviderSignInRequest, linker: CurrentDevice | None
+) -> dict:
     with db_session() as db:
-        user_id = upsert_user_from_apple(db, apple_sub, None)
-        device = db.execute(
-            text(
-                """
-                INSERT INTO devices (user_id, label, platform, agent_version, machine_id)
-                VALUES (:u, :label, :platform, :ver, :mid)
-                ON CONFLICT (user_id, machine_id) DO UPDATE
-                  SET agent_version = EXCLUDED.agent_version, revoked_at = NULL
-                RETURNING id
-                """
-            ),
-            {
-                "u": user_id,
-                "label": body.label,
-                "platform": body.platform,
-                "ver": body.agent_version,
-                "mid": body.machine_id,
-            },
-        ).one()
-
-        access = issue_access_token(user_id, str(device.id))
-        refresh = issue_refresh_token(db, str(device.id))
+        user_id = resolve_or_create_user(
+            db,
+            identity.provider,
+            identity.subject,
+            identity.email,
+            identity.email_verified,
+            link_to=str(linker.user_id) if linker else None,
+        )
+        device_id = register_device(
+            db, user_id, body.machine_id, body.label, body.platform, body.agent_version
+        )
+        access = issue_access_token(user_id, device_id)
+        refresh = issue_refresh_token(db, device_id)
 
     return {
         "access_token": access,
         "refresh_token": refresh,
         "expires_in": settings().access_token_ttl_seconds,
+        "user_id": user_id,
+        "linked": linker is not None,
     }
+
+
+@router.post("/apple")
+def apple_sign_in(
+    body: AppleSignInRequest, linker: CurrentDevice | None = Depends(optional_current_device)
+):
+    audiences = [settings().apple_primary_bundle_id]
+    if settings().apple_service_id:
+        audiences.append(settings().apple_service_id)
+    identity = verify_apple_identity(body.identity_token, audiences)
+    return _sign_in(identity, body, linker)
+
+
+@router.post("/google")
+def google_sign_in(
+    body: GoogleSignInRequest, linker: CurrentDevice | None = Depends(optional_current_device)
+):
+    """Google Sign-In. `platform` is "ios" or "android"; the token's audience says which
+    OAuth client issued it, and all of them are in GOOGLE_CLIENT_IDS."""
+    identity = verify_google_id_token(body.id_token, settings().google_client_id_list)
+    return _sign_in(identity, body, linker)
 
 
 class RefreshRequest(BaseModel):
@@ -228,6 +246,8 @@ class RefreshRequest(BaseModel):
 
 @router.post("/refresh")
 def refresh(body: RefreshRequest):
+    # Viewer-less on purpose: the token is all the caller has. `redeem_refresh_token`
+    # resolves the owner through `device_owner` and sets the viewer itself.
     with db_session() as db:
         access, new_refresh, _ = redeem_refresh_token(db, body.refresh_token)
     return {
@@ -235,7 +255,3 @@ def refresh(body: RefreshRequest):
         "refresh_token": new_refresh,
         "expires_in": settings().access_token_ttl_seconds,
     }
-
-
-def _unused() -> None:  # pragma: no cover
-    _ = timedelta
