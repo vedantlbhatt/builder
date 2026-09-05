@@ -1,6 +1,8 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
+import type { SessionAnalysis } from '../generated/analysis';
+
 /**
  * The phone's view of the server.
  *
@@ -43,6 +45,16 @@ export interface SessionStrip {
   t1_ms: number;
 }
 
+/**
+ * `live` is an open or idle session the Mac is still uploading snapshots of; `final` is
+ * one that has ended. The server keeps ONE row per session and flips its state, so the id
+ * is stable across the transition — the cache upserts by id and never sees two rows.
+ */
+export type SessionState = 'live' | 'final';
+
+/** See docs/session-boundaries.md. `still_running` is the end reason of a live snapshot. */
+export type EndReason = 'idle_gap' | 'human_returned' | 'day_boundary' | 'still_running';
+
 export interface SessionDetail {
   id: string;
   client_session_id: string;
@@ -62,12 +74,37 @@ export interface SessionDetail {
   /** Only on the detail endpoint; absent from the list. Null when no strip was stored. */
   strip?: SessionStrip | null;
   stats?: SessionStats | null;
+
+  // ---- Session boundaries v2. Every field is optional on READ: a server older than the
+  // ---- split omits them all, and the screens read `?? 0` / `?? 'final'` rather than
+  // ---- inventing a number the server never sent.
+  state?: SessionState;
+  end_reason?: EndReason;
+  /** Active seconds while a human was evidently present. */
+  attended_seconds?: number;
+  /** Active seconds after the human went quiet for longer than tauAutonomousSec. */
+  autonomous_seconds?: number;
+  /** Count of presence signals (typed prompts, interrupts, human edits). */
+  presence_count?: number;
+  /**
+   * The model-written reading of the session (spec/analysis.v1.json). Undefined when the
+   * endpoint did not include it; null when the server has none. A live session may carry
+   * a checkpoint analysis.
+   */
+  analysis?: SessionAnalysis | null;
+  updated_at?: string;
 }
 
 export interface Profile {
   graph: { date: string; active_seconds: number }[];
   totals: { sessions: number; active_seconds: number };
-  longest_session: { id: string; active_seconds: number; started_at: string } | null;
+  /** Ranked by ATTENDED time on a v2 server — a robot cannot hold the record. */
+  longest_session: {
+    id: string;
+    active_seconds: number;
+    started_at: string;
+    attended_seconds?: number;
+  } | null;
   projects: {
     key: string;
     name: string | null;
@@ -76,7 +113,15 @@ export interface Profile {
     first_at: string;
     last_at: string;
   }[];
-  attribution: { agent_lines: number; human_edit_events: number; prompts: number };
+  attribution: {
+    agent_lines: number;
+    human_edit_events: number;
+    prompts: number;
+    attended_seconds?: number;
+    autonomous_seconds?: number;
+  };
+  /** Sessions the Mac is still uploading. Absent on a server older than the split. */
+  live?: SessionDetail[];
 }
 
 export interface TokenPair {
@@ -233,6 +278,11 @@ export class Api {
 
   session(id: string): Promise<SessionDetail> {
     return this.request('GET', `/v1/sessions/${encodeURIComponent(id)}`);
+  }
+
+  /** Sessions in state `live`, newest updated first, at most 10. */
+  liveSessions(): Promise<{ sessions: SessionDetail[] }> {
+    return this.request('GET', '/v1/sessions/live');
   }
 
   registerPush(

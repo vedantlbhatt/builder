@@ -1,4 +1,4 @@
-import type { Api, Profile, SessionDetail } from './api';
+import { ApiError, type Api, type Profile, type SessionDetail } from './api';
 
 /**
  * The on-device copy of what the server has told us.
@@ -44,12 +44,22 @@ function db(): Promise<Db | null> {
           CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             started_at TEXT,
-            json TEXT NOT NULL
+            json TEXT NOT NULL,
+            live INTEGER NOT NULL DEFAULT 0
           );
           CREATE INDEX IF NOT EXISTS sessions_started ON sessions(started_at);
           CREATE TABLE IF NOT EXISTS profile (k TEXT PRIMARY KEY, json TEXT);
           CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
         `);
+        // Databases created before live sessions existed lack the column. SQLite has no
+        // ADD COLUMN IF NOT EXISTS; the duplicate-column error is the "already there" signal.
+        try {
+          await handle.execAsync(
+            'ALTER TABLE sessions ADD COLUMN live INTEGER NOT NULL DEFAULT 0'
+          );
+        } catch {
+          // column exists
+        }
         return handle;
       } catch (e) {
         warnOnce('open', e);
@@ -82,13 +92,38 @@ function parse(json: string): SessionDetail | null {
 
 // ---------------------------------------------------------------------- sessions
 
+/** Finished sessions only. Live ones come from `listLive` and render as their own block. */
 export async function listSessions(limit: number): Promise<SessionDetail[]> {
   return guarded('listSessions', [], async (d) => {
     const rows = await d.getAllAsync<Row>(
-      'SELECT json FROM sessions ORDER BY started_at DESC LIMIT ?',
+      'SELECT json FROM sessions WHERE live = 0 ORDER BY started_at DESC LIMIT ?',
       limit
     );
     return rows.map((r) => parse(r.json)).filter((s): s is SessionDetail => s !== null);
+  });
+}
+
+/** Sessions the Mac is still uploading, most recently updated first. */
+export async function listLive(): Promise<SessionDetail[]> {
+  return guarded('listLive', [], async (d) => {
+    const rows = await d.getAllAsync<Row>('SELECT json FROM sessions WHERE live = 1');
+    return rows
+      .map((r) => parse(r.json))
+      .filter((s): s is SessionDetail => s !== null)
+      .sort((a, b) => (b.updated_at ?? b.started_at).localeCompare(a.updated_at ?? a.started_at));
+  });
+}
+
+async function liveIds(): Promise<string[]> {
+  return guarded('liveIds', [] as string[], async (d) => {
+    const rows = await d.getAllAsync<{ id: string }>('SELECT id FROM sessions WHERE live = 1');
+    return rows.map((r) => r.id);
+  });
+}
+
+async function remove(id: string): Promise<void> {
+  await guarded('remove', undefined, async (d) => {
+    await d.runAsync('DELETE FROM sessions WHERE id = ?', id);
   });
 }
 
@@ -124,13 +159,22 @@ async function upsert(s: SessionDetail, isDetail: boolean): Promise<void> {
     if (isDetail) {
       if (merged.strip === undefined) merged.strip = null;
       if (merged.stats === undefined) merged.stats = null;
+      // The detail endpoint is authoritative for the analysis. A live row may have cached
+      // a checkpoint; once the final detail arrives without one, the checkpoint must not
+      // outlive the session it was a snapshot of.
+      merged.analysis = s.analysis ?? null;
     }
+    // The server keeps one row per session and flips `state` when it finalizes, so the id
+    // is stable: the same upsert that stored the live snapshot clears the flag.
+    const live = merged.state === 'live' ? 1 : 0;
     await d.runAsync(
-      `INSERT INTO sessions (id, started_at, json) VALUES (?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET started_at = excluded.started_at, json = excluded.json`,
+      `INSERT INTO sessions (id, started_at, json, live) VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         started_at = excluded.started_at, json = excluded.json, live = excluded.live`,
       merged.id,
       merged.started_at,
-      JSON.stringify(merged)
+      JSON.stringify(merged),
+      live
     );
   });
 }
@@ -145,12 +189,53 @@ const DETAIL_CAP_PER_SYNC = 30;
  * Whatever succeeded is persisted BEFORE an error is rethrown: the caller shows the error
  * as a banner over the saved sessions, and losing a half-finished sync to a dropped
  * connection would make the banner the only thing the user got.
+ *
+ * Live sessions are pulled on the same pass. The list call asks for notable finals only,
+ * so a live session that finalizes as NOT notable would never come back through it — a
+ * row that was live last time and is missing from the live list now is re-read by id, so
+ * its cached copy flips to final (or is dropped on a 404) instead of pulsing forever.
  */
 export async function sync(api: Api): Promise<void> {
   let failure: unknown = null;
 
   const page = await api.sessions({ limit: SYNC_LIST_LIMIT, notable_only: true });
   for (const s of page.sessions) await upsert(s, false);
+
+  const wasLive = await liveIds();
+  const staleLive: string[] = [];
+  let liveNow: SessionDetail[] | null = null;
+  try {
+    liveNow = (await api.liveSessions()).sessions;
+  } catch (e) {
+    // A server older than the split has no /live; that is not an error worth a banner.
+    if (!(e instanceof ApiError && e.status === 404)) failure = e;
+  }
+  if (liveNow !== null) {
+    for (const s of liveNow) {
+      const cached = await getDetail(s.id);
+      // A live row changes under us; re-read its detail whenever the snapshot moved (or
+      // the server does not say, or we never had the detail).
+      if (
+        !cached ||
+        !('strip' in cached) ||
+        s.updated_at === undefined ||
+        cached.updated_at !== s.updated_at
+      ) {
+        staleLive.push(s.id);
+      }
+      await upsert({ ...s, state: s.state ?? 'live' }, false);
+    }
+    const liveIdSet = new Set(liveNow.map((s) => s.id));
+    for (const id of wasLive) {
+      if (liveIdSet.has(id)) continue;
+      try {
+        await upsert(await api.session(id), true);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) await remove(id);
+        else if (failure === null) failure = e;
+      }
+    }
+  }
 
   const needDetail = await guarded('sync.needDetail', [] as string[], async (d) => {
     const rows = await d.getAllAsync<{ id: string; json: string }>(
@@ -165,9 +250,10 @@ export async function sync(api: Api): Promise<void> {
       .map((r) => r.id)
       .slice(0, DETAIL_CAP_PER_SYNC);
   });
+  const ids = [...new Set([...staleLive, ...needDetail])];
 
-  for (let i = 0; i < needDetail.length && failure === null; i += DETAIL_BATCH) {
-    const batch = needDetail.slice(i, i + DETAIL_BATCH);
+  for (let i = 0; i < ids.length && failure === null; i += DETAIL_BATCH) {
+    const batch = ids.slice(i, i + DETAIL_BATCH);
     const results = await Promise.allSettled(batch.map((id) => api.session(id)));
     for (const r of results) {
       if (r.status === 'fulfilled') await upsert(r.value, true);

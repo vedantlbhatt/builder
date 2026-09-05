@@ -94,6 +94,19 @@ describe('Api transport', () => {
     expect(await api.isSignedIn()).toBe(true);
   });
 
+  test('liveSessions hits /v1/sessions/live with the bearer', async () => {
+    const { storage } = memoryStorage({ 'builder.access': 'A1', 'builder.refresh': 'R1' });
+    const calls = installFetch(() => json(200, { sessions: [{ id: 'l1', state: 'live' }] }));
+    const api = new Api(BASE, storage);
+
+    const out = await api.liveSessions();
+
+    expect(out.sessions.map((s) => s.id)).toEqual(['l1']);
+    expect(calls[0]!.url).toBe(`${BASE}/v1/sessions/live`);
+    expect(calls[0]!.method).toBe('GET');
+    expect(calls[0]!.headers.Authorization).toBe('Bearer A1');
+  });
+
   test('sign-in endpoints send no bearer and the documented body', async () => {
     const { storage } = memoryStorage();
     const calls = installFetch(() => json(200, { access_token: 'A', refresh_token: 'R' }));

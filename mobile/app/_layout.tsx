@@ -1,7 +1,10 @@
+import * as Linking from 'expo-linking';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useEffect } from 'react';
 
+import { handleIncomingUrl } from '../src/auth/googleFlow';
+import { api } from '../src/data/client';
 import { colors } from '../src/theme';
 
 /**
@@ -14,6 +17,21 @@ import { colors } from '../src/theme';
  */
 export default function RootLayout() {
   const c = colors('dark');
+
+  // Google sign-in comes back through the app scheme (`builder://auth/google#id_token=…`).
+  // It is handled here, at the root, rather than in Settings: the redirect can arrive at
+  // a cold start, before any screen has mounted. `+native-intent.ts` keeps the router from
+  // treating the same URL as a route.
+  useEffect(() => {
+    const sub = Linking.addEventListener('url', ({ url }) => {
+      void handleIncomingUrl(url, api);
+    });
+    void Linking.getInitialURL().then((url) => {
+      if (url) void handleIncomingUrl(url, api);
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <>
       <StatusBar style="light" />
@@ -28,6 +46,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ title: 'Sessions' }} />
         <Stack.Screen name="profile" options={{ title: 'Profile' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="pair" options={{ title: 'Connect your Mac' }} />
         <Stack.Screen name="session/[id]" options={{ title: '' }} />
       </Stack>
     </>

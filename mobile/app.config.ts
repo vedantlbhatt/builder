@@ -42,6 +42,11 @@ const config: ExpoConfig = {
 
   extra: {
     apiBaseUrl: process.env.BUILDER_API_URL ?? 'http://localhost:8000',
+    // Google sign-in runs the browser-based id_token flow with no native SDK. Empty means
+    // "not configured": the button renders disabled and says so rather than opening a
+    // consent page that would 400.
+    googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
+    googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ?? 'builder://auth/google',
     eas: { projectId: process.env.EAS_PROJECT_ID ?? '' },
   },
 

@@ -9,8 +9,11 @@ import {
   View,
 } from 'react-native';
 
+import { AnalysisView } from '../../src/analysis/AnalysisView';
+import { describeEnd } from '../../src/analysis/format';
 import { RecapCard, toCardModel, type CardModel } from '../../src/card/RecapCard';
 import { shareCard } from '../../src/card/export';
+import type { SessionDetail } from '../../src/data/api';
 import * as cache from '../../src/data/cache';
 import { api, SAMPLE_SESSION } from '../../src/data/client';
 import { TimelineStrip } from '../../src/strip/TimelineStrip';
@@ -24,28 +27,33 @@ export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { width } = useWindowDimensions();
   const [model, setModel] = useState<CardModel | null>(null);
+  const [session, setSession] = useState<SessionDetail | null>(null);
   const [sharing, setSharing] = useState(false);
   const cardRef = useRef(null);
 
   useEffect(() => {
+    const show = (s: SessionDetail, code: string) => {
+      setSession(s);
+      setModel(toCardModel(s, code));
+    };
     (async () => {
       if (id === 'sample') {
-        setModel(toCardModel(SAMPLE_SESSION, 'builder.dev/s/sample'));
+        show(SAMPLE_SESSION, 'builder.dev/s/sample');
         return;
       }
       const cached = await cache.getDetail(id!);
-      if (cached) setModel(toCardModel(cached, `builder.dev/s/${id!.slice(0, 6)}`));
+      if (cached) show(cached, `builder.dev/s/${id!.slice(0, 6)}`);
       try {
         const fresh = await api.session(id!);
         await cache.putDetail(fresh);
-        setModel(toCardModel(fresh, `builder.dev/s/${id!.slice(0, 6)}`));
+        show(fresh, `builder.dev/s/${id!.slice(0, 6)}`);
       } catch {
         // Offline with a cached copy is fine; offline without one shows the spinner.
       }
     })();
   }, [id]);
 
-  if (!model) {
+  if (!model || !session) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', backgroundColor: c.bg }}>
         <ActivityIndicator color={c.accent} />
@@ -55,6 +63,12 @@ export default function SessionScreen() {
 
   const contentWidth = width - space.md * 2;
   const share = model.strip ? classShare(decodeColumns(model.strip)) : null;
+
+  // Boundary fields are optional on read: an older server omits them, and the row is
+  // skipped rather than shown as "0s / 0s".
+  const state = session.state ?? 'final';
+  const hasSplit = session.attended_seconds !== undefined || session.autonomous_seconds !== undefined;
+  const endNote = describeEnd(session);
 
   return (
     <ScrollView
@@ -119,7 +133,14 @@ export default function SessionScreen() {
       </Section>
 
       <Section title="Numbers">
+        {state === 'live' && <Row label="Status" value="Live" />}
         <Row label="Active" value={duration(model.activeSeconds)} />
+        {hasSplit && (
+          <Row
+            label="Attended / autonomous"
+            value={`${duration(session.attended_seconds ?? 0)} / ${duration(session.autonomous_seconds ?? 0)}`}
+          />
+        )}
         <Row label="Elapsed" value={duration(model.wallSeconds)} />
         <Row label="Prompts you typed" value={`${model.prompts}`} />
         <Row label="Files touched" value={`${model.filesTouched}`} />
@@ -132,7 +153,26 @@ export default function SessionScreen() {
           // so a "0" here would be a claim about the session rather than about Cursor.
           <Row label="Tokens" value="not recorded by this editor" dim />
         )}
+        {endNote && (
+          <Text style={{ color: c.textDim, fontSize: 12, lineHeight: 17, marginTop: space.sm }}>
+            {endNote}
+          </Text>
+        )}
       </Section>
+
+      {session.analysis ? (
+        <AnalysisView analysis={session.analysis} />
+      ) : (
+        <Section title="Analysis">
+          {/* Quiet, and no spinner: nothing is loading. A final session without an analysis
+              will not grow one by waiting. */}
+          <Text style={{ color: c.textDim, fontSize: 13 }}>
+            {state === 'final'
+              ? 'Analysis not available for this session'
+              : 'Analysis arrives when the session finishes, or at the next checkpoint while it runs unattended.'}
+          </Text>
+        </Section>
+      )}
     </ScrollView>
   );
 }

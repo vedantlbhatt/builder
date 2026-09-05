@@ -1,9 +1,11 @@
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import * as cache from '../src/data/cache';
 import { api } from '../src/data/client';
 import type { Profile } from '../src/data/api';
+import { LiveSessions } from '../src/live/LiveSessions';
 import { ContributionGrid } from '../src/profile/ContributionGrid';
 import { colors, duration, space } from '../src/theme';
 
@@ -11,6 +13,7 @@ const c = colors('dark');
 
 export default function ProfileScreen() {
   const { width } = useWindowDimensions();
+  const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
 
   useEffect(() => {
@@ -36,12 +39,19 @@ export default function ProfileScreen() {
 
   const contentWidth = width - space.md * 4;
   const recentDays = profile.graph.slice(-119);
+  const attended = profile.attribution.attended_seconds;
+  const autonomous = profile.attribution.autonomous_seconds;
+  // Only a server that splits the clocks gets the pair; "0 / 0" from an older one would
+  // be a plausible wrong number.
+  const hasSplit = attended !== undefined || autonomous !== undefined;
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: c.bg }}
       contentContainerStyle={{ padding: space.md, paddingBottom: space.xxl }}
     >
+      <LiveSessions sessions={profile.live ?? []} onPress={(id) => router.push(`/session/${id}`)} />
+
       <Card>
         <Text style={{ color: c.text, fontSize: 30, fontWeight: '700' }}>
           {duration(profile.totals.active_seconds)}
@@ -49,6 +59,12 @@ export default function ProfileScreen() {
         <Text style={{ color: c.textDim, fontSize: 13 }}>
           across {profile.totals.sessions} sessions
         </Text>
+        {hasSplit && (
+          <View style={{ flexDirection: 'row', gap: space.xl, marginTop: space.md }}>
+            <Stat label="Attended" value={duration(attended ?? 0)} />
+            <Stat label="Autonomous" value={duration(autonomous ?? 0)} />
+          </View>
+        )}
       </Card>
 
       <Section title="Active hours">
@@ -101,6 +117,17 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {title.toUpperCase()}
       </Text>
       <Card>{children}</Card>
+    </View>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <View>
+      <Text style={{ color: c.text, fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] }}>
+        {value}
+      </Text>
+      <Text style={{ color: c.textDim, fontSize: 11 }}>{label}</Text>
     </View>
   );
 }

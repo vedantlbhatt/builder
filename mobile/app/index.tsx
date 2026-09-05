@@ -13,16 +13,21 @@ import {
 import { api, SAMPLE_SESSION } from '../src/data/client';
 import * as cache from '../src/data/cache';
 import type { SessionDetail } from '../src/data/api';
+import { LiveSessions } from '../src/live/LiveSessions';
 import { TimelineStrip } from '../src/strip/TimelineStrip';
 import { decodeMarks } from '../src/strip/decode';
 import { colors, duration, space } from '../src/theme';
 
 const c = colors('dark');
 
+/** How often the list re-syncs while it is on screen; matches the Mac's live upload cadence. */
+const LIVE_REFRESH_MS = 60_000;
+
 export default function SessionsScreen() {
   const { width } = useWindowDimensions();
   const router = useRouter();
   const [sessions, setSessions] = useState<SessionDetail[]>([]);
+  const [live, setLive] = useState<SessionDetail[]>([]);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,28 +38,37 @@ export default function SessionsScreen() {
     // a far better answer than an empty screen.
     const cached = await cache.listSessions(50);
     if (cached.length) setSessions(cached);
+    setLive(await cache.listLive());
 
     const isIn = await api.isSignedIn();
     setSignedIn(isIn);
     if (!isIn) {
       setSessions(cached.length ? cached : [SAMPLE_SESSION]);
+      setLive([]);
       return;
     }
 
     try {
       await cache.sync(api);
-      setSessions(await cache.listSessions(50));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not reach the server');
     }
+    // Whatever the sync managed to save is shown, banner or not.
+    setSessions(await cache.listSessions(50));
+    setLive(await cache.listLive());
   }, []);
 
   // On focus, not on mount: coming back from Settings after signing in should show the
-  // user's own sessions without a manual pull-to-refresh.
+  // user's own sessions without a manual pull-to-refresh. While focused, re-sync once a
+  // minute so a live session's numbers move; the interval dies on blur.
   useFocusEffect(
     useCallback(() => {
       void load();
+      const timer = setInterval(() => {
+        void load();
+      }, LIVE_REFRESH_MS);
+      return () => clearInterval(timer);
     }, [load])
   );
 
@@ -94,6 +108,8 @@ export default function SessionsScreen() {
           </Pressable>
         </Link>
       </View>
+
+      <LiveSessions sessions={live} onPress={(id) => router.push(`/session/${id}`)} />
 
       {!signedIn && (
         <View style={banner}>
