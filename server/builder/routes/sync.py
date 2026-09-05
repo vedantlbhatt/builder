@@ -1,16 +1,20 @@
 import base64
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .. import notify
 from ..auth import CurrentDevice, current_device
 from ..contract import SessionUpload
 from ..db import db_session
 from ..strip import COLUMNS, non_idle_seconds
+from . import push
 
 router = APIRouter(prefix="/v1/sync", tags=["sync"])
+log = logging.getLogger("builder.sync")
 
 #: Mirrors `Tuning.notableMinActiveSec` (1200 s). The Mac's rule is
 #: `unattended = presence_count == 0 && active_seconds >= notableMinActiveSec`; below the
@@ -133,6 +137,13 @@ def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_dev
     `content_hash` makes a repeat free: re-uploading an unchanged session touches nothing
     and reports `unchanged`, so a client that loses its sync state and replays everything
     costs bandwidth rather than correctness.
+
+    Completion pushes are decided and RECORDED inside the transaction (notify.plan) and
+    sent only after it commits. The order is the point: a push failure — APNs down, a
+    bad token, a bug in the HTTP client — can never roll back an upload, and a request
+    that dies between commit and send loses a banner rather than storing a session
+    twice. Failures are logged, not raised; the Mac's sync must not retry a whole batch
+    because a phone was unreachable.
     """
     if len(body.sessions) > 250:
         raise HTTPException(413, "at most 250 sessions per batch")
@@ -140,6 +151,7 @@ def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_dev
     accepted = 0
     unchanged = 0
     rejected: list[dict] = []
+    pending: list[notify.PendingPush] = []
 
     with db_session(viewer_id=str(device.user_id)) as db:
         for p in body.sessions:
@@ -147,9 +159,11 @@ def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_dev
                 rejected.append({"client_session_id": p.client_session_id, "reason": reason})
                 continue
 
+            # `state` rides along so the notification decision can tell a live row
+            # becoming final (news) from a final row being refreshed (not news).
             existing = db.execute(
                 text(
-                    "SELECT id, content_hash FROM sessions "
+                    "SELECT id, content_hash, state FROM sessions "
                     "WHERE user_id = :u AND client_session_id = :c"
                 ),
                 {"u": str(device.user_id), "c": p.client_session_id},
@@ -164,12 +178,24 @@ def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_dev
             _upsert_strip(db, session_id, p)
             _upsert_stats(db, session_id, p)
             _upsert_analysis(db, session_id, p)
+            if (push_plan := notify.plan(db, session_id, p, existing)) is not None:
+                pending.append(push_plan)
             accepted += 1
 
         db.execute(
             text("UPDATE devices SET last_seen_at = now() WHERE id = :d"),
             {"d": str(device.device_id)},
         )
+
+    # Committed. Everything below is best-effort. Called through the module attribute
+    # rather than an imported name so a test can replace it at `push.send_session_finished`.
+    for n in pending:
+        try:
+            push.send_session_finished(
+                str(device.user_id), n.title, n.body, n.session_id, unattended=n.unattended
+            )
+        except Exception:
+            log.exception("push for session %s (%s) failed; not retried", n.session_id, n.kind)
 
     return BatchResponse(accepted=accepted, unchanged=unchanged, rejected=rejected)
 

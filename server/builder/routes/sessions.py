@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from ..auth import CurrentDevice, current_device
+from ..builder_profile import DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS, MIN_SESSIONS, builder_profile
 from ..contract import ENUM_VALUES
 from ..db import db_session
 
@@ -188,8 +189,16 @@ def get_session(session_id: str, device: CurrentDevice = Depends(current_device)
     return out
 
 
+#: `window_days` for the builder profile, shared by both routes below.
+WindowDays = Query(DEFAULT_WINDOW_DAYS, ge=1, le=MAX_WINDOW_DAYS)
+
+
 @router.get("/profile")
-def profile(device: CurrentDevice = Depends(current_device), days: int = Query(119, le=400)):
+def profile(
+    device: CurrentDevice = Depends(current_device),
+    days: int = Query(119, le=400),
+    window_days: int = WindowDays,
+):
     """Everything the profile tab needs, in one request.
 
     One round trip rather than four: the phone renders this screen on cold launch over a
@@ -199,6 +208,10 @@ def profile(device: CurrentDevice = Depends(current_device), days: int = Query(1
     live session's numbers move every minute; folding them into the graph and the totals
     would make the profile disagree with itself between two pulls, and the phone adds
     today's live minutes to today's cell on its own.
+
+    `builder_profile` is the aggregate of the session analyses (builder_profile.py): null
+    until three analysed sessions exist, because docs/analysis.md forbids reading an
+    archetype off one run. `/profile/builder` serves it alone for a refresh.
     """
     uid = str(device.user_id)
     with db_session(viewer_id=uid) as db:
@@ -271,6 +284,7 @@ def profile(device: CurrentDevice = Depends(current_device), days: int = Query(1
         ).one()
 
         live = _live_rows(db, uid)
+        builder, _analysed = builder_profile(db, uid, window_days)
 
     return {
         "graph": [{"date": g.local_date.isoformat(), "active_seconds": int(g.secs)} for g in graph],
@@ -308,4 +322,24 @@ def profile(device: CurrentDevice = Depends(current_device), days: int = Query(1
             "autonomous_seconds": int(attribution.autonomous),
         },
         "live": live,
+        "builder_profile": builder,
+    }
+
+
+@router.get("/profile/builder")
+def profile_builder(device: CurrentDevice = Depends(current_device), window_days: int = WindowDays):
+    """The builder profile alone, so the phone can refresh it without the whole tab.
+
+    The count and the minimum travel beside the (possibly null) profile so the screen can
+    say "2 of 3 sessions analysed" rather than show an empty card: null alone cannot
+    distinguish "not enough yet" from "nothing was ever analysed".
+    """
+    uid = str(device.user_id)
+    with db_session(viewer_id=uid) as db:
+        builder, analysed = builder_profile(db, uid, window_days)
+    return {
+        "builder_profile": builder,
+        "sessions_analysed": analysed,
+        "min_sessions": MIN_SESSIONS,
+        "window_days": window_days,
     }

@@ -65,8 +65,13 @@ def _apns_jwt() -> str:
     return token
 
 
-def send_session_finished(user_id: str, title: str, body: str, session_id: str) -> int:
+def send_session_finished(
+    user_id: str, title: str, body: str, session_id: str, *, unattended: bool = False
+) -> int:
     """Push a session-complete alert to every device the user has registered.
+
+    `unattended` rides in the payload so the phone can open "Agent run finished" on the
+    run's analysis rather than on a record card it can never be.
 
     A `BadDeviceToken` is retried once against the opposite host before the token is
     dropped: the usual cause is an environment mismatch rather than a dead install, and
@@ -96,6 +101,7 @@ def send_session_finished(user_id: str, title: str, body: str, session_id: str) 
             "interruption-level": "active",
         },
         "session": session_id,
+        "unattended": unattended,
     }
 
     sent = 0
