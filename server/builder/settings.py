@@ -56,6 +56,20 @@ class Settings(BaseSettings):
     apns_topic: str = "com.vedantlbhatt.Builder"
     apns_use_sandbox: bool = True
 
+    # Object storage for post photos and voice notes (docs/social.md). S3-compatible,
+    # presigned PUTs from the phone; the API never proxies bytes. All unset is a valid
+    # configuration: media upload answers 503 and the rest of social works without it.
+    # `region` is "auto" because the first target is Cloudflare R2, which wants exactly
+    # that string in the credential scope; AWS wants the real region name.
+    object_store_endpoint: str = ""
+    object_store_bucket: str = ""
+    object_store_region: str = "auto"
+    object_store_key: str = ""
+    object_store_secret: str = ""
+    # Public read base (a CDN or bucket domain). Photo `url`s are only built when set;
+    # otherwise the phone gets the object key and no URL, not a guessed one.
+    object_store_public_base: str = ""
+
     environment: str = "development"
     posthog_api_key: str = ""
     sentry_dsn: str = ""

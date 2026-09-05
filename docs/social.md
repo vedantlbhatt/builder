@@ -1,5 +1,7 @@
 # Social: the smallest thing that is still Strava
 
+Status: server implemented in migration 0007 + routes/social.py; mobile feed pending.
+
 Builder is single-player today, on purpose. This is the design for the layer on top, written
 before the code so the code has something to be wrong against. The constraint that matters:
 **the feed must not be clunky.** A feed of raw sessions is a log. A feed of recap cards with a

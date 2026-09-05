@@ -61,6 +61,15 @@ def assert_policies_present() -> None:
         "devices",
         "push_tokens",
         "identities",
+        # 0007. The social tables: a post's visibility IS its policy, so a deployment
+        # where the migration never ran would serve every post to everyone.
+        "posts",
+        "post_media",
+        "kudos",
+        "comments",
+        "follows",
+        "factions",
+        "faction_members",
     }
     with engine().connect() as conn:
         rows = conn.execute(
