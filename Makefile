@@ -72,6 +72,7 @@ analyze:
 
 fixtures:
 	@python3 scripts/gen_boundary_fixtures.py
+	@python3 scripts/gen_real_fixture_expected.py
 
 # `capture/` is the uploader for Claude Code sessions that run in the cloud
 # (docs/cloud-capture.md). Stdlib unittest: it must run where nothing is installed.

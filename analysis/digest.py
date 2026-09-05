@@ -156,7 +156,7 @@ def _looks_like_error(s: str) -> bool:
 
 
 _HEREDOC = re.compile(
-    r"(?:cat|tee)\s*(?:>>?|-a\s+)?\s*(?P<path>[\w./~\-]+)\s*<<\s*-?['\"]?\w+['\"]?"
+    r"(?:cat|tee)\s*(?:>>?|-a\s+)?\s*(?P<path>[\w./~\-]+)\s*<<\s*-?['\"]?(?P<delim>\w+)['\"]?"
 )
 _SED_I = re.compile(r"\bsed\s+-i\S*\s+.*?\s(?P<path>[\w./~\-]+\.\w+)(?:\s|$)")
 
@@ -169,11 +169,28 @@ def _bash_file_effect(command: str) -> tuple[str | None, int | None]:
     every source file in the commit was created by `cat > path <<'EOF'`. Ignoring that
     reports "agent lines +0" on a session that added a thousand. The count is the
     heredoc body length — approximate, labelled so, and better than zero.
+
+    The body is the lines strictly between the opener and the terminator. FOUND ON A REAL
+    SESSION (Claude Code 2.1.261, `claude -p`, 2026-09-05): the Bash input
+    `mkdir -p tests && cat > tests/test_fail.py <<'EOF'\\ndef test_fail():\\n    assert 1 ==
+    2\\nEOF\\ngit add -A && git commit -m 'add failing test'` scored +3 under the older
+    `newlines - 1` rule while git's own result said `2 insertions(+)` — the terminator
+    line and the commands after it were being counted as file content.
     """
     m = _HEREDOC.search(command)
     if m:
-        body = command[m.end() :]
-        return m.group("path"), max(0, body.count("\n") - 1)
+        delim = m.group("delim")
+        lines = command[m.end() :].split("\n")[1:]  # drop the rest of the opener line
+        n = 0
+        for ln in lines:
+            if ln.strip() == delim:
+                break
+            n += 1
+        else:
+            # No terminator (truncated command): don't count a trailing empty line.
+            if lines and lines[-1] == "":
+                n -= 1
+        return m.group("path"), max(0, n)
     m = _SED_I.search(command)
     if m:
         return m.group("path"), None
@@ -429,7 +446,15 @@ def load_claude_code_events(
                                 if str(ln).startswith("-")
                             )
                         elif tur.get("type") == "create" and isinstance(tur.get("content"), str):
-                            added = tur["content"].count("\n") + (1 if tur["content"] else 0)
+                            # Lines = newlines, plus one only for an unterminated last
+                            # line. FOUND ON A REAL SESSION (Claude Code 2.1.261, `claude
+                            # -p`, 2026-09-05): `toolUseResult: {"type": "create",
+                            # "filePath": ".../hello.py", "content": "#!/usr/bin/env
+                            # python3\n\ndef main():\n    print('hi')\n\nif __name__ ==
+                            # '__main__': main()\n"}` is a 6-line file (`wc -l` 6, git
+                            # `6 insertions(+)`); `newlines + 1` reported 7.
+                            c = tur["content"]
+                            added = c.count("\n") + (1 if c and not c.endswith("\n") else 0)
                             removed = 0
                         path = (
                             path or tur.get("filePath") or (tur.get("file") or {}).get("filePath")

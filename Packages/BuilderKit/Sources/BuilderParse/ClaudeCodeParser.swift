@@ -298,7 +298,13 @@ public struct ClaudeCodeParser: HarnessParser {
                         // Write: structuredPatch is ALWAYS [] for a creation, so the patch
                         // path above yields zero. Count newlines in the created content
                         // instead, or every file the agent wrote from scratch scores 0.
-                        e.linesAdded = content.isEmpty ? 0 : content.split(separator: "\n", omittingEmptySubsequences: false).count
+                        // Lines = newlines, plus one only for an unterminated last line.
+                        // FOUND ON A REAL SESSION (Claude Code 2.1.261, 2026-09-05): a
+                        // six-line newline-terminated file (`wc -l` 6, git `6 insertions(+)`)
+                        // scored 7 under the split-count rule. Same rule as analysis/digest.py
+                        // and BuilderAnalysis.Digest.
+                        let newlines = content.unicodeScalars.reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
+                        e.linesAdded = newlines + ((content.isEmpty || content.hasSuffix("\n")) ? 0 : 1)
                         e.linesRemoved = 0
                     }
                 }

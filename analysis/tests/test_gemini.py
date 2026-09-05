@@ -356,10 +356,16 @@ class Robustness(unittest.TestCase):
         )
         try:
             events = gemini.load_events(p)
-            self.assertEqual([e.kind for e in events], ["prompt", "tool"])
-            self.assertEqual(events[0].text, "new")
-            self.assertEqual((events[1].tool, events[1].path), ("read_file", "/w/a.py"))
-            self.assertEqual(gemini.diagnostics(p)["derivation"]["tool_from_function_call_part"], 1)
+            # `u1` was recorded, then dropped by the rebuild. It is KEPT: a rebuild edits
+            # the model's context, not what the person did (see the VERIFIED ON DISK
+            # section of analysis/gemini.py — a real failed turn drops the typed prompt).
+            self.assertEqual([e.kind for e in events], ["prompt", "prompt", "tool"])
+            self.assertEqual([e.text for e in events[:2]], ["old", "new"])
+            self.assertEqual((events[2].tool, events[2].path), ("read_file", "/w/a.py"))
+            d = gemini.diagnostics(p)
+            self.assertEqual(d["derivation"]["tool_from_function_call_part"], 1)
+            self.assertEqual(d["record_kinds"]["set_messages_dropped_kept"], 1)
+            self.assertEqual(d["messages_kept_after_rebuild"], 1)
         finally:
             p.unlink()
 
@@ -580,3 +586,40 @@ class Robustness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealRecording(unittest.TestCase):
+    """The file the REAL @google/gemini-cli 0.58.0 wrote for `gemini -p "say hi"` with an
+    invalid key (see the VERIFIED ON DISK section of analysis/gemini.py). Read by eye:
+    5 lines — metadata, a `$set.messages` rebuild holding only the `<session_context>`
+    injection, the typed prompt `say hi`, a `$set.lastUpdated`, and a second rebuild
+    after the failed API call that lists the injection only. One person typed one
+    prompt; there is no reply, no tool call, no token, no `type: 'error'` message."""
+
+    REAL = FIX / "real_first_records.jsonl"
+
+    def test_typed_prompt_survives_the_rollback_rebuild(self):
+        self.assertEqual(digest.detect_harness(self.REAL), "gemini")
+        exp = json.loads(self.REAL.with_suffix(".expected.json").read_text())
+        events = gemini.load_events(self.REAL)
+        self.assertEqual(digest.stats(events), exp["stats"])
+        self.assertEqual(gemini.usage(self.REAL), exp["usage"])
+        self.assertEqual([e.kind for e in events], ["prompt"])
+        self.assertEqual(events[0].text, "say hi")
+        m = gemini.meta(self.REAL)
+        self.assertEqual((m["kind"], m["session_id"][:8]), ("main", "f8c061f4"))
+        d = gemini.diagnostics(self.REAL)
+        self.assertEqual(d["container"], "jsonl")
+        self.assertEqual(
+            d["record_kinds"],
+            {
+                "set": 3,
+                "set_messages_rebuild": 2,
+                "metadata": 1,
+                "message": 1,
+                "set_messages_dropped_kept": 1,
+            },
+        )
+        self.assertEqual(d["messages_kept_after_rebuild"], 1)
+        self.assertEqual(d["derivation"], {"prompt": 1, "prompt_ignored": 1})
+        self.assertEqual(d["unknown_types"], {})

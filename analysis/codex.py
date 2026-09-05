@@ -74,6 +74,56 @@ VERIFIED shapes and where they come from
   protocol.rs; `## My request for Codex:` (`USER_MESSAGE_BEGIN`) is a prefix that
   `strip_user_message_prefix` removes before a user message is previewed.
 
+VERIFIED ON DISK (codex-cli 0.153.4 via npm, 2026-09-05; the files are the fixtures)
+------------------------------------------------------------------------------------
+Two rollouts written by the REAL binary, kept verbatim under spec/fixtures/codex/:
+`real_first_records.jsonl` — `codex exec "say hi"` with an invalid key, killed while
+retrying the API (10 lines, the writer's first records before any model turn); and
+`real_tools_mock_model.jsonl` — the same binary talking to a local mock of the Responses
+API (`-c model_providers.mock=…`, `include_apply_patch_tool=true`, `-s workspace-write`),
+so every MODEL item is scripted but every record, header and output is the writer's own.
+What they settle:
+* `history_mode` is `"paginated"` by default: NO `user_message` / `agent_message`
+  event_msg is persisted; the prompt is an `item_completed` `UserMessage` `{content:
+  [{type: "text", text, text_elements: []}]}` plus a `response_item` user message with
+  the same text (deduped here), the reply an `item_completed` `AgentMessage`
+  `{content: [{type: "Text", text}]}` plus its `response_item` copy (deduped).
+* `session_meta.payload` carries BOTH `session_id` and `id` (equal), `thread_source:
+  "user"`, `base_instructions: {text, provenance: {type: "model", model}}` (21 KB of
+  system prompt), `context_window: {window_id}`, `originator: "codex_exec"`, `source:
+  "exec"`, and `git: {commit_hash, branch}`. Every line has `ordinal`.
+* `turn_context.payload` has `turn_id`, `root_turn_id`, `workspace_roots`,
+  `current_date`, `timezone`, `approvals_reviewer`, `permission_profile`,
+  `active_permission_profile`, `personality`, `collaboration_mode`,
+  `multi_agent_version`, `realtime_active` and `model` — the model IS there, as the
+  source said. `world_state` (full state incl. `model`) is written before it.
+* Every `response_item` carries an `id` (`msg_…`, `fc_…`, `fco_…`, `ctc_…`, `ctco_…`) and
+  `internal_chat_message_metadata_passthrough {turn_id, create_time?, content_item_kinds?}`.
+* The exec tool this build offers is `exec_command {cmd, justification?, login?, …}`
+  (plus `write_stdin`); there is NO `shell` tool in the request. Its output header is
+  `Chunk ID: <hex>` / `Wall time: N seconds` / `Process exited with code N` / `Original
+  token count: N` / `Output:` — one line more than the source read said.
+* `apply_patch` run THROUGH `exec_command` as `apply_patch <<'EOF' … EOF` is intercepted:
+  the output is `Wall time: 0.0000 seconds\nOutput:\nExit code: 0\nWall time: 0.2
+  seconds\nOutput:\nSuccess. Updated the following files:\nA notes2.md` — the bare
+  `Exit code: N` form below is therefore CURRENT, not legacy. The `apply_patch` CUSTOM
+  tool, even when enabled, answered `unsupported custom tool call: apply_patch`; a patch
+  whose output does not begin `Success.` earns no credit (`apply_patch_output_not_success`,
+  `tool_credit_withheld`).
+* Paginated rollouts also persist `item_completed` `CommandExecution {command, cwd,
+  parsed_cmd, status: completed|failed, stdout, stderr, exit_code, duration}` and
+  `FileChange {changes: {<abs path>: {type: add|…, content}}, status, stdout}` items —
+  counted (`item_completed_ignored_*`), not read: they repeat what the tool call and its
+  output already carry.
+* Tokens: one `token_usage_record {response_id, usage, turn_token_usage,
+  thread_token_usage}` per response is written BEFORE the `token_count` event.
+  MEASURED over 6 responses: sum of `usage` == final `thread_token_usage` == final
+  `total_token_usage` == naive sum of `last_token_usage` (7,635). No repeated `info`.
+* `task_complete {turn_id, last_agent_message, started_at, completed_at, duration_ms,
+  time_to_first_token_ms}`; `task_started {turn_id, started_at, model_context_window,
+  collaboration_mode_kind}`. `error` events were indeed never persisted: the invalid-key
+  run retried silently and wrote nothing after the prompt.
+
 ASSUMED (not in the current source; handled leniently and counted in diagnostics)
 -------------------------------------------------------------------------------
 * Older releases wrote the `shell` tool's output as a JSON string
@@ -85,8 +135,8 @@ ASSUMED (not in the current source; handled leniently and counted in diagnostics
   `content` / `output` / `success` keys. Handled; the current writer never does this.
 * `token_count` events can repeat an unchanged `info` (rate-limit refreshes), which is
   exactly why `usage()` reports the naive sum of `last_token_usage` NEXT TO the final
-  `total_token_usage` rather than picking one. Which one is right is a measurement the
-  probe will make on the first real corpus.
+  `total_token_usage` rather than picking one. Not seen on 0.153.4 (above); still
+  reported both ways.
 
 Nothing here reads `reasoning` items or `agent_reasoning*` events, for the same reason the
 Claude Code loader does not read thinking blocks.
@@ -250,8 +300,9 @@ APPLY_PATCH = "apply_patch"
 ENVELOPE_TAGS = ("<user_instructions>", "<environment_context>", "<turn_context>")
 USER_MESSAGE_BEGIN = "## My request for Codex:"
 
-# VERIFIED: core/src/tools/context.rs `response_header`. ASSUMED: the JSON `metadata`
-# form and the bare "Exit code: N" prefix, both from older releases.
+# VERIFIED: core/src/tools/context.rs `response_header` (first pattern), and ON DISK
+# (0.153.4) the bare "Exit code: N" line that `apply_patch` through `exec_command` writes
+# inside its Output section. ASSUMED: the JSON `metadata` form, from older releases.
 _EXIT_PATTERNS = [
     re.compile(r"(?m)^Process exited with code (-?\d+)"),
     re.compile(r'"exit_code"\s*:\s*(-?\d+)'),
@@ -651,6 +702,8 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
 
     out: list[dg.Ev] = []
     tool_names: dict[str, tuple[str, str | None]] = {}  # call_id -> (tool, path)
+    tool_events: dict[str, dg.Ev] = {}  # call_id -> the tool Ev, so a failed output can
+    patch_credit: set[str] = set()  # …withhold the line/file credit a patch body earned
     model: str | None = None
     emitted_prompts: dict[str, list[float]] = {}
     emitted_assistant: dict[str, list[float]] = {}
@@ -669,6 +722,12 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
         emitted_prompts.setdefault(text, []).append(ts)
         counters[f"prompt_from_{source}"] += 1
         out.append(dg.Ev(0, ts, "prompt", dg.mask(dg._trunc(text, dg.PROMPT_MAX))))
+
+    def _remember(cid: str, name: str, src: str, ev: dg.Ev) -> None:
+        tool_names[cid] = (name, ev.path)
+        tool_events[cid] = ev
+        if name == APPLY_PATCH or "*** Begin Patch" in src:
+            patch_credit.add(cid)
 
     def _assistant(ts: float, raw: str, source: str) -> None:
         text = raw.strip()
@@ -740,20 +799,20 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
                 else:
                     src = json.dumps(args, separators=(",", ":"))[:200] if args else ""
                 ev = _tool_event(ts, name, p.get("call_id"), src, model)
-                tool_names[str(p.get("call_id"))] = (name, ev.path)
+                _remember(str(p.get("call_id")), name, src, ev)
                 out.append(ev)
             elif pt == "local_shell_call":
                 action = p.get("action") if isinstance(p.get("action"), dict) else {}
                 src = _command_text(action)
                 cid = p.get("call_id") or p.get("id")
                 ev = _tool_event(ts, "shell", cid, src, model)
-                tool_names[str(cid)] = ("shell", ev.path)
+                _remember(str(cid), "shell", src, ev)
                 out.append(ev)
             elif pt == "custom_tool_call":
                 name = p.get("name") if isinstance(p.get("name"), str) else "tool"
                 src = p.get("input") if isinstance(p.get("input"), str) else ""
                 ev = _tool_event(ts, name, p.get("call_id"), src, model)
-                tool_names[str(p.get("call_id"))] = (name, ev.path)
+                _remember(str(p.get("call_id")), name, src, ev)
                 out.append(ev)
             elif pt in ("function_call_output", "custom_tool_call_output"):
                 cid = str(p.get("call_id"))
@@ -761,7 +820,26 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
                 if cid not in tool_names:
                     counters["output_without_call"] += 1
                 text, success = _output_text(p.get("output"))
-                if _is_error(text, success):
+                is_err = _is_error(text, success)
+                if name == APPLY_PATCH and not is_err and not text.lstrip().startswith("Success"):
+                    # VERIFIED ON DISK (codex-cli 0.153.4, spec/fixtures/codex/
+                    # real_tools_mock_model.jsonl): with `include_apply_patch_tool=true`
+                    # the custom tool call was answered `unsupported custom tool call:
+                    # apply_patch` — no "verification failed" prefix, no exit code, and
+                    # notes.md was never created — yet the digest credited `+3/-0
+                    # notes.md`. A patch is applied only when the output says `Success.`
+                    # (apply-patch/src/lib.rs); anything else is a failure.
+                    is_err = True
+                    counters["apply_patch_output_not_success"] += 1
+                if is_err and cid in patch_credit:
+                    ev = tool_events.get(cid)
+                    if ev is not None and (ev.added is not None or ev.path):
+                        # The tool event was built from the patch BODY — what the model
+                        # asked for. It changed nothing; credit follows the verdict.
+                        ev.added = ev.removed = None
+                        ev.path = None
+                        counters["tool_credit_withheld"] += 1
+                if is_err:
                     out.append(
                         dg.Ev(
                             0,

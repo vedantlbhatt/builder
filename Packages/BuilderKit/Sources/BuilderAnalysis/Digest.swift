@@ -243,7 +243,7 @@ public enum SessionDigest {
     // MARK: - Shell file effects
 
     private static let heredoc = regex(
-        #"(?:cat|tee)\s*(?:>>?|-a\s+)?\s*(?<path>[\w./~\-]+)\s*<<\s*-?['"]?\w+['"]?"#)
+        #"(?:cat|tee)\s*(?:>>?|-a\s+)?\s*(?<path>[\w./~\-]+)\s*<<\s*-?['"]?(?<delim>\w+)['"]?"#)
     private static let sedInPlace = regex(#"\bsed\s+-i\S*\s+.*?\s(?<path>[\w./~\-]+\.\w+)(?:\s|$)"#)
 
     /// `(path, approx lines written)` for shell-driven file writes.
@@ -257,9 +257,29 @@ public enum SessionDigest {
         let ns = command as NSString
         let whole = NSRange(location: 0, length: ns.length)
         if let m = heredoc.firstMatch(in: command, range: whole) {
-            let body = ns.substring(from: m.range.location + m.range.length)
-            let newlines = body.unicodeScalars.reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
-            return (ns.substring(with: m.range(withName: "path")), max(0, newlines - 1))
+            // The body is the lines strictly between the opener and the terminator.
+            // FOUND ON A REAL SESSION (Claude Code 2.1.261, `claude -p`, 2026-09-05):
+            // `mkdir -p tests && cat > tests/test_fail.py <<'EOF'\ndef test_fail():\n
+            // assert 1 == 2\nEOF\ngit add -A && git commit -m …` scored +3 under the
+            // older `newlines - 1` rule while git's own result said `2 insertions(+)` —
+            // the terminator line and the commands after it were counted as file
+            // content. Mirrors analysis/digest.py `_bash_file_effect`.
+            let delim = ns.substring(with: m.range(withName: "delim"))
+            var lines = ns.substring(from: m.range.location + m.range.length)
+                .components(separatedBy: "\n")
+            lines.removeFirst()  // the rest of the opener line
+            var n = 0
+            var terminated = false
+            for line in lines {
+                if line.trimmingCharacters(in: .whitespaces) == delim {
+                    terminated = true
+                    break
+                }
+                n += 1
+            }
+            // No terminator (a truncated command): the trailing empty line is not a line.
+            if !terminated, let last = lines.last, last.isEmpty { n -= 1 }
+            return (ns.substring(with: m.range(withName: "path")), max(0, n))
         }
         if let m = sedInPlace.firstMatch(in: command, range: whole) {
             return (ns.substring(with: m.range(withName: "path")), nil)
@@ -395,8 +415,13 @@ public enum SessionDigest {
                                 added = a
                                 removed = d
                             } else if tur.type.string == "create", let created = tur.content.string {
+                                // Lines = newlines, plus one only for an unterminated last
+                                // line. FOUND ON A REAL SESSION (Claude Code 2.1.261,
+                                // 2026-09-05): a six-line newline-terminated file (`wc -l`
+                                // 6, git `6 insertions(+)`) scored 7 under `newlines + 1`.
+                                // Mirrors analysis/digest.py.
                                 let newlines = created.unicodeScalars.reduce(0) { $0 + ($1 == "\n" ? 1 : 0) }
-                                added = newlines + (created.isEmpty ? 0 : 1)
+                                added = newlines + ((created.isEmpty || created.hasSuffix("\n")) ? 0 : 1)
                                 removed = 0
                             }
                             if tur.file.isObject {

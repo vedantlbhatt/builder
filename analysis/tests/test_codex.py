@@ -373,12 +373,95 @@ class Robustness(unittest.TestCase):
             events = codex.load_events(p)
             tools = [e for e in events if e.kind == "tool"]
             self.assertEqual((tools[0].path, tools[0].added), ("a.py", 2))
-            self.assertEqual((tools[1].path, tools[1].added, tools[1].removed), ("b.py", 2, 0))
+            # The patch through the shell FAILED verification: it changed nothing, so it
+            # earns no line or file credit (the error event keeps the asked path).
+            self.assertEqual((tools[1].path, tools[1].added, tools[1].removed), (None, None, None))
             self.assertEqual([e.kind for e in events][-1], "result_error")
-            self.assertEqual(digest.stats(events)["files_edited"], 2)
+            self.assertEqual(events[-1].path, "b.py")
+            self.assertEqual(digest.stats(events)["files_edited"], 1)
+            self.assertEqual(codex.diagnostics(p)["derivation"]["tool_credit_withheld"], 1)
         finally:
             p.unlink()
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealRollouts(unittest.TestCase):
+    """Files the REAL codex-cli 0.153.4 wrote (see the VERIFIED ON DISK section of
+    analysis/codex.py). Hand counts, read from the files by eye:
+
+    real_first_records.jsonl — `codex exec "say hi"`, invalid key, killed while retrying:
+    10 lines, one typed prompt (as an `item_completed` UserMessage; NO `user_message`
+    event because `history_mode` is paginated), no reply, no tools, no tokens.
+
+    real_tools_mock_model.jsonl — same binary, scripted model: 1 prompt; 5 tool calls
+    (4 `exec_command`, 1 `apply_patch` custom tool); 3 errors — the custom tool answered
+    `unsupported custom tool call: apply_patch`, `python3 … sys.exit(3)` exited 3, the
+    `git commit` exited 128 in the read-only sandbox; the patch THROUGH `exec_command`
+    (`apply_patch <<'EOF'`) succeeded and is the only edit: +1 line, notes2.md; 1 reply;
+    6 `token_count` events and 6 `token_usage_record`s that all agree on 7,635.
+    """
+
+    FIRST = FIX / "real_first_records.jsonl"
+    TOOLS = FIX / "real_tools_mock_model.jsonl"
+
+    def _check_expected(self, path: pathlib.Path):
+        exp = json.loads(path.with_suffix(".expected.json").read_text())
+        events = codex.load_events(path)
+        self.assertEqual(digest.stats(events), exp["stats"])
+        self.assertEqual(codex.usage(path), exp["usage"])
+        self.assertEqual(len(events), exp["events"])
+        m = codex.meta(path)
+        m.pop("path", None)
+        self.assertEqual(m, exp["meta"])
+        return events
+
+    def test_first_records_detected_and_counted(self):
+        self.assertEqual(digest.detect_harness(self.FIRST), "codex")
+        events = self._check_expected(self.FIRST)
+        self.assertEqual([e.kind for e in events], ["prompt"])
+        self.assertEqual(events[0].text, "say hi")
+        m = codex.meta(self.FIRST)
+        self.assertEqual(
+            (m["cli_version"], m["history_mode"], m["source"]), ("0.153.4", "paginated", "exec")
+        )
+        self.assertEqual(m["model"], "gpt-6-astra")  # from turn_context, not session_meta
+        d = codex.diagnostics(self.FIRST)
+        self.assertEqual(d["unknown_types"], {})
+        self.assertEqual(d["unknown_payload_types"], {})
+        self.assertEqual(d["derivation"]["prompt_from_item_completed"], 1)
+        self.assertNotIn("prompt_from_event_msg", d["derivation"])
+
+    def test_tools_session_hand_counts(self):
+        events = self._check_expected(self.TOOLS)
+        st = digest.stats(events)
+        self.assertEqual(st["prompts_sent"], 1)
+        self.assertEqual(st["replies_received"], 1)
+        self.assertEqual(st["tool_calls"], 5)
+        self.assertEqual(st["tool_mix"], {"exec_command": 4, "apply_patch": 1})
+        self.assertEqual(st["errors"], 3)
+        self.assertEqual((st["lines_added_agent"], st["lines_removed_agent"]), (1, 0))
+        self.assertEqual(st["files_edited"], 1)
+        self.assertEqual(st["git_commits_run"], 1)
+        errs = [e for e in events if e.kind == "result_error"]
+        self.assertEqual([e.tool for e in errs], ["apply_patch", "exec_command", "exec_command"])
+        self.assertIn("unsupported custom tool call", errs[0].text)
+        self.assertIn("Process exited with code 3", errs[1].text)
+        self.assertIn("Process exited with code 128", errs[2].text)
+        patch = next(e for e in events if e.tool == "apply_patch")
+        self.assertEqual((patch.path, patch.added), (None, None))  # failed: no credit
+        heredoc = next(e for e in events if e.tool == "exec_command" and e.added is not None)
+        self.assertEqual((heredoc.path, heredoc.added, heredoc.removed), ("notes2.md", 1, 0))
+        u = codex.usage(self.TOOLS)
+        self.assertEqual(u["token_count_events"], 6)
+        self.assertTrue(u["naive_sum_equals_final_total"])
+        self.assertEqual(u["final_total_token_usage"]["total_tokens"], 7635)
+        self.assertEqual(u["token_usage_records"], 6)
+        self.assertEqual(u["token_usage_records_sum_usage"]["total_tokens"], 7635)
+        self.assertEqual(u["token_usage_records_final_thread_usage"]["total_tokens"], 7635)
+        d = codex.diagnostics(self.TOOLS)
+        self.assertEqual(d["derivation"]["tool_credit_withheld"], 1)
+        self.assertEqual(d["derivation"]["apply_patch_output_not_success"], 1)
+        self.assertEqual(d["derivation"]["assistant_deduped"], 1)

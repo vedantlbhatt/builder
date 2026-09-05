@@ -1,0 +1,103 @@
+{
+ "_generated_by": "scripts/gen_real_fixture_expected.py — do not hand-edit",
+ "_source": "real_first_records.jsonl",
+ "harness": "codex",
+ "events": 1,
+ "stats": {
+  "events": 1,
+  "wall_seconds": 0,
+  "prompts_sent": 1,
+  "replies_received": 0,
+  "interrupts": 0,
+  "human_edits": 0,
+  "compactions": 0,
+  "prompt_words_avg": 2.0,
+  "prompt_words_median": 2,
+  "prompt_words_max": 2,
+  "tool_calls": 0,
+  "tool_mix": {},
+  "errors": 0,
+  "lines_added_agent": 0,
+  "lines_removed_agent": 0,
+  "files_edited": 0,
+  "files_written_via_shell": 0,
+  "files_read": 0,
+  "git_commits_run": 0,
+  "test_runs": 0,
+  "models": {},
+  "longest_silence_seconds": 0
+ },
+ "usage": {
+  "token_count_events": 0,
+  "token_count_events_with_info": 0,
+  "naive_sum_last_token_usage": {
+   "input_tokens": 0,
+   "cached_input_tokens": 0,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 0,
+   "reasoning_output_tokens": 0,
+   "total_tokens": 0
+  },
+  "final_total_token_usage": null,
+  "max_total_tokens_seen": 0,
+  "token_usage_records": 0,
+  "token_usage_records_sum_usage": {
+   "input_tokens": 0,
+   "cached_input_tokens": 0,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 0,
+   "reasoning_output_tokens": 0,
+   "total_tokens": 0
+  },
+  "token_usage_records_final_thread_usage": null,
+  "naive_sum_equals_final_total": false
+ },
+ "meta": {
+  "harness": "codex",
+  "session_id": "01a072a7-1ebb-7052-a465-42c73214a0b2",
+  "started_at": "2026-09-05T17:39:10.147Z",
+  "cwd": "/tmp/claude-0/-home-user/11d3bf1b-56c5-5641-a1a9-08ce6f6cf763/scratchpad/real-sessions/claude/repo",
+  "originator": "codex_exec",
+  "cli_version": "0.153.4",
+  "source": "exec",
+  "model_provider": "openai",
+  "history_mode": "paginated",
+  "git_branch": "main",
+  "git_commit": "721d9525cc12599029d350533d2f7647ce45f70e",
+  "model": "gpt-6-astra",
+  "models_seen": {
+   "gpt-6-astra": 1
+  }
+ },
+ "diagnostics": {
+  "lines": 10,
+  "records": 10,
+  "malformed_lines": 0,
+  "partial_trailing_line": false,
+  "no_timestamp": 0,
+  "bad_timestamp": 0,
+  "no_type": 0,
+  "first_ts": "2026-09-05T17:39:10.195Z",
+  "last_ts": "2026-09-05T17:39:10.318Z",
+  "types": {
+   "response_item": 5,
+   "event_msg": 2,
+   "session_meta": 1,
+   "world_state": 1,
+   "turn_context": 1
+  },
+  "payload_types": {
+   "event_msg/item_completed": 1,
+   "event_msg/task_started": 1,
+   "response_item/message": 5
+  },
+  "unknown_types": {},
+  "unknown_payload_types": {}
+ },
+ "derivation": {
+  "prompt_from_item_completed": 1,
+  "response_item_message_developer": 3,
+  "response_item_user_envelopes": 1,
+  "response_item_user_messages": 2
+ }
+}

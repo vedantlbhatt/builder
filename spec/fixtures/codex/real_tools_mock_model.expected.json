@@ -1,0 +1,135 @@
+{
+ "_generated_by": "scripts/gen_real_fixture_expected.py — do not hand-edit",
+ "_source": "real_tools_mock_model.jsonl",
+ "harness": "codex",
+ "events": 10,
+ "stats": {
+  "events": 10,
+  "wall_seconds": 1,
+  "prompts_sent": 1,
+  "replies_received": 1,
+  "interrupts": 0,
+  "human_edits": 0,
+  "compactions": 0,
+  "prompt_words_avg": 13.0,
+  "prompt_words_median": 13,
+  "prompt_words_max": 13,
+  "tool_calls": 5,
+  "tool_mix": {
+   "exec_command": 4,
+   "apply_patch": 1
+  },
+  "errors": 3,
+  "lines_added_agent": 1,
+  "lines_removed_agent": 0,
+  "files_edited": 1,
+  "files_written_via_shell": 1,
+  "files_read": 0,
+  "git_commits_run": 1,
+  "test_runs": 0,
+  "models": {
+   "gpt-5": 1
+  },
+  "longest_silence_seconds": 0
+ },
+ "usage": {
+  "token_count_events": 6,
+  "token_count_events_with_info": 6,
+  "naive_sum_last_token_usage": {
+   "input_tokens": 7500,
+   "cached_input_tokens": 2500,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 135,
+   "reasoning_output_tokens": 30,
+   "total_tokens": 7635
+  },
+  "final_total_token_usage": {
+   "input_tokens": 7500,
+   "cached_input_tokens": 2500,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 135,
+   "reasoning_output_tokens": 30,
+   "total_tokens": 7635
+  },
+  "max_total_tokens_seen": 7635,
+  "token_usage_records": 6,
+  "token_usage_records_sum_usage": {
+   "input_tokens": 7500,
+   "cached_input_tokens": 2500,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 135,
+   "reasoning_output_tokens": 30,
+   "total_tokens": 7635
+  },
+  "token_usage_records_final_thread_usage": {
+   "input_tokens": 7500,
+   "cached_input_tokens": 2500,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 135,
+   "reasoning_output_tokens": 30,
+   "total_tokens": 7635
+  },
+  "naive_sum_equals_final_total": true
+ },
+ "meta": {
+  "harness": "codex",
+  "session_id": "01a072b5-f7bb-7dd1-9af3-cf29e221420b",
+  "started_at": "2026-09-05T17:55:23.203Z",
+  "cwd": "/tmp/claude-0/-home-user/11d3bf1b-56c5-5641-a1a9-08ce6f6cf763/scratchpad/real-sessions/codex/repo",
+  "originator": "codex_exec",
+  "cli_version": "0.153.4",
+  "source": "exec",
+  "model_provider": "mock",
+  "history_mode": "paginated",
+  "git_branch": "main",
+  "git_commit": "3d2f0523b6f5baefe193b4747fd9b4fb9384e6d8",
+  "model": "gpt-5",
+  "models_seen": {
+   "gpt-5": 1
+  }
+ },
+ "diagnostics": {
+  "lines": 36,
+  "records": 36,
+  "malformed_lines": 0,
+  "partial_trailing_line": false,
+  "no_timestamp": 0,
+  "bad_timestamp": 0,
+  "no_type": 0,
+  "first_ts": "2026-09-05T17:55:23.267Z",
+  "last_ts": "2026-09-05T17:55:24.222Z",
+  "types": {
+   "response_item": 14,
+   "event_msg": 13,
+   "token_usage_record": 6,
+   "session_meta": 1,
+   "world_state": 1,
+   "turn_context": 1
+  },
+  "payload_types": {
+   "event_msg/item_completed": 5,
+   "event_msg/task_complete": 1,
+   "event_msg/task_started": 1,
+   "event_msg/token_count": 6,
+   "response_item/custom_tool_call": 1,
+   "response_item/custom_tool_call_output": 1,
+   "response_item/function_call": 4,
+   "response_item/function_call_output": 4,
+   "response_item/message": 4
+  },
+  "unknown_types": {},
+  "unknown_payload_types": {}
+ },
+ "derivation": {
+  "apply_patch_output_not_success": 1,
+  "assistant_deduped": 1,
+  "assistant_from_item_completed": 1,
+  "item_completed_ignored_CommandExecution": 2,
+  "item_completed_ignored_FileChange": 1,
+  "prompt_from_item_completed": 1,
+  "response_item_message_developer": 1,
+  "response_item_user_envelopes": 1,
+  "response_item_user_messages": 2,
+  "tool_credit_withheld": 1
+ }
+}

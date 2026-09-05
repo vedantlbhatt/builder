@@ -113,8 +113,38 @@ def _claude_code_summary(path: pathlib.Path) -> dict:
     d["first_ts"] = lo[1] if lo else None
     d["last_ts"] = hi[1] if hi else None
     d["types"] = dict(types.most_common())
-    d["unknown_types"] = {}
+    d["unknown_types"] = {t: n for t, n in types.items() if t not in CLAUDE_CODE_KNOWN_TYPES}
     return d
+
+
+# Record types the loader reads (user, assistant, attachment, system) plus the bookkeeping
+# types ClaudeCodeParser.swift names. Before this set existed the Claude Code summary
+# printed `UNKNOWN: none` unconditionally — the same false reassurance the other probes
+# exist to prevent. MEASURED on this container's 2,553-record root transcript (Claude Code
+# 2.1.261, 2026-09-05): assistant 787, attachment 633, user 475, queue-operation 164,
+# last-prompt 163, atis-latch 157, mode 138, system 36; the 458 records without a timestamp
+# were exactly the atis-latch, last-prompt and mode rows. `claude -p` roots add ai-title.
+CLAUDE_CODE_KNOWN_TYPES = frozenset(
+    {
+        "user",
+        "assistant",
+        "attachment",
+        "system",
+        "summary",
+        "ai-title",
+        "last-prompt",
+        "mode",
+        "permission-mode",
+        "file-history-snapshot",
+        "file-history-delta",
+        "queue-operation",
+        "atis-latch",
+        "frame-link",
+        "pr-link",
+        "started",
+        "result",
+    }
+)
 
 
 def probe_file(path: pathlib.Path) -> dict:

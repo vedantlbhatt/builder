@@ -94,6 +94,30 @@ VERIFIED shapes and where they come from
   `grep_search`, `list_directory`, `google_web_search`, `web_fetch`, `read_many_files`,
   `write_todos`, `ask_user`, `invoke_agent`, `activate_skill`, …
 
+VERIFIED ON DISK (@google/gemini-cli 0.58.0 via npm, 2026-09-05; the file is the fixture)
+----------------------------------------------------------------------------------------
+`gemini -p "say hi"` with an invalid key (`GEMINI_CLI_TRUST_WORKSPACE=true` — headless
+mode refuses an untrusted directory) wrote `~/.gemini/tmp/repo/chats/
+session-2026-09-05T17-43-f8c061f4.jsonl`, kept verbatim as
+spec/fixtures/gemini/real_first_records.jsonl. The project id is the slug `repo` from
+`~/.gemini/projects.json`, and the filename stamp is `YYYY-MM-DDTHH-MM-<id8>`, as read from
+the source. The recording is written BEFORE the API call: five lines —
+  1. metadata `{sessionId, projectHash, startTime, lastUpdated, kind: "main"}`;
+  2. `{"$set": {"messages": [<one user message whose text is the `<session_context>`
+     injection>], "lastUpdated"}}` — `updateMessagesFromHistory` at startup, giving that
+     message a 32-hex id rather than a uuid;
+  3. the typed prompt `{"id": <uuid>, "timestamp", "type": "user", "content": [{"text":
+     "say hi"}]}` — written by `recordMessage` before the request goes out;
+  4. `{"$set": {"lastUpdated"}}`;
+  5. after the 400: `{"$set": {"messages": [<session_context only>], "lastUpdated"}}` —
+     the failed turn rolled back and the prompt REMOVED from the model's history.
+Mirroring the reader's Map (line 5 replaces the list) therefore yields zero prompts for a
+sitting where a person typed one. A message that was recorded and later dropped by a
+`$set.messages` rebuild is kept (`set_messages_dropped_kept`, `messages_kept_after_rebuild`)
+— the rebuild edits the model's context, not the record of what the person did. The
+`<session_context>` message is ignored by prefix, as the source said. No `type: 'error'`
+message was written for the API failure; the error went to stderr only.
+
 ASSUMED (not in the current source; handled leniently and counted in diagnostics)
 -------------------------------------------------------------------------------
 * Older releases named the file argument `absolute_path` (read_file) or `path`; both are
@@ -195,9 +219,26 @@ class _Conversation:
     def __init__(self) -> None:
         self.meta: dict = {}
         self.messages: dict[str, dict] = {}
+        # Messages a `$set.messages` rebuild removed after they had been recorded. The
+        # rebuild rewrites the history the MODEL will see next; it does not unmake what
+        # happened. FOUND ON A REAL RECORDING (Gemini CLI 0.58.0, 2026-09-05, kept as
+        # spec/fixtures/gemini/real_first_records.jsonl): a typed `say hi` was appended as
+        # `{"id": "2824c40b-…", "type": "user", "content": [{"text": "say hi"}]}`; the API
+        # call failed (invalid key) and geminiChat.ts rolled the turn back —
+        # `agentHistory.rollback(historyLengthBefore)` then `updateMessagesFromHistory` —
+        # writing `{"$set": {"messages": [<session_context only>], …}}`. Mirroring the
+        # reader alone left the recording with ZERO prompts for a sitting where a person
+        # typed one, which is exactly the "typed-only rule files it as unattended" trap.
+        self.dropped: dict[str, dict] = {}
         self.naive = _zero_tokens()
         self.naive_records_with_tokens = 0
         self.kinds: Counter = Counter()
+
+    def merged(self) -> list[dict]:
+        """Final per-id records plus those a rebuild dropped and never re-listed."""
+        out = list(self.messages.values())
+        out += [m for mid, m in self.dropped.items() if mid not in self.messages]
+        return out
 
     def _put(self, msg: dict) -> None:
         mid = msg["id"]
@@ -227,10 +268,15 @@ class _Conversation:
             s = r["$set"]
             if isinstance(s.get("messages"), list):
                 self.kinds["set_messages_rebuild"] += 1
-                self.messages.clear()
+                before = self.messages
+                self.messages = {}
                 for m in s["messages"]:
                     if isinstance(m, dict) and isinstance(m.get("id"), str):
                         self._put(m)
+                for mid, m in before.items():
+                    if mid not in self.messages:
+                        self.kinds["set_messages_dropped_kept"] += 1
+                        self.dropped[mid] = m
             self.meta.update({k: v for k, v in s.items() if k != "messages"})
         elif isinstance(r.get("sessionId"), str) and isinstance(r.get("projectHash"), str):
             self.kinds["metadata"] += 1
@@ -288,7 +334,8 @@ def scan(path: pathlib.Path) -> Scan:
             diag["records"] += 1
             conv.record(r)
 
-    messages = list(conv.messages.values())
+    messages = conv.merged()
+    kept_after_rebuild = sum(1 for mid in conv.dropped if mid not in conv.messages)
     m = conv.meta
     meta = {
         "harness": HARNESS,
@@ -338,6 +385,7 @@ def scan(path: pathlib.Path) -> Scan:
         {
             "record_kinds": dict(conv.kinds.most_common()),
             "messages": len(messages),
+            "messages_kept_after_rebuild": kept_after_rebuild,
             "no_timestamp": no_ts,
             "bad_timestamp": bad_ts,
             "types": dict(types.most_common()),

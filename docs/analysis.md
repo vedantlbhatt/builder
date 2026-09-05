@@ -73,7 +73,13 @@ python -m analysis probe  ~/.codex/sessions           # read-only: what shapes a
 `run` calls `claude -p` with a replaced system prompt, `--tools ""` and the generated
 `analysis/schema.json`. The default model is `sonnet` (`BUILDER_ANALYSIS_MODEL` overrides).
 Measured on a 45-minute, 212-event session: 33 KB digest, five internal turns, 150 s,
-$0.33 at list price — covered by a subscription. Two CLI facts that cost an hour to learn:
+$0.33 at list price — covered by a subscription. Measured again on a 770-minute,
+626-event remote session (Claude Code 2.1.261, 2026-09-05): 56 KB digest at coverage
+1.0, 204 s, $0.46; the runner dropped 1 of 5 decision-pattern excerpts as not verbatim
+and the 4 kept were checked by hand against the digest. A 5-event `claude -p` session
+(one failing test run, one commit, no human prompt) took 83 s and $0.16, scored every
+dimension 5–15 with confidence 0.35 and got no archetype — the floor behaves. Two CLI
+facts that cost an hour to learn:
 structured output needs several turns, so `--max-turns 1` fails silently with exit 1; and
 the CLI's schema validator rejects a `$schema` header, so it is stripped.
 

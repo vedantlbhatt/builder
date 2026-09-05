@@ -130,6 +130,14 @@ struct DigestTests {
         let effect = SessionDigest.bashFileEffect(heredoc)
         #expect(effect.path == "src/cache.ts")
         #expect(effect.approx == 3)
+        // FOUND ON A REAL SESSION (Claude Code 2.1.261, `claude -p`, 2026-09-05): the
+        // terminator and the commands after it are not file content — git said 2 insertions.
+        let real = "mkdir -p tests && cat > tests/test_fail.py <<'EOF'\ndef test_fail():\n    assert 1 == 2\nEOF\ngit add -A && git commit -m 'add failing test'"
+        #expect(SessionDigest.bashFileEffect(real).path == "tests/test_fail.py")
+        #expect(SessionDigest.bashFileEffect(real).approx == 2)
+        // No terminator (a truncated command): the trailing empty line is not a line.
+        #expect(SessionDigest.bashFileEffect("cat > c <<'EOF'\na\nb\n").approx == 2)
+        #expect(SessionDigest.bashFileEffect("cat > c <<'EOF'\n").approx == 0)
         let sed = SessionDigest.bashFileEffect("sed -i '' 's/a/b/' lib/util.py")
         #expect(sed.path == "lib/util.py")
         #expect(sed.approx == nil)
