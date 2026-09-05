@@ -66,7 +66,7 @@ struct ThresholdFitterTests {
     }
 
     @Test func reproducesTheReferenceFit() throws {
-        let fx = try load()
+        let fx = try Self.load()
         let got = ThresholdFitter.fit(gaps: fx.gaps)
         let want = fx.fit
         #expect(got.n == want.n)
@@ -89,7 +89,7 @@ struct ThresholdFitterTests {
     /// The constants the reference fitted with are the constants this build fits with.
     /// If one side moves without the other, this is the test that says so.
     @Test func fitConstantsMatchTuning() throws {
-        let c = try load().fit.constants
+        let c = try Self.load().fit.constants
         #expect(c.minGaps == Tuning.tauFitMinGaps)
         #expect(c.minSeparationDecades == Tuning.tauFitMinSeparationDecades)
         #expect(c.minComponentWeight == Tuning.tauFitMinComponentWeight)
