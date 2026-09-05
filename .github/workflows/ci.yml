@@ -50,6 +50,10 @@ jobs:
         run: |
           if [ -d analysis/tests ]; then python3 -m unittest discover -s analysis/tests -t . -v; fi
           python3 -m analysis stats spec/fixtures/boundaries/remote_sdk_prompts.jsonl > /dev/null
+      - name: capture package tests
+        # The cloud uploader (docs/cloud-capture.md) is held to the same boundary fixtures
+        # and to the upload contract; stdlib only, so nothing to install.
+        run: make capture-test
 
   swift:
     needs: contract

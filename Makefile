@@ -1,6 +1,6 @@
 SWIFT_PKG := Packages/BuilderKit
 
-.PHONY: help gen check-gen build test scan watch doctor share clean measure analyze fixtures
+.PHONY: help gen check-gen build test scan watch doctor share clean measure analyze fixtures capture-test
 
 help:
 	@echo "gen        regenerate everything from privacy/, spec/ and design/"
@@ -13,6 +13,7 @@ help:
 	@echo "measure    what the session-boundary rules do to ~/.claude/projects (read-only)"
 	@echo "analyze    T=<transcript.jsonl>  digest it and have your own Claude Code read it"
 	@echo "fixtures   regenerate spec/fixtures/boundaries from the reference implementation"
+	@echo "capture-test  the cloud uploader: boundary parity, contract conformance, refresh-on-401"
 
 # The four specs are the only hand-edited definitions of the wire payload, the strip
 # format, the palette and the session analysis. Everything downstream is generated into
@@ -71,3 +72,8 @@ analyze:
 
 fixtures:
 	@python3 scripts/gen_boundary_fixtures.py
+
+# `capture/` is the uploader for Claude Code sessions that run in the cloud
+# (docs/cloud-capture.md). Stdlib unittest: it must run where nothing is installed.
+capture-test:
+	@python3 -m unittest discover -s capture/tests -t . -v

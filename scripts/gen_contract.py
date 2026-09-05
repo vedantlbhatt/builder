@@ -217,9 +217,9 @@ def gen_py(c: dict) -> str:
 
     enum_fields = [f for f in fs if f["type"] == "enum"]
     enum_table = "\n".join(
-        '    "%s": %s,' % (f["name"], json.dumps(sorted(f["values"]))) for f in enum_fields
+        '    "{}": {},'.format(f["name"], json.dumps(sorted(f["values"]))) for f in enum_fields
     )
-    enum_names = ", ".join('"%s"' % f["name"] for f in enum_fields)
+    enum_names = ", ".join('"{}"'.format(f["name"]) for f in enum_fields)
     vtext = (
         f"    @field_validator({enum_names})\n"
         "    @classmethod\n"
@@ -486,9 +486,7 @@ def analysis_leaf_paths(prefix: str) -> list[str]:
         for f in owner_fields:
             path = f"{at}.{f['name']}"
             t = f["type"]
-            if t == "object":
-                out += walk(s["objects"][f["item"]], path)
-            elif t == "list" and f["item"] in s["objects"]:
+            if t == "object" or (t == "list" and f["item"] in s["objects"]):
                 out += walk(s["objects"][f["item"]], path)
             elif t == "map":
                 out += [f"{path}.{k}" for k in s["enums"][f["key"]]]

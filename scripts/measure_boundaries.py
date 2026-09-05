@@ -103,10 +103,17 @@ def classify(rec: dict) -> tuple[str, bool]:
     return t or "unknown", False
 
 
-def load_records(path: pathlib.Path) -> list[dict]:
+def load_records(path: pathlib.Path, extra=None) -> list[dict]:
+    """Timestamped records, thinned to what the rules read.
+
+    `extra`, when given, is called with each raw record and its 0-based line index and
+    returns a dict merged into the thin record. It exists so `capture/` can carry ids and
+    token usage through this one parse instead of reading the file a second time with a
+    second partial-line rule; the sessionizer never reads anything it adds.
+    """
     out = []
     with path.open("rb") as f:
-        for line in f:
+        for i, line in enumerate(f):
             if not line.endswith(b"\n"):
                 break  # partial trailing line: NEVER consumed (see state_schema.sql)
             try:
@@ -117,7 +124,10 @@ def load_records(path: pathlib.Path) -> list[dict]:
             if ts is None:
                 continue
             kind, presence = classify(r)
-            out.append({"ts": ts, "kind": kind, "presence": presence, "cwd": r.get("cwd")})
+            rec = {"ts": ts, "kind": kind, "presence": presence, "cwd": r.get("cwd")}
+            if extra is not None:
+                rec.update(extra(r, i))
+            out.append(rec)
     return out
 
 

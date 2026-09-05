@@ -177,6 +177,8 @@ cd server && pytest            contract, RLS, boot guard, auth bootstrap
 make measure                   boundary rules over your corpus, read-only
 make analyze T=<jsonl>         digest + your own Claude Code -> SessionAnalysis
 python -m analysis probe DIR   what record shapes a foreign transcript store holds
+make capture-test              the cloud uploader against the boundary fixtures and the contract
+python -m capture sync --dry-run   what a cloud container would upload, without sending
 ```
 
 Design notes worth reading before touching the corresponding code: `docs/session-boundaries.md`
@@ -188,10 +190,11 @@ prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/
 
 | suite | n | protects |
 |---|---|---|
-| `swift test` | 86 | the measured ground truth, the strip fixtures, the boundary fixtures, the Codex fixture, digest parity with the Python reference |
-| `bun test` | 79 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules |
-| `pytest` | 68 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2, social |
-| `unittest` (analysis/) | 14 | the Codex loader against its fixture; Claude Code stats unchanged |
+| `swift test` | 112 | the measured ground truth, the strip fixtures, the boundary fixtures, the Codex and Gemini fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
+| `bun test` | 206 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers; the mascot's frames |
+| `pytest` | 87 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2, social, the notification horizon |
+| `unittest` (analysis/) | 69 | the Codex, Gemini, Cline and opencode loaders against their fixtures; Claude Code stats unchanged |
+| `make capture-test` | 36 | boundary parity of the cloud uploader, contract conformance (nested walk), refresh-on-401 rotation |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 
 CI runs on `main`, on `claude/**` branches and on demand. The macOS job is the only Swift

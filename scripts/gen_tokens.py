@@ -49,10 +49,10 @@ def gen_swift(t: dict) -> str:
         return f"    // MARK: {key}\n{body}"
 
     graph_light = ", ".join(
-        "SRGB(r: %s, g: %s, b: %s)" % hex_to_rgb(h) for h in t["graph"]["levels"]["light"]
+        "SRGB(r: {}, g: {}, b: {})".format(*hex_to_rgb(h)) for h in t["graph"]["levels"]["light"]
     )
     graph_dark = ", ".join(
-        "SRGB(r: %s, g: %s, b: %s)" % hex_to_rgb(h) for h in t["graph"]["levels"]["dark"]
+        "SRGB(r: {}, g: {}, b: {})".format(*hex_to_rgb(h)) for h in t["graph"]["levels"]["dark"]
     )
 
     card = t["card"]
