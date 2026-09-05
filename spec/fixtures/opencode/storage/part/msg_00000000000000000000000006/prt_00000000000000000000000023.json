@@ -1,0 +1,11 @@
+{
+  "id": "prt_00000000000000000000000023",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000006",
+  "type": "text",
+  "text": "Committed as abc1234.",
+  "time": {
+    "start": 1749564066000,
+    "end": 1749564066500
+  }
+}

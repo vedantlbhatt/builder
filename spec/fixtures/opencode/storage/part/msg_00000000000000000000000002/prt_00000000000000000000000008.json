@@ -1,0 +1,26 @@
+{
+  "id": "prt_00000000000000000000000008",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "tool",
+  "callID": "call_03",
+  "tool": "write",
+  "state": {
+    "status": "completed",
+    "input": {
+      "filePath": "/Users/dev/proj/tests/helpers.py",
+      "content": "import subprocess\n\n\ndef run(args):\n    return subprocess.call(['scripts/deploy.sh', *args])\n"
+    },
+    "output": "Wrote file successfully.",
+    "title": "tests/helpers.py",
+    "metadata": {
+      "diagnostics": {},
+      "filepath": "/Users/dev/proj/tests/helpers.py",
+      "exists": false
+    },
+    "time": {
+      "start": 1749564010000,
+      "end": 1749564011000
+    }
+  }
+}

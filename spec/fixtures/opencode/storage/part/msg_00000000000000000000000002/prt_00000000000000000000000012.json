@@ -1,0 +1,21 @@
+{
+  "id": "prt_00000000000000000000000012",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "tool",
+  "callID": "call_05",
+  "tool": "edit",
+  "state": {
+    "status": "error",
+    "input": {
+      "filePath": "/Users/dev/proj/tests/test_deploy.py",
+      "oldString": "expect 1\n",
+      "newString": "expect 0\n"
+    },
+    "error": "oldString not found in file. Make sure it matches exactly, including whitespace.",
+    "time": {
+      "start": 1749564016000,
+      "end": 1749564017000
+    }
+  }
+}

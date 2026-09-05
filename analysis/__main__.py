@@ -27,7 +27,14 @@ def main() -> int:
             p.add_argument("--out")
             p.add_argument("--model", default=None)
     pr = sub.add_parser("probe", help="read-only shape report over a file or directory")
-    pr.add_argument("path", help="a *.jsonl file or a directory (Codex: ~/.codex/sessions)")
+    pr.add_argument(
+        "path",
+        help=(
+            "a transcript file or a directory: Codex ~/.codex/sessions, Gemini ~/.gemini/tmp, "
+            "Cline ~/.cline/data, opencode ~/.local/share/opencode (or one session as "
+            "opencode.db/<session id>)"
+        ),
+    )
     pr.add_argument("--json", action="store_true")
     a = ap.parse_args()
 

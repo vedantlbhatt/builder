@@ -1,0 +1,26 @@
+{
+  "id": "prt_00000000000000000000000014",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "tool",
+  "callID": "call_07",
+  "tool": "bash",
+  "state": {
+    "status": "completed",
+    "input": {
+      "command": "pytest -q tests/",
+      "timeout": 120000
+    },
+    "output": "...\n3 passed",
+    "title": "pytest -q tests/",
+    "metadata": {
+      "output": "...\n3 passed",
+      "exit": 0,
+      "truncated": false
+    },
+    "time": {
+      "start": 1749564021000,
+      "end": 1749564023000
+    }
+  }
+}

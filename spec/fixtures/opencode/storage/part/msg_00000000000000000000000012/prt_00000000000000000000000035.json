@@ -1,0 +1,30 @@
+{
+  "id": "prt_00000000000000000000000035",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000012",
+  "type": "tool",
+  "callID": "call_12",
+  "tool": "task",
+  "state": {
+    "status": "completed",
+    "input": {
+      "description": "Check docs",
+      "prompt": "Check the project docs for how flags are documented and report the convention.",
+      "subagent_type": "explore"
+    },
+    "output": "<task_result>\nFlags are documented in docs/cli.md as `--flag` with a one-line description.\n</task_result>",
+    "title": "Check docs",
+    "metadata": {
+      "parentSessionId": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+      "sessionId": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a1",
+      "model": {
+        "modelID": "claude-sonnet-4-5",
+        "providerID": "anthropic"
+      }
+    },
+    "time": {
+      "start": 1749564112000,
+      "end": 1749564115000
+    }
+  }
+}

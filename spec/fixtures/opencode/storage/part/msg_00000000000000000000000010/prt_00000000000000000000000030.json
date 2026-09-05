@@ -1,0 +1,23 @@
+{
+  "id": "prt_00000000000000000000000030",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000010",
+  "type": "tool",
+  "callID": "call_10",
+  "tool": "bash",
+  "state": {
+    "status": "completed",
+    "input": {
+      "command": "ls"
+    },
+    "output": "scripts\ntests",
+    "title": "",
+    "metadata": {
+      "output": "scripts\ntests"
+    },
+    "time": {
+      "start": 1749564100000,
+      "end": 1749564100400
+    }
+  }
+}

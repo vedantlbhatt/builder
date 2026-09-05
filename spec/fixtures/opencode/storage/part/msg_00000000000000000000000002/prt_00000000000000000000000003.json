@@ -1,0 +1,11 @@
+{
+  "id": "prt_00000000000000000000000003",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "text",
+  "text": "I'll read the script first, then add the flag.",
+  "time": {
+    "start": 1749564003000,
+    "end": 1749564003500
+  }
+}

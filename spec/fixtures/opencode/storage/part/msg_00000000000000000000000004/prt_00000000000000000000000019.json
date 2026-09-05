@@ -1,0 +1,24 @@
+{
+  "id": "prt_00000000000000000000000019",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000004",
+  "type": "tool",
+  "callID": "call_08",
+  "tool": "bash",
+  "state": {
+    "status": "error",
+    "input": {
+      "command": "git commit -am 'Add --dry-run'",
+      "timeout": 120000
+    },
+    "error": "Tool execution aborted",
+    "time": {
+      "start": 1749564060000,
+      "end": 1749564061000
+    },
+    "metadata": {
+      "output": "",
+      "interrupted": true
+    }
+  }
+}

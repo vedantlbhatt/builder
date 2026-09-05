@@ -1,0 +1,32 @@
+{
+  "id": "prt_00000000000000000000000007",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "tool",
+  "callID": "call_02",
+  "tool": "edit",
+  "state": {
+    "status": "completed",
+    "input": {
+      "filePath": "/Users/dev/proj/scripts/deploy.sh",
+      "oldString": "set -e\n",
+      "newString": "set -euo pipefail\nDRY_RUN=0\nif [ \"${1:-}\" = \"--dry-run\" ]; then DRY_RUN=1; fi\n"
+    },
+    "output": "Edit applied successfully.",
+    "title": "scripts/deploy.sh",
+    "metadata": {
+      "diff": "--- a\n+++ b\n@@ -1 +1,3 @@\n-set -e\n+set -euo pipefail\n+DRY_RUN=0\n+if \u2026",
+      "filediff": {
+        "file": "/Users/dev/proj/scripts/deploy.sh",
+        "patch": "\u2026",
+        "additions": 3,
+        "deletions": 1
+      },
+      "diagnostics": {}
+    },
+    "time": {
+      "start": 1749564007000,
+      "end": 1749564008000
+    }
+  }
+}

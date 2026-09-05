@@ -41,10 +41,11 @@ DEFAULT_BUDGET = 60_000  # characters; ~15k tokens
 # Tool names that mean "ran a shell command" / "edited a file" per harness. Claude Code's
 # names come first; the Codex names are documented in analysis/codex.py, the Gemini names
 # in analysis/gemini.py, the Cline names (`execute_command` / `write_to_file` /
-# `replace_in_file`, plus the SDK-era `run_commands` / `editor`) in analysis/cline.py.
-# Membership here is what `stats` keys commits, test runs and files-edited on, so a
-# harness whose shell tool is missing from this set reports zero commits on a session
-# that ran twenty.
+# `replace_in_file`, plus the SDK-era `run_commands` / `editor`) in analysis/cline.py, the
+# opencode names (`bash` — the shell tool keeps that id for compatibility — `edit`, `write`,
+# `apply_patch`) in analysis/opencode.py. Membership here is what `stats` keys commits,
+# test runs and files-edited on, so a harness whose shell tool is missing from this set
+# reports zero commits on a session that ran twenty.
 SHELL_TOOLS = frozenset(
     {
         "Bash",
@@ -55,6 +56,7 @@ SHELL_TOOLS = frozenset(
         "run_shell_command",
         "execute_command",
         "run_commands",
+        "bash",
     }
 )
 EDIT_TOOLS = frozenset(
@@ -69,6 +71,8 @@ EDIT_TOOLS = frozenset(
         "write_to_file",
         "replace_in_file",
         "editor",
+        "edit",
+        "write",
     }
 )
 
@@ -215,6 +219,18 @@ def _is_gemini_record(r: dict) -> bool:
 _CLINE_FILES = frozenset({"ui_messages.json", "api_conversation_history.json"})
 
 
+def _is_opencode(path: pathlib.Path) -> bool:
+    # Decided on the path shape first (a virtual `<db>/<session id>` does not exist on
+    # disk; a session file sits under `storage/session/`), then on the SQLite header and
+    # table names — Cursor's `state.vscdb` and Codex's `state_N.sqlite` are SQLite too.
+    # Cheap rejections first so every `.jsonl` in a Claude Code tree is not opened twice.
+    if path.suffix in (".jsonl", ".md", ".txt", ".sqlite", ".vscdb"):
+        return False
+    from . import opencode
+
+    return opencode.detect(path) is not None
+
+
 def _is_cline_task(path: pathlib.Path) -> bool:
     # A Cline task is a DIRECTORY holding `ui_messages.json` (and usually
     # `api_conversation_history.json`); either file names the task too. Decided on the
@@ -226,20 +242,25 @@ def _is_cline_task(path: pathlib.Path) -> bool:
 
 
 def detect_harness(path: pathlib.Path) -> str:
-    """ "claude_code", "codex", "gemini" or "cline", from the first complete non-empty line.
+    """ "claude_code", "codex", "gemini", "cline" or "opencode", from the first complete
+    non-empty line (or the path shape).
 
     A Codex rollout's first record is `{"type": "session_meta", "payload": …}` (the
     recorder writes it before anything else); a Gemini CLI recording's first line is
     `{"sessionId", "projectHash", "startTime", …}` (or, for a legacy `.json` file, the
     whole conversation as one object); a Claude Code transcript's records carry
     `sessionId` / `parentUuid` / `uuid`; a Cline task is a directory (or a
-    `ui_messages.json` / `api_conversation_history.json` inside one). Anything
-    unrecognised is treated as Claude Code, which is the loader with the measured ground
-    truth behind it.
+    `ui_messages.json` / `api_conversation_history.json` inside one); an opencode session
+    is `<opencode.db>/<session id>` (a SQLite file with `session`/`message`/`part`
+    tables, plus a virtual last component), a `storage/session/<project>/<id>.json`
+    file, or an `opencode export` file (analysis/opencode.py). Anything unrecognised is
+    treated as Claude Code, which is the loader with the measured ground truth behind it.
     """
     path = pathlib.Path(path)
     if _is_cline_task(path):
         return "cline"
+    if _is_opencode(path):
+        return "opencode"
     try:
         if path.suffix == ".json":
             try:
@@ -291,6 +312,10 @@ def load_events(
         from . import cline
 
         return cline.load_events(path, start, end)
+    if harness == "opencode":
+        from . import opencode
+
+        return opencode.load_events(path, start, end)
     return load_claude_code_events(path, start, end)
 
 
@@ -686,6 +711,10 @@ def build(
         from . import cline
 
         events = cline.load_events(path, start, end)
+    elif harness == "opencode":
+        from . import opencode
+
+        events = opencode.load_events(path, start, end)
     else:
         events = load_claude_code_events(path, start, end)
     text, coverage = render(events, meta, budget)

@@ -1,0 +1,21 @@
+{
+  "id": "prt_00000000000000000000000034",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000012",
+  "type": "tool",
+  "callID": "call_11",
+  "tool": "websearch",
+  "state": {
+    "status": "completed",
+    "input": {
+      "query": "cli dry-run flag convention"
+    },
+    "output": "\u2026",
+    "title": "cli dry-run flag convention",
+    "metadata": {},
+    "time": {
+      "start": 1749564112000,
+      "end": 1749564114000
+    }
+  }
+}

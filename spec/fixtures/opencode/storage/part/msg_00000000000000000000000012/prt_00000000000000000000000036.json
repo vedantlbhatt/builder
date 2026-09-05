@@ -1,0 +1,11 @@
+{
+  "id": "prt_00000000000000000000000036",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000012",
+  "type": "text",
+  "text": "Common convention is `--dry-run`; `-n` is the short form in most tools.",
+  "time": {
+    "start": 1749564116000,
+    "end": 1749564116500
+  }
+}

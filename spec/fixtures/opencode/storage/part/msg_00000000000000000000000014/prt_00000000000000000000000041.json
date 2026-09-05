@@ -1,0 +1,11 @@
+{
+  "id": "prt_00000000000000000000000041",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a1",
+  "messageID": "msg_00000000000000000000000014",
+  "type": "text",
+  "text": "Flags are documented in docs/cli.md as `--flag` with a one-line description.",
+  "time": {
+    "start": 1749564114000,
+    "end": 1749564114500
+  }
+}

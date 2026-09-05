@@ -1,0 +1,25 @@
+{
+  "id": "prt_00000000000000000000000004",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "tool",
+  "callID": "call_01",
+  "tool": "read",
+  "state": {
+    "status": "completed",
+    "input": {
+      "filePath": "/Users/dev/proj/scripts/deploy.sh"
+    },
+    "output": "<file>\n00001| #!/bin/bash\n00002| set -e\n</file>",
+    "title": "scripts/deploy.sh",
+    "metadata": {
+      "preview": "#!/bin/bash\nset -e",
+      "truncated": false,
+      "loaded": []
+    },
+    "time": {
+      "start": 1749564004000,
+      "end": 1749564005000
+    }
+  }
+}

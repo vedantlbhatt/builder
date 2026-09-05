@@ -1,0 +1,29 @@
+{
+  "id": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a1",
+  "slug": "check-docs",
+  "projectID": "3f2a9c1e7b6d5a4c8e9f0a1b2c3d4e5f6a7b8c9d",
+  "directory": "/Users/dev/proj",
+  "title": "Check docs (@explore subagent)",
+  "version": "1.18.29",
+  "agent": "explore",
+  "model": {
+    "id": "claude-sonnet-4-5",
+    "providerID": "anthropic",
+    "variant": "default"
+  },
+  "cost": 0.01,
+  "tokens": {
+    "input": 3000,
+    "output": 50,
+    "reasoning": 0,
+    "cache": {
+      "read": 0,
+      "write": 0
+    }
+  },
+  "time": {
+    "created": 1749564112000,
+    "updated": 1749564114800
+  },
+  "parentID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2"
+}

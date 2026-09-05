@@ -1,0 +1,26 @@
+{
+  "id": "prt_00000000000000000000000009",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "tool",
+  "callID": "call_04",
+  "tool": "bash",
+  "state": {
+    "status": "completed",
+    "input": {
+      "command": "pytest -q tests/",
+      "timeout": 120000
+    },
+    "output": "F.\nFAILED tests/test_deploy.py::test_dry_run - AssertionError\n1 failed, 1 passed",
+    "title": "pytest -q tests/",
+    "metadata": {
+      "output": "F.\nFAILED tests/test_deploy.py::test_dry_run - AssertionError\n1 failed, 1 passed",
+      "exit": 1,
+      "truncated": false
+    },
+    "time": {
+      "start": 1749564012000,
+      "end": 1749564014000
+    }
+  }
+}

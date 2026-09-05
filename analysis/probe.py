@@ -20,6 +20,8 @@ def _walk(root: pathlib.Path) -> list[pathlib.Path]:
     root = pathlib.Path(root).expanduser()
     if root.is_file():
         return [root]
+    if not root.exists():
+        return [root]  # a virtual `<db>/<session id>`; probe_file reports if it is not one
     # Codex keeps `sessions/YYYY/MM/DD/rollout-*.jsonl`; Claude Code keeps
     # `projects/<slug>/<uuid>.jsonl` plus subagent sidecars; Gemini CLI keeps
     # `tmp/<project>/chats/session-*.jsonl` (subagents one level deeper) and, from older
@@ -36,7 +38,21 @@ def _walk(root: pathlib.Path) -> list[pathlib.Path]:
         return [root]
     task_dirs = {p.parent for p in root.rglob("ui_messages.json") if p.is_file()}
     task_dirs |= {p.parent for p in root.rglob("api_conversation_history.json") if p.is_file()}
-    return sorted(set(files) | task_dirs)
+    # opencode keeps EVERY session in one SQLite file (`opencode.db`, or `opencode-<channel>
+    # .db`); the probe reports per session as `<db>/<session id>` — child (subagent)
+    # sessions included, flagged by `parent=` in the meta line, so they are visible rather
+    # than silently summed into their parent. The pre-SQLite JSON store is
+    # `storage/session/<project>/<id>.json`, and `opencode export` files directly under the
+    # root are taken too (a recursive `.json` scan would open every `storage/part` file).
+    from . import opencode
+
+    sessions: set[pathlib.Path] = set()
+    for db in root.rglob("*.db"):
+        if db.is_file() and opencode.is_database(db):
+            sessions |= {db / s["id"] for s in opencode.list_sessions(db)}
+    sessions |= {p for p in root.rglob("session/*/*.json") if opencode.is_session_file(p)}
+    sessions |= {p for p in root.glob("*.json") if opencode.is_export_file(p)}
+    return sorted(set(files) | task_dirs | sessions)
 
 
 def _claude_code_summary(path: pathlib.Path) -> dict:
@@ -94,7 +110,8 @@ def probe_file(path: pathlib.Path) -> dict:
     """Everything the probe knows about one file, as plain data."""
     path = pathlib.Path(path)
     harness = dg.detect_harness(path)
-    out: dict = {"path": str(path), "harness": harness, "bytes": path.stat().st_size}
+    size = path.stat().st_size if path.exists() else path.parent.stat().st_size
+    out: dict = {"path": str(path), "harness": harness, "bytes": size}
     if harness == "codex":
         from . import codex
 
@@ -118,6 +135,14 @@ def probe_file(path: pathlib.Path) -> dict:
         _, files = cline.resolve(path)
         out["bytes"] = sum(p.stat().st_size for k, p in files.items() if p and k != "index")
         events, derivation = cline._derive(s)
+        out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
+        out["meta"] = s.meta
+        out["usage"] = s.usage
+    elif harness == "opencode":
+        from . import opencode
+
+        s = opencode.scan(path)
+        events, derivation = opencode._derive(s)
         out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
         out["meta"] = s.meta
         out["usage"] = s.usage
@@ -185,11 +210,51 @@ def _fmt_cline_usage(u: dict) -> str:
     return "\n".join(lines)
 
 
+def _fmt_opencode_usage(u: dict) -> str:
+    def _row(label: str, t: dict | None) -> str:
+        if not t:
+            return f"  {label:<31}(not in this store)"
+        return (
+            f"  {label:<31}in {t['input']:,} (cache r {t['cache_read']:,} / w {t['cache_write']:,})"
+            f"  out {t['output']:,} (reasoning {t['reasoning']:,})"
+        )
+
+    lines = [
+        (
+            f"  assistant messages: {u['assistant_messages']} (with tokens: "
+            f"{u['assistant_messages_with_tokens']}; summaries: {u['summary_messages']}; "
+            f"multi-step: {u['assistant_messages_multi_step']}); step-finish parts: "
+            f"{u['step_finish_parts']}"
+        ),
+        _row("sum of message.tokens (last step):", u["sum_message_tokens"]),
+        _row("sum of step-finish parts:", u["sum_step_finish_tokens"]),
+        _row("session row tokens_*:", u["session_row_tokens"]),
+        "  message sum == step sum: "
+        + (
+            "yes"
+            if u["message_sum_equals_step_sum"]
+            else "NO — message.tokens is the LAST step; sum the step-finish parts"
+        ),
+        (
+            f"  cost: messages ${u['sum_message_cost']}  steps ${u['sum_step_finish_cost']}  "
+            f"session row ${u['session_row_cost']}"
+        ),
+    ]
+    if u.get("session_message_projection_rows") is not None:
+        lines.append(
+            f"  session_message projection rows: {u['session_message_projection_rows']} "
+            "(the same turns again in the v2 shape — never unioned with `message`)"
+        )
+    return "\n".join(lines)
+
+
 def _fmt_usage(u: dict) -> str:
     if "deduped_by_message_id" in u:
         return _fmt_gemini_usage(u)
     if "ui_api_req_started_sum" in u:
         return _fmt_cline_usage(u)
+    if "sum_step_finish_tokens" in u:
+        return _fmt_opencode_usage(u)
     naive = u["naive_sum_last_token_usage"]
     final = u["final_total_token_usage"]
     lines = [
@@ -243,10 +308,15 @@ def format_probe(d: dict) -> str:
                 "git_branch",
                 "source",
                 "kind",
+                "container",
                 "session_id",
+                "parent_id",
+                "session_selected_by",
             )
-            if meta.get(k)
+            if meta.get(k) and not (k == "session_selected_by" and meta[k] == "path")
         ]
+        if meta.get("child_sessions"):
+            bits.append(f"children={len(meta['child_sessions'])}")
         lines.append("  meta: " + "  ".join(bits))
     lines.append(
         f"  lines: {g['lines']}  records: {g['records']}  malformed: {g['malformed_lines']}  "
@@ -262,12 +332,25 @@ def format_probe(d: dict) -> str:
         f"first: {g['first_ts']}  last: {g['last_ts']}"
     )
     lines.append("  types: " + ", ".join(f"{k} {v}" for k, v in g["types"].items()))
+    if g.get("part_types"):
+        lines.append("  part types: " + ", ".join(f"{k} {v}" for k, v in g["part_types"].items()))
+    if g.get("tool_statuses"):
+        lines.append(
+            "  tool statuses: " + ", ".join(f"{k} {v}" for k, v in g["tool_statuses"].items())
+        )
+    if g.get("assistant_error_names"):
+        lines.append(
+            "  assistant errors: "
+            + ", ".join(f"{k} {v}" for k, v in g["assistant_error_names"].items())
+        )
     if g.get("payload_types"):
         lines.append(
             "  payload types: " + ", ".join(f"{k} {v}" for k, v in g["payload_types"].items())
         )
     unk = dict(g.get("unknown_types") or {})
     unk.update(g.get("unknown_payload_types") or {})
+    unk.update({f"tool:{k}": v for k, v in (g.get("unknown_tools") or {}).items()})
+    unk.update({f"error:{k}": v for k, v in (g.get("unknown_error_names") or {}).items()})
     lines.append("  UNKNOWN: " + (", ".join(f"{k} {v}" for k, v in unk.items()) if unk else "none"))
     if g.get("derivation"):
         lines.append("  derivation: " + ", ".join(f"{k} {v}" for k, v in g["derivation"].items()))
@@ -299,7 +382,7 @@ def run(root: pathlib.Path, as_json: bool = False) -> list[dict]:
         print(json.dumps(results, indent=1, ensure_ascii=False))
         return results
     if not files:
-        print(f"no *.jsonl under {root}")
+        print(f"no transcripts under {root}")
         return results
     for r in results:
         print(r.get("error") and f"{r['path']}\n  ERROR {r['error']}" or format_probe(r))

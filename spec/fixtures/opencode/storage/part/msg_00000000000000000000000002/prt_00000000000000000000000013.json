@@ -1,0 +1,26 @@
+{
+  "id": "prt_00000000000000000000000013",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000002",
+  "type": "tool",
+  "callID": "call_06",
+  "tool": "bash",
+  "state": {
+    "status": "completed",
+    "input": {
+      "command": "cat > tests/conftest.py <<'EOF'\nimport os\n\nDRY = True\nEOF",
+      "timeout": 120000
+    },
+    "output": "",
+    "title": "cat > tests/conftest.py <<'EOF'\nimport os\n\nDRY = True\nEOF",
+    "metadata": {
+      "output": "",
+      "exit": 0,
+      "truncated": false
+    },
+    "time": {
+      "start": 1749564018000,
+      "end": 1749564019000
+    }
+  }
+}

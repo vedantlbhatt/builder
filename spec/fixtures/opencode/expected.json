@@ -1,0 +1,684 @@
+{
+ "_generated_by": "scripts/gen_opencode_fixture.py — do not hand-edit",
+ "sqlite": {
+  "harness": "opencode",
+  "events": 25,
+  "stats": {
+   "events": 25,
+   "wall_seconds": 116,
+   "prompts_sent": 4,
+   "replies_received": 4,
+   "interrupts": 1,
+   "human_edits": 0,
+   "compactions": 1,
+   "prompt_words_avg": 7.5,
+   "prompt_words_median": 11,
+   "prompt_words_max": 13,
+   "tool_calls": 12,
+   "tool_mix": {
+    "bash": 6,
+    "edit": 2,
+    "read": 1,
+    "write": 1,
+    "websearch": 1,
+    "task": 1
+   },
+   "errors": 3,
+   "lines_added_agent": 11,
+   "lines_removed_agent": 1,
+   "files_edited": 4,
+   "files_written_via_shell": 1,
+   "files_read": 0,
+   "git_commits_run": 2,
+   "test_runs": 2,
+   "models": {
+    "claude-sonnet-4-5": 4
+   },
+   "longest_silence_seconds": 32
+  },
+  "usage": {
+   "assistant_messages": 6,
+   "assistant_messages_with_tokens": 4,
+   "summary_messages": 1,
+   "step_finish_parts": 6,
+   "assistant_messages_multi_step": 1,
+   "sum_message_tokens": {
+    "input": 62500,
+    "output": 467,
+    "reasoning": 0,
+    "cache_read": 24000,
+    "cache_write": 0,
+    "total": 0
+   },
+   "sum_step_finish_tokens": {
+    "input": 83500,
+    "output": 567,
+    "reasoning": 0,
+    "cache_read": 32000,
+    "cache_write": 2000,
+    "total": 0
+   },
+   "session_row_tokens": {
+    "input": 62500,
+    "output": 467,
+    "reasoning": 0,
+    "cache_read": 24000,
+    "cache_write": 0,
+    "total": 0
+   },
+   "message_sum_equals_step_sum": false,
+   "session_row_equals_message_sum": true,
+   "sum_message_cost": 0.28,
+   "sum_step_finish_cost": 0.28,
+   "session_row_cost": 0.28,
+   "session_message_projection_rows": 0
+  },
+  "meta": {
+   "harness": "opencode",
+   "container": "sqlite",
+   "session_id": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+   "session_selected_by": "path",
+   "project_id": "3f2a9c1e7b6d5a4c8e9f0a1b2c3d4e5f6a7b8c9d",
+   "parent_id": null,
+   "is_child": false,
+   "child_sessions": [
+    "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a1"
+   ],
+   "title": "Add a --dry-run flag to scripts/deploy.sh and keep the tests green",
+   "slug": "add-dry-run-flag",
+   "directory": "/Users/dev/proj",
+   "cwd": "/Users/dev/proj",
+   "worktree": "/Users/dev/proj",
+   "vcs": "git",
+   "agent": "build",
+   "cli_version": "1.18.29",
+   "model": "claude-sonnet-4-5",
+   "provider": "anthropic",
+   "models_seen": {
+    "claude-sonnet-4-5": 6
+   },
+   "started_at": "2025-06-10T14:00:00Z",
+   "updated_at": "2025-06-10T14:01:57Z",
+   "archived_at": null,
+   "revert_pending": false
+  },
+  "diagnostics": {
+   "container": "sqlite",
+   "lines": 12,
+   "records": 49,
+   "malformed_lines": 0,
+   "partial_trailing_line": false,
+   "tables": [
+    "message",
+    "migration",
+    "part",
+    "project",
+    "session",
+    "session_message"
+   ],
+   "migrations_applied": 6,
+   "last_migration": "20260622202450_simplify_session_input",
+   "messages": 12,
+   "parts": 37,
+   "orphan_parts": 0,
+   "legacy_v0_message": 0,
+   "roles": {
+    "user": 6,
+    "assistant": 6
+   },
+   "part_types": {
+    "tool": 12,
+    "text": 10,
+    "step-start": 7,
+    "step-finish": 6,
+    "compaction": 1,
+    "retry": 1
+   },
+   "tool_names": {
+    "bash": 6,
+    "edit": 2,
+    "read": 1,
+    "write": 1,
+    "websearch": 1,
+    "task": 1
+   },
+   "tool_statuses": {
+    "completed": 10,
+    "error": 2
+   },
+   "assistant_error_names": {
+    "MessageAbortedError": 1
+   },
+   "unknown_error_names": {},
+   "no_timestamp": 0,
+   "bad_timestamp": 0,
+   "first_ts": "2025-06-10T14:00:00Z",
+   "last_ts": "2025-06-10T14:01:51Z",
+   "types": {
+    "user": 6,
+    "assistant": 6
+   },
+   "unknown_types": {},
+   "unknown_tools": {},
+   "derivation": {
+    "assistant": 4,
+    "assistant_without_step_finish": 1,
+    "compaction_manual": 1,
+    "edit_credit_from_filediff": 1,
+    "edit_or_write_failed_no_credit": 1,
+    "interrupt_aborted": 1,
+    "part_step-start": 7,
+    "prompt_from_text": 4,
+    "retry_part": 1,
+    "shell_nonzero_exit": 1,
+    "summary_message": 1,
+    "summary_text_skipped": 1,
+    "task_child_sessions": 1,
+    "tool": 12,
+    "tool_aborted_interrupted": 1,
+    "tool_error": 1,
+    "tool_run_by_user": 1,
+    "user_message_without_prompt": 2,
+    "user_shell_command": 1,
+    "user_synthetic_text_parts": 1
+   }
+  }
+ },
+ "sqlite_child": {
+  "harness": "opencode",
+  "events": 2,
+  "stats": {
+   "events": 2,
+   "wall_seconds": 1,
+   "prompts_sent": 0,
+   "replies_received": 1,
+   "interrupts": 0,
+   "human_edits": 0,
+   "compactions": 0,
+   "prompt_words_avg": 0,
+   "prompt_words_median": 0,
+   "prompt_words_max": 0,
+   "tool_calls": 1,
+   "tool_mix": {
+    "read": 1
+   },
+   "errors": 0,
+   "lines_added_agent": 0,
+   "lines_removed_agent": 0,
+   "files_edited": 0,
+   "files_written_via_shell": 0,
+   "files_read": 0,
+   "git_commits_run": 0,
+   "test_runs": 0,
+   "models": {
+    "claude-sonnet-4-5": 1
+   },
+   "longest_silence_seconds": 1
+  },
+  "usage": {
+   "assistant_messages": 1,
+   "assistant_messages_with_tokens": 1,
+   "summary_messages": 0,
+   "step_finish_parts": 1,
+   "assistant_messages_multi_step": 0,
+   "sum_message_tokens": {
+    "input": 3000,
+    "output": 50,
+    "reasoning": 0,
+    "cache_read": 0,
+    "cache_write": 0,
+    "total": 0
+   },
+   "sum_step_finish_tokens": {
+    "input": 3000,
+    "output": 50,
+    "reasoning": 0,
+    "cache_read": 0,
+    "cache_write": 0,
+    "total": 0
+   },
+   "session_row_tokens": {
+    "input": 3000,
+    "output": 50,
+    "reasoning": 0,
+    "cache_read": 0,
+    "cache_write": 0,
+    "total": 0
+   },
+   "message_sum_equals_step_sum": true,
+   "session_row_equals_message_sum": true,
+   "sum_message_cost": 0.01,
+   "sum_step_finish_cost": 0.01,
+   "session_row_cost": 0.01,
+   "session_message_projection_rows": 0
+  },
+  "meta": {
+   "harness": "opencode",
+   "container": "sqlite",
+   "session_id": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a1",
+   "session_selected_by": "path",
+   "project_id": "3f2a9c1e7b6d5a4c8e9f0a1b2c3d4e5f6a7b8c9d",
+   "parent_id": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+   "is_child": true,
+   "child_sessions": [],
+   "title": "Check docs (@explore subagent)",
+   "slug": "check-docs",
+   "directory": "/Users/dev/proj",
+   "cwd": "/Users/dev/proj",
+   "worktree": "/Users/dev/proj",
+   "vcs": "git",
+   "agent": "explore",
+   "cli_version": "1.18.29",
+   "model": "claude-sonnet-4-5",
+   "provider": "anthropic",
+   "models_seen": {
+    "claude-sonnet-4-5": 1
+   },
+   "started_at": "2025-06-10T14:01:52Z",
+   "updated_at": "2025-06-10T14:01:54.800000Z",
+   "archived_at": null,
+   "revert_pending": false
+  },
+  "diagnostics": {
+   "container": "sqlite",
+   "lines": 2,
+   "records": 7,
+   "malformed_lines": 0,
+   "partial_trailing_line": false,
+   "tables": [
+    "message",
+    "migration",
+    "part",
+    "project",
+    "session",
+    "session_message"
+   ],
+   "migrations_applied": 6,
+   "last_migration": "20260622202450_simplify_session_input",
+   "messages": 2,
+   "parts": 5,
+   "orphan_parts": 0,
+   "legacy_v0_message": 0,
+   "roles": {
+    "user": 1,
+    "assistant": 1
+   },
+   "part_types": {
+    "text": 2,
+    "step-start": 1,
+    "tool": 1,
+    "step-finish": 1
+   },
+   "tool_names": {
+    "read": 1
+   },
+   "tool_statuses": {
+    "completed": 1
+   },
+   "assistant_error_names": {},
+   "unknown_error_names": {},
+   "no_timestamp": 0,
+   "bad_timestamp": 0,
+   "first_ts": "2025-06-10T14:01:52Z",
+   "last_ts": "2025-06-10T14:01:52.200000Z",
+   "types": {
+    "user": 1,
+    "assistant": 1
+   },
+   "unknown_types": {},
+   "unknown_tools": {},
+   "derivation": {
+    "assistant": 1,
+    "part_step-start": 1,
+    "prompt_in_child_session": 1,
+    "tool": 1
+   }
+  }
+ },
+ "json_dir": {
+  "harness": "opencode",
+  "events": 25,
+  "stats": {
+   "events": 25,
+   "wall_seconds": 116,
+   "prompts_sent": 4,
+   "replies_received": 4,
+   "interrupts": 1,
+   "human_edits": 0,
+   "compactions": 1,
+   "prompt_words_avg": 7.5,
+   "prompt_words_median": 11,
+   "prompt_words_max": 13,
+   "tool_calls": 12,
+   "tool_mix": {
+    "bash": 6,
+    "edit": 2,
+    "read": 1,
+    "write": 1,
+    "websearch": 1,
+    "task": 1
+   },
+   "errors": 3,
+   "lines_added_agent": 11,
+   "lines_removed_agent": 1,
+   "files_edited": 4,
+   "files_written_via_shell": 1,
+   "files_read": 0,
+   "git_commits_run": 2,
+   "test_runs": 2,
+   "models": {
+    "claude-sonnet-4-5": 4
+   },
+   "longest_silence_seconds": 32
+  },
+  "usage": {
+   "assistant_messages": 6,
+   "assistant_messages_with_tokens": 4,
+   "summary_messages": 1,
+   "step_finish_parts": 6,
+   "assistant_messages_multi_step": 1,
+   "sum_message_tokens": {
+    "input": 62500,
+    "output": 467,
+    "reasoning": 0,
+    "cache_read": 24000,
+    "cache_write": 0,
+    "total": 0
+   },
+   "sum_step_finish_tokens": {
+    "input": 83500,
+    "output": 567,
+    "reasoning": 0,
+    "cache_read": 32000,
+    "cache_write": 2000,
+    "total": 0
+   },
+   "session_row_tokens": {
+    "input": 62500,
+    "output": 467,
+    "reasoning": 0,
+    "cache_read": 24000,
+    "cache_write": 0,
+    "total": 0
+   },
+   "message_sum_equals_step_sum": false,
+   "session_row_equals_message_sum": true,
+   "sum_message_cost": 0.28,
+   "sum_step_finish_cost": 0.28,
+   "session_row_cost": 0.28,
+   "session_message_projection_rows": null
+  },
+  "meta": {
+   "harness": "opencode",
+   "container": "json_dir",
+   "session_id": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+   "session_selected_by": "path",
+   "project_id": "3f2a9c1e7b6d5a4c8e9f0a1b2c3d4e5f6a7b8c9d",
+   "parent_id": null,
+   "is_child": false,
+   "child_sessions": [
+    "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a1"
+   ],
+   "title": "Add a --dry-run flag to scripts/deploy.sh and keep the tests green",
+   "slug": "add-dry-run-flag",
+   "directory": "/Users/dev/proj",
+   "cwd": "/Users/dev/proj",
+   "worktree": "/Users/dev/proj",
+   "vcs": "git",
+   "agent": "build",
+   "cli_version": "1.18.29",
+   "model": "claude-sonnet-4-5",
+   "provider": "anthropic",
+   "models_seen": {
+    "claude-sonnet-4-5": 6
+   },
+   "started_at": "2025-06-10T14:00:00Z",
+   "updated_at": "2025-06-10T14:01:57Z",
+   "archived_at": null,
+   "revert_pending": false
+  },
+  "diagnostics": {
+   "container": "json_dir",
+   "lines": 12,
+   "records": 49,
+   "malformed_lines": 0,
+   "partial_trailing_line": false,
+   "messages": 12,
+   "parts": 37,
+   "orphan_parts": 0,
+   "legacy_v0_message": 0,
+   "roles": {
+    "user": 6,
+    "assistant": 6
+   },
+   "part_types": {
+    "tool": 12,
+    "text": 10,
+    "step-start": 7,
+    "step-finish": 6,
+    "compaction": 1,
+    "retry": 1
+   },
+   "tool_names": {
+    "bash": 6,
+    "edit": 2,
+    "read": 1,
+    "write": 1,
+    "websearch": 1,
+    "task": 1
+   },
+   "tool_statuses": {
+    "completed": 10,
+    "error": 2
+   },
+   "assistant_error_names": {
+    "MessageAbortedError": 1
+   },
+   "unknown_error_names": {},
+   "no_timestamp": 0,
+   "bad_timestamp": 0,
+   "first_ts": "2025-06-10T14:00:00Z",
+   "last_ts": "2025-06-10T14:01:51Z",
+   "types": {
+    "user": 6,
+    "assistant": 6
+   },
+   "unknown_types": {},
+   "unknown_tools": {},
+   "derivation": {
+    "assistant": 4,
+    "assistant_without_step_finish": 1,
+    "compaction_manual": 1,
+    "edit_credit_from_filediff": 1,
+    "edit_or_write_failed_no_credit": 1,
+    "interrupt_aborted": 1,
+    "part_step-start": 7,
+    "prompt_from_text": 4,
+    "retry_part": 1,
+    "shell_nonzero_exit": 1,
+    "summary_message": 1,
+    "summary_text_skipped": 1,
+    "task_child_sessions": 1,
+    "tool": 12,
+    "tool_aborted_interrupted": 1,
+    "tool_error": 1,
+    "tool_run_by_user": 1,
+    "user_message_without_prompt": 2,
+    "user_shell_command": 1,
+    "user_synthetic_text_parts": 1
+   }
+  }
+ },
+ "export_json": {
+  "harness": "opencode",
+  "events": 25,
+  "stats": {
+   "events": 25,
+   "wall_seconds": 116,
+   "prompts_sent": 4,
+   "replies_received": 4,
+   "interrupts": 1,
+   "human_edits": 0,
+   "compactions": 1,
+   "prompt_words_avg": 7.5,
+   "prompt_words_median": 11,
+   "prompt_words_max": 13,
+   "tool_calls": 12,
+   "tool_mix": {
+    "bash": 6,
+    "edit": 2,
+    "read": 1,
+    "write": 1,
+    "websearch": 1,
+    "task": 1
+   },
+   "errors": 3,
+   "lines_added_agent": 11,
+   "lines_removed_agent": 1,
+   "files_edited": 4,
+   "files_written_via_shell": 1,
+   "files_read": 0,
+   "git_commits_run": 2,
+   "test_runs": 2,
+   "models": {
+    "claude-sonnet-4-5": 4
+   },
+   "longest_silence_seconds": 32
+  },
+  "usage": {
+   "assistant_messages": 6,
+   "assistant_messages_with_tokens": 4,
+   "summary_messages": 1,
+   "step_finish_parts": 6,
+   "assistant_messages_multi_step": 1,
+   "sum_message_tokens": {
+    "input": 62500,
+    "output": 467,
+    "reasoning": 0,
+    "cache_read": 24000,
+    "cache_write": 0,
+    "total": 0
+   },
+   "sum_step_finish_tokens": {
+    "input": 83500,
+    "output": 567,
+    "reasoning": 0,
+    "cache_read": 32000,
+    "cache_write": 2000,
+    "total": 0
+   },
+   "session_row_tokens": {
+    "input": 62500,
+    "output": 467,
+    "reasoning": 0,
+    "cache_read": 24000,
+    "cache_write": 0,
+    "total": 0
+   },
+   "message_sum_equals_step_sum": false,
+   "session_row_equals_message_sum": true,
+   "sum_message_cost": 0.28,
+   "sum_step_finish_cost": 0.28,
+   "session_row_cost": 0.28,
+   "session_message_projection_rows": null
+  },
+  "meta": {
+   "harness": "opencode",
+   "container": "export_json",
+   "session_id": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+   "session_selected_by": "path",
+   "project_id": "3f2a9c1e7b6d5a4c8e9f0a1b2c3d4e5f6a7b8c9d",
+   "parent_id": null,
+   "is_child": false,
+   "child_sessions": [],
+   "title": "Add a --dry-run flag to scripts/deploy.sh and keep the tests green",
+   "slug": "add-dry-run-flag",
+   "directory": "/Users/dev/proj",
+   "cwd": "/Users/dev/proj",
+   "worktree": null,
+   "vcs": null,
+   "agent": "build",
+   "cli_version": "1.18.29",
+   "model": "claude-sonnet-4-5",
+   "provider": "anthropic",
+   "models_seen": {
+    "claude-sonnet-4-5": 6
+   },
+   "started_at": "2025-06-10T14:00:00Z",
+   "updated_at": "2025-06-10T14:01:57Z",
+   "archived_at": null,
+   "revert_pending": false
+  },
+  "diagnostics": {
+   "container": "export_json",
+   "lines": 12,
+   "records": 49,
+   "malformed_lines": 0,
+   "partial_trailing_line": false,
+   "messages": 12,
+   "parts": 37,
+   "orphan_parts": 0,
+   "legacy_v0_message": 0,
+   "roles": {
+    "user": 6,
+    "assistant": 6
+   },
+   "part_types": {
+    "tool": 12,
+    "text": 10,
+    "step-start": 7,
+    "step-finish": 6,
+    "compaction": 1,
+    "retry": 1
+   },
+   "tool_names": {
+    "bash": 6,
+    "edit": 2,
+    "read": 1,
+    "write": 1,
+    "websearch": 1,
+    "task": 1
+   },
+   "tool_statuses": {
+    "completed": 10,
+    "error": 2
+   },
+   "assistant_error_names": {
+    "MessageAbortedError": 1
+   },
+   "unknown_error_names": {},
+   "no_timestamp": 0,
+   "bad_timestamp": 0,
+   "first_ts": "2025-06-10T14:00:00Z",
+   "last_ts": "2025-06-10T14:01:51Z",
+   "types": {
+    "user": 6,
+    "assistant": 6
+   },
+   "unknown_types": {},
+   "unknown_tools": {},
+   "derivation": {
+    "assistant": 4,
+    "assistant_without_step_finish": 1,
+    "compaction_manual": 1,
+    "edit_credit_from_filediff": 1,
+    "edit_or_write_failed_no_credit": 1,
+    "interrupt_aborted": 1,
+    "part_step-start": 7,
+    "prompt_from_text": 4,
+    "retry_part": 1,
+    "shell_nonzero_exit": 1,
+    "summary_message": 1,
+    "summary_text_skipped": 1,
+    "task_child_sessions": 1,
+    "tool": 12,
+    "tool_aborted_interrupted": 1,
+    "tool_error": 1,
+    "tool_run_by_user": 1,
+    "user_message_without_prompt": 2,
+    "user_shell_command": 1,
+    "user_synthetic_text_parts": 1
+   }
+  }
+ }
+}

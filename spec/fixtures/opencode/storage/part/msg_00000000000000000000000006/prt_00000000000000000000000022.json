@@ -1,0 +1,26 @@
+{
+  "id": "prt_00000000000000000000000022",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "messageID": "msg_00000000000000000000000006",
+  "type": "tool",
+  "callID": "call_09",
+  "tool": "bash",
+  "state": {
+    "status": "completed",
+    "input": {
+      "command": "git commit -am 'Add --dry-run'",
+      "timeout": 120000
+    },
+    "output": "[main abc1234] Add --dry-run",
+    "title": "git commit -am 'Add --dry-run'",
+    "metadata": {
+      "output": "[main abc1234] Add --dry-run",
+      "exit": 0,
+      "truncated": false
+    },
+    "time": {
+      "start": 1749564064000,
+      "end": 1749564065000
+    }
+  }
+}

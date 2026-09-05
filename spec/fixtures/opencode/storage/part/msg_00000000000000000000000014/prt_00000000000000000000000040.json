@@ -1,0 +1,25 @@
+{
+  "id": "prt_00000000000000000000000040",
+  "sessionID": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a1",
+  "messageID": "msg_00000000000000000000000014",
+  "type": "tool",
+  "callID": "call_13",
+  "tool": "read",
+  "state": {
+    "status": "completed",
+    "input": {
+      "filePath": "/Users/dev/proj/docs/cli.md"
+    },
+    "output": "<file>\u2026</file>",
+    "title": "docs/cli.md",
+    "metadata": {
+      "preview": "\u2026",
+      "truncated": false,
+      "loaded": []
+    },
+    "time": {
+      "start": 1749564113000,
+      "end": 1749564113500
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "ses_7fa2c1e9b3d4f5a6b7c8d9e0f1a2",
+  "slug": "add-dry-run-flag",
+  "projectID": "3f2a9c1e7b6d5a4c8e9f0a1b2c3d4e5f6a7b8c9d",
+  "directory": "/Users/dev/proj",
+  "title": "Add a --dry-run flag to scripts/deploy.sh and keep the tests green",
+  "version": "1.18.29",
+  "agent": "build",
+  "model": {
+    "id": "claude-sonnet-4-5",
+    "providerID": "anthropic",
+    "variant": "default"
+  },
+  "summary": {
+    "additions": 11,
+    "deletions": 1,
+    "files": 3
+  },
+  "cost": 0.28,
+  "tokens": {
+    "input": 62500,
+    "output": 467,
+    "reasoning": 0,
+    "cache": {
+      "read": 24000,
+      "write": 0
+    }
+  },
+  "time": {
+    "created": 1749564000000,
+    "updated": 1749564117000
+  }
+}
