@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from .. import notify
 from ..auth import CurrentDevice, current_device
 from ..db import db_session
 from ..settings import settings
@@ -93,16 +94,7 @@ def send_session_finished(
     if not rows:
         return 0
 
-    payload = {
-        "aps": {
-            "alert": {"title": title, "body": body},
-            "sound": "default",
-            "thread-id": "session",
-            "interruption-level": "active",
-        },
-        "session": session_id,
-        "unattended": unattended,
-    }
+    payload = apns_payload(title, body, session_id, unattended=unattended)
 
     sent = 0
     auth = _apns_jwt()
@@ -152,6 +144,31 @@ def send_session_finished(
                 break
 
     return sent
+
+
+def apns_payload(title: str, body: str, session_id: str, *, unattended: bool) -> dict:
+    """The APNs body for one completion push. Pure, so a test can hold it up to the light.
+
+    `aps.alert` is what the banner shows and is unchanged by anything else here. `data`
+    (`notify.push_data`) is what a tap opens: kind, session id and the recap deep link.
+    The two older top-level keys stay for any phone build that reads them.
+
+    One trap worth writing down: expo-notifications on iOS hands a REMOTE notification's
+    `userInfo["body"]` to JS as `content.data`, not the userInfo itself — so `data` here
+    is NOT what `response.notification.request.content.data` returns for a raw APNs push;
+    the whole userInfo is on `trigger.payload`. `mobile/src/push/push.ts` reads both.
+    """
+    return {
+        "aps": {
+            "alert": {"title": title, "body": body},
+            "sound": "default",
+            "thread-id": "session",
+            "interruption-level": "active",
+        },
+        "session": session_id,
+        "unattended": unattended,
+        "data": notify.push_data(session_id, unattended=unattended),
+    }
 
 
 def _other(env: str) -> str:

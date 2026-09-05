@@ -257,20 +257,29 @@ export function mediaPlan(photos: readonly PickedPhoto[], audio: RecordedAudio |
   return jobs;
 }
 
-/** How many more photos the picker may offer, never negative. */
-export function photoRoom(current: number): number {
-  return Math.max(0, MAX_PHOTOS - current);
+/**
+ * How many more photos the picker may offer, never negative. `cap` is `MAX_PHOTOS` for a
+ * new post and the remaining room when adding to one that already has photos.
+ */
+export function photoRoom(current: number, cap: number = MAX_PHOTOS): number {
+  return Math.max(0, Math.min(cap, MAX_PHOTOS) - current);
 }
 
 /**
  * Merge a picker result into the current list: skip uris already chosen, cap at
- * `MAX_PHOTOS`. Returns the same array when nothing changed so React state stays put.
+ * `MAX_PHOTOS` (or a smaller `cap`). Returns the same array when nothing changed so
+ * React state stays put.
  */
-export function addPhotos<T extends { uri: string }>(current: readonly T[], picked: readonly T[]): T[] {
+export function addPhotos<T extends { uri: string }>(
+  current: readonly T[],
+  picked: readonly T[],
+  cap: number = MAX_PHOTOS
+): T[] {
+  const limit = Math.min(cap, MAX_PHOTOS);
   const seen = new Set(current.map((p) => p.uri));
   const next = [...current];
   for (const p of picked) {
-    if (next.length >= MAX_PHOTOS) break;
+    if (next.length >= limit) break;
     if (seen.has(p.uri)) continue;
     seen.add(p.uri);
     next.push(p);

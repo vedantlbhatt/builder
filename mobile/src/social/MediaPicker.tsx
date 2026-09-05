@@ -35,14 +35,24 @@ export function MediaPicker({
   audio,
   onAudio,
   disabled = false,
+  maxPhotos = MAX_PHOTOS,
+  allowAudio = true,
 }: {
   photos: PickedPhoto[];
   onPhotos: (next: PickedPhoto[]) => void;
   audio: RecordedAudio | null;
   onAudio: (next: RecordedAudio | null) => void;
   disabled?: boolean;
+  /**
+   * How many photos this picker may hold — `MAX_PHOTOS` less whatever the post already
+   * carries, when adding to an existing post. Never above the server's cap.
+   */
+  maxPhotos?: number;
+  /** False when the post already has its one voice note: the recorder is not offered. */
+  allowAudio?: boolean;
 }) {
-  const room = photoRoom(photos.length);
+  const cap = Math.max(0, Math.min(maxPhotos, MAX_PHOTOS));
+  const room = photoRoom(photos.length, cap);
 
   const pick = useCallback(async () => {
     if (room === 0) return;
@@ -66,8 +76,8 @@ export function MediaPicker({
       mime: a.mimeType ?? null,
       bytes: a.fileSize ?? null,
     }));
-    onPhotos(addPhotos(photos, picked));
-  }, [photos, onPhotos, room]);
+    onPhotos(addPhotos(photos, picked, cap));
+  }, [photos, onPhotos, room, cap]);
 
   const remove = useCallback(
     (uri: string) => onPhotos(photos.filter((p) => p.uri !== uri)),
@@ -136,11 +146,17 @@ export function MediaPicker({
         )}
       </View>
       <Text style={{ color: c.textDim, fontSize: 11, marginTop: 6 }}>
-        Up to {MAX_PHOTOS}. Screenshots of the thing you built are the point.
+        {cap < MAX_PHOTOS
+          ? `Room for ${cap} more. A post carries up to ${MAX_PHOTOS}.`
+          : `Up to ${MAX_PHOTOS}. Screenshots of the thing you built are the point.`}
       </Text>
 
-      <Text style={[label, { marginTop: space.lg }]}>VOICE NOTE</Text>
-      <Recorder audio={audio} onAudio={onAudio} disabled={disabled} />
+      {allowAudio && (
+        <>
+          <Text style={[label, { marginTop: space.lg }]}>VOICE NOTE</Text>
+          <Recorder audio={audio} onAudio={onAudio} disabled={disabled} />
+        </>
+      )}
     </View>
   );
 }

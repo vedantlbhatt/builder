@@ -15,9 +15,10 @@ import * as cache from '../src/data/cache';
 import type { SessionDetail } from '../src/data/api';
 import { LiveSessions } from '../src/live/LiveSessions';
 import { PixelBadge } from '../src/pixel/PixelBadge';
+import { recapEligible } from '../src/recap/format';
 import { TimelineStrip } from '../src/strip/TimelineStrip';
 import { decodeMarks } from '../src/strip/decode';
-import { colors, duration, space } from '../src/theme';
+import { colors, duration, hitSlopToReach, space } from '../src/theme';
 
 const c = colors('dark');
 
@@ -88,6 +89,8 @@ export default function SessionsScreen() {
   }
 
   const stripWidth = width - space.md * 2 - space.md * 2;
+  // One clock for the whole list, so two rows never disagree about "the last hour".
+  const now = Date.now();
 
   return (
     <ScrollView
@@ -148,10 +151,23 @@ export default function SessionsScreen() {
           onPress={() => router.push(`/session/${s.id}`)}
           style={({ pressed }) => [row, pressed && { opacity: 0.6 }]}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
             <Text style={{ color: c.text, fontWeight: '600', fontSize: 15, flex: 1 }} numberOfLines={1}>
               {s.title ?? duration(s.active_seconds)}
             </Text>
+            {/* Finished in the last hour and not yet posted: the recap a push would have
+                opened, for the person who dismissed the banner or never got one. */}
+            {recapEligible(s, now) && (
+              <Pressable
+                hitSlop={hitSlopToReach(22)}
+                accessibilityRole="button"
+                accessibilityLabel="Open the recap for this session"
+                onPress={() => router.push(`/session/${s.id}?recap=1`)}
+                style={({ pressed }) => [recapChip, pressed && { opacity: 0.7 }]}
+              >
+                <Text style={{ color: c.onAccent, fontSize: 11, fontWeight: '700' }}>Recap</Text>
+              </Pressable>
+            )}
             <Text style={{ color: c.textDim, fontSize: 13, fontVariant: ['tabular-nums'] }}>
               {duration(s.active_seconds)}
             </Text>
@@ -210,3 +226,10 @@ const banner = {
 } as const;
 
 const meta = { color: c.textDim, fontSize: 12 } as const;
+
+const recapChip = {
+  backgroundColor: c.accent,
+  borderRadius: 999,
+  paddingHorizontal: 8,
+  paddingVertical: 3,
+} as const;

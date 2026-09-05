@@ -67,6 +67,35 @@ assert NOTIFY_HORIZON_SEC > EXPECTED_FINAL_LAG_SEC, "an on-time final must clear
 #: The ends that mean the work stopped. Everything else is a cut, not a stop.
 NOTIFYING_END_REASONS = frozenset({"idle_gap"})
 
+#: The URL scheme the phone registers (`mobile/app.config.ts` → `scheme`). The recap
+#: link is the same string whether it rides in a push, is typed on the Mac, or comes out
+#: of a share sheet, so `mobile/app/+native-intent.ts` has exactly one shape to route.
+APP_SCHEME = "builder"
+
+#: The two kinds a push can carry, keyed by what `PendingPush.unattended` says. The phone's
+#: `routeForNotification` opens both on the recap; the names only decide the headline.
+KIND_SESSION_FINISHED = "session_finished"
+KIND_AGENT_RUN_FINISHED = "agent_run_finished"
+
+
+def recap_url(session_id: str) -> str:
+    """`builder://session/<id>?recap=1` — the recap sheet over the session detail."""
+    return f"{APP_SCHEME}://session/{session_id}?recap=1"
+
+
+def push_data(session_id: str, *, unattended: bool) -> dict[str, str]:
+    """The silent half of a push: what the phone opens when the banner is tapped.
+
+    Lives beside the alert text rather than in it because APNs shows `aps.alert` and
+    hands everything else to the app untouched. `kind` names the banner class so the
+    phone can tell a run from a session without re-deriving it; `session_id` is what the
+    router needs; `url` is the same destination as a deep link, for a client that would
+    rather open a URL than build a route. All three are strings — APNs custom keys survive
+    the round trip as JSON, and a bare string is the one shape every client decodes alike.
+    """
+    kind = KIND_AGENT_RUN_FINISHED if unattended else KIND_SESSION_FINISHED
+    return {"kind": kind, "session_id": session_id, "url": recap_url(session_id)}
+
 
 @dataclass(frozen=True)
 class PendingPush:
@@ -75,6 +104,12 @@ class PendingPush:
     title: str
     body: str
     unattended: bool
+
+    @property
+    def data(self) -> dict[str, str]:
+        """`push_data` for this push. `kind` here and in the data agree by construction:
+        both are read off `unattended`, which `plan` set from the kind it chose."""
+        return push_data(self.session_id, unattended=self.unattended)
 
 
 def plan(db, session_id, p: SessionUpload, existing, now: datetime | None = None):
@@ -93,9 +128,9 @@ def plan(db, session_id, p: SessionUpload, existing, now: datetime | None = None
         return None
 
     if p.unattended:
-        kind = "agent_run_finished"
+        kind = KIND_AGENT_RUN_FINISHED
     elif p.notable:
-        kind = "session_finished"
+        kind = KIND_SESSION_FINISHED
     else:
         return None
 
@@ -123,7 +158,7 @@ def plan(db, session_id, p: SessionUpload, existing, now: datetime | None = None
         kind=kind,
         title=title,
         body=body,
-        unattended=kind == "agent_run_finished",
+        unattended=kind == KIND_AGENT_RUN_FINISHED,
     )
 
 
@@ -136,7 +171,7 @@ def compose(p: SessionUpload, kind: str) -> tuple[str, str]:
     its active time. The repo is named only when the payload named it, which the client
     does only for public repos; an anonymous repo is "a private repo".
     """
-    if kind == "agent_run_finished":
+    if kind == KIND_AGENT_RUN_FINISHED:
         return "Agent run finished", f"ran {_hm(p.active_seconds)} unattended"
 
     where = ""

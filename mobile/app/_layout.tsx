@@ -5,6 +5,7 @@ import React, { useEffect } from 'react';
 
 import { handleIncomingUrl } from '../src/auth/googleFlow';
 import { api } from '../src/data/client';
+import { useNotificationResponseRouting } from '../src/push/push';
 import { colors } from '../src/theme';
 
 /**
@@ -17,6 +18,11 @@ import { colors } from '../src/theme';
  */
 export default function RootLayout() {
   const c = colors('dark');
+
+  // A tapped "Session finished" / "Agent run finished" push opens that session's recap.
+  // At the root for the same reason the Google redirect is: the tap that launched the
+  // app happened before any screen existed.
+  useNotificationResponseRouting();
 
   // Google sign-in comes back through the app scheme (`builder://auth/google#id_token=…`).
   // It is handled here, at the root, rather than in Settings: the redirect can arrive at

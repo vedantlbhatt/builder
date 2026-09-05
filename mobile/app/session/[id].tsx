@@ -1,9 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -19,28 +18,25 @@ import { describeEnd } from '../../src/analysis/format';
 import { RecapCard, toCardModel, type CardModel } from '../../src/card/RecapCard';
 import { shareCard } from '../../src/card/export';
 import {
-  PRESIGN_UNCONFIGURED_MESSAGE,
+  ApiError,
   type FeedItem,
   type SessionDetail,
   type Visibility,
 } from '../../src/data/api';
 import * as cache from '../../src/data/cache';
 import { api, SAMPLE_SESSION } from '../../src/data/client';
+import { RecapSheet } from '../../src/recap/RecapSheet';
+import { CAPTION_MAX, detailAfterPost, planMedia } from '../../src/social/composeFlow';
 import {
   isAlreadySharedConflict,
   VISIBILITIES,
   visibilityLabel,
 } from '../../src/social/format';
-import {
-  formatClock,
-  mediaPlan,
-  type MediaJob,
-  type PickedPhoto,
-  type RecordedAudio,
-} from '../../src/social/media';
+import type { PickedPhoto, RecordedAudio } from '../../src/social/media';
 import { MediaPicker } from '../../src/social/MediaPicker';
 import { PixelBadge } from '../../src/pixel/PixelBadge';
-import { runUploads, type UploadState } from '../../src/social/upload';
+import { UploadList } from '../../src/social/UploadLine';
+import { useUploadFlow } from '../../src/social/useUploadFlow';
 import { TimelineStrip } from '../../src/strip/TimelineStrip';
 import { classShare, decodeColumns, decodeMarks } from '../../src/strip/decode';
 import { StripClass } from '../../src/generated/strip';
@@ -61,13 +57,14 @@ function sharedFromDetail(s: SessionDetail): boolean {
 }
 
 export default function SessionScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, recap } = useLocalSearchParams<{ id: string; recap?: string }>();
   const { width } = useWindowDimensions();
   const router = useRouter();
   const [model, setModel] = useState<CardModel | null>(null);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [sharing, setSharing] = useState(false);
   const [composing, setComposing] = useState(false);
+  const [recapOpen, setRecapOpen] = useState(false);
   const [post, setPost] = useState<FeedItem | null>(null);
   // Whether a post exists for this session, as far as the phone knows: seeded from the
   // server's `is_shared` (true for a followers/public post; a private post leaves it
@@ -75,30 +72,39 @@ export default function SessionScreen() {
   // when this mount composed it or the lookup below found it.
   const [shared, setShared] = useState(false);
   const [looking, setLooking] = useState(false);
+  const [lookupFailed, setLookupFailed] = useState(false);
+  // The last detail load could not reach the server. The screen renders from the cache
+  // and the recap says why Post is off, rather than failing at the tap.
+  const [offline, setOffline] = useState(false);
   const cardRef = useRef(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const show = (s: SessionDetail, code: string) => {
       setSession(s);
       setModel(toCardModel(s, code));
       setShared(sharedFromDetail(s));
     };
-    (async () => {
-      if (id === 'sample') {
-        show(SAMPLE_SESSION, 'builder.dev/s/sample');
-        return;
-      }
-      const cached = await cache.getDetail(id!);
-      if (cached) show(cached, `builder.dev/s/${id!.slice(0, 6)}`);
-      try {
-        const fresh = await api.session(id!);
-        await cache.putDetail(fresh);
-        show(fresh, `builder.dev/s/${id!.slice(0, 6)}`);
-      } catch {
-        // Offline with a cached copy is fine; offline without one shows the spinner.
-      }
-    })();
+    if (id === 'sample') {
+      show(SAMPLE_SESSION, 'builder.dev/s/sample');
+      return;
+    }
+    const cached = await cache.getDetail(id!);
+    if (cached) show(cached, `builder.dev/s/${id!.slice(0, 6)}`);
+    try {
+      const fresh = await api.session(id!);
+      await cache.putDetail(fresh);
+      show(fresh, `builder.dev/s/${id!.slice(0, 6)}`);
+      setOffline(false);
+    } catch (e) {
+      // Offline with a cached copy is fine; offline without one shows the spinner. Only
+      // a transport failure means "offline" — a 404 or a 500 is the server answering.
+      setOffline(e instanceof ApiError && e.status === 0);
+    }
   }, [id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   // A session posted on a previous visit, after a restart, or from another device: the
   // detail names the post and this mount does not hold it. Load the row, so it can carry
@@ -108,6 +114,7 @@ export default function SessionScreen() {
     if (!postId || post?.id === postId || !id || id === 'sample') return;
     let cancelled = false;
     setLooking(true);
+    setLookupFailed(false);
     api
       .post(postId)
       .then((found) => {
@@ -115,6 +122,7 @@ export default function SessionScreen() {
       })
       .catch(() => {
         // The row still says "posted"; only the Delete is missing, and the feed has it.
+        if (!cancelled) setLookupFailed(true);
       })
       .finally(() => {
         if (!cancelled) setLooking(false);
@@ -123,6 +131,20 @@ export default function SessionScreen() {
       cancelled = true;
     };
   }, [postId, post, id]);
+
+  // `?recap=1` — a tapped completion push, the Mac's link, the list's chip — raises the
+  // recap once the session is here and, when it has a post, once that post is here too,
+  // so the sheet opens as an editor rather than posting twice. Once per mount: closing
+  // it must not reopen it on the next render.
+  const autoOpened = useRef(false);
+  const postPending = Boolean(postId) && post?.id !== postId && !lookupFailed;
+  useEffect(() => {
+    if (recap !== '1' || autoOpened.current || !session || id === 'sample') return;
+    if ((session.state ?? 'final') !== 'final') return;
+    if (postPending) return;
+    autoOpened.current = true;
+    setRecapOpen(true);
+  }, [recap, session, id, postPending]);
 
   if (!model || !session) {
     return (
@@ -140,6 +162,38 @@ export default function SessionScreen() {
   const state = session.state ?? 'final';
   const hasSplit = session.attended_seconds !== undefined || session.autonomous_seconds !== undefined;
   const endNote = describeEnd(session);
+
+  /** A post landed, from either sheet: remember it, then show it. */
+  const landed = (p: FeedItem, thenOpen: boolean) => {
+    setPost(p);
+    setShared(true);
+    setComposing(false);
+    setRecapOpen(false);
+    const next = detailAfterPost(session, p);
+    setSession(next);
+    void cache.putDetail(next).catch(() => undefined);
+    if (thenOpen) router.push(`/post/${p.id}`);
+  };
+
+  /**
+   * A private post, or one made between the detail load and now: the server says it
+   * exists. Switch to the posted state and re-read the detail for its id, which the
+   * lookup above turns into the row.
+   */
+  const alreadyPosted = () => {
+    setShared(true);
+    setComposing(false);
+    setRecapOpen(false);
+    if (id && id !== 'sample') {
+      void api
+        .session(id)
+        .then(async (fresh) => {
+          setSession(fresh);
+          await cache.putDetail(fresh);
+        })
+        .catch(() => undefined);
+    }
+  };
 
   return (
     <ScrollView
@@ -181,10 +235,17 @@ export default function SessionScreen() {
           a live card's numbers keep moving and a recap that moves is not a recap. */}
       {state === 'final' && id !== 'sample' && (
         post ? (
-          <View style={[postedBox, { flexDirection: 'row', alignItems: 'center' }]}>
+          <View style={[postedBox, { flexDirection: 'row', alignItems: 'center', gap: space.md }]}>
             <Text style={{ color: c.text, fontSize: 14, flex: 1 }}>
               Posted · {visibilityLabel(post.visibility)}
             </Text>
+            <Pressable
+              hitSlop={hitSlopToReach(18)}
+              accessibilityRole="button"
+              onPress={() => setRecapOpen(true)}
+            >
+              <Text style={{ color: c.accent, fontWeight: '600', fontSize: 14 }}>Edit</Text>
+            </Pressable>
             <Pressable
               hitSlop={hitSlopToReach(18)}
               accessibilityRole="button"
@@ -233,46 +294,49 @@ export default function SessionScreen() {
             )}
           </View>
         ) : (
-          <Pressable
-            onPress={() => setComposing(true)}
-            style={({ pressed }) => [postedBox, { alignItems: 'center' }, pressed && { opacity: 0.8 }]}
-          >
-            <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }}>Post to the feed</Text>
-          </Pressable>
+          <>
+            {/* The recap: title, tiles, analysis, photos, then Post. What a tapped
+                completion push opens, reachable here for everyone else. */}
+            <Pressable
+              onPress={() => setRecapOpen(true)}
+              accessibilityRole="button"
+              style={({ pressed }) => [postedBox, { alignItems: 'center' }, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }}>Finish & share</Text>
+              <Text style={{ color: c.textDim, fontSize: 12, marginTop: 2 }}>
+                Add photos and a caption, then post — or keep it private.
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setComposing(true)}
+              accessibilityRole="button"
+              hitSlop={hitSlopToReach(20)}
+              style={({ pressed }) => [{ alignItems: 'center', paddingVertical: space.sm }, pressed && { opacity: 0.6 }]}
+            >
+              <Text style={{ color: c.textDim, fontSize: 13 }}>Quick post without the recap</Text>
+            </Pressable>
+          </>
         )
       )}
+
+      <RecapSheet
+        visible={recapOpen}
+        session={session}
+        post={post}
+        offline={offline}
+        onClose={() => setRecapOpen(false)}
+        onPosted={(p) => landed(p, true)}
+        onAlreadyPosted={alreadyPosted}
+        onRetryConnection={() => void load()}
+      />
 
       <ComposeModal
         visible={composing}
         sessionId={session.id}
         hasAnalysis={Boolean(session.analysis)}
         onClose={() => setComposing(false)}
-        onPosted={(p) => {
-          setPost(p);
-          setShared(true);
-          setComposing(false);
-          // Mirror the server's `_set_shared`: a private post leaves the flag down; the
-          // post id is what says "posted" for every visibility.
-          const next = { ...session, is_shared: p.visibility !== 'private', post_id: p.id };
-          setSession(next);
-          void cache.putDetail(next).catch(() => undefined);
-        }}
-        onAlreadyPosted={() => {
-          // A private post, or one made between the detail load and now: the server
-          // says it exists. Switch to the posted state and re-read the detail for its id,
-          // which the loader above turns into the row.
-          setShared(true);
-          setComposing(false);
-          if (id && id !== 'sample') {
-            void api
-              .session(id)
-              .then(async (fresh) => {
-                setSession(fresh);
-                await cache.putDetail(fresh);
-              })
-              .catch(() => undefined);
-          }
-        }}
+        onPosted={(p) => landed(p, false)}
+        onAlreadyPosted={alreadyPosted}
       />
 
       <Section title="Timeline">
@@ -352,20 +416,16 @@ export default function SessionScreen() {
   );
 }
 
-const CAPTION_MAX = 1000;
-
-/** One line per planned upload while the sheet is in its upload phase. */
-type UploadRow = { job: MediaJob; state: UploadState };
-
 /**
  * Visibility, a caption, whether the whole analysis travels with the post (the feed shows
  * headline + summary either way), up to six photos and one voice note.
  *
  * Two phases. `compose` is the form. Post creates the row first — the post exists the
- * moment the server answers, media or not — then `upload` runs the plan against it one
- * object at a time and shows each line's state. A failed line can be retried; a presign
- * 503 (object storage not configured on this server) is said once, in plain words, and
- * the post stands without its media rather than being rolled back.
+ * moment the server answers, media or not — then the upload phase (`useUploadFlow`,
+ * shared with the recap) runs the plan against it one object at a time and shows each
+ * line's state. A failed line can be retried; a presign 503 (object storage not
+ * configured on this server) is said once, in plain words, and the post stands without
+ * its media rather than being rolled back.
  */
 function ComposeModal({
   visible,
@@ -388,53 +448,30 @@ function ComposeModal({
   const [shareAnalysis, setShareAnalysis] = useState(false);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [audio, setAudio] = useState<RecordedAudio | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [created, setCreated] = useState<FeedItem | null>(null);
-  const [rows, setRows] = useState<UploadRow[]>([]);
-  const saidUnconfigured = useRef(false);
+  const [posting, setPosting] = useState(false);
+  const flow = useUploadFlow(onPosted);
+  const { reset } = flow;
 
   // The sheet stays mounted between openings. Reopening it (after deleting the post, say)
   // must start a fresh compose, not land in the previous post's upload list.
   useEffect(() => {
     if (!visible) return;
-    setCreated(null);
-    setRows([]);
     setPhotos([]);
     setAudio(null);
-    setBusy(false);
-    saidUnconfigured.current = false;
-  }, [visible]);
+    setPosting(false);
+    reset();
+  }, [visible, reset]);
 
-  const setRow =(i: number, state: UploadState) =>
-    setRows((prev) => prev.map((r, k) => (k === i ? { ...r, state } : r)));
-
-  const run = async (post: FeedItem, indices: number[], all: UploadRow[]) => {
-    setBusy(true);
-    try {
-      const jobs = indices.map((i) => all[i]!.job);
-      await runUploads(post.id, jobs, (k, state) => {
-        const i = indices[k]!;
-        setRow(i, state);
-        if (state.phase === 'failed' && state.unconfigured && !saidUnconfigured.current) {
-          saidUnconfigured.current = true;
-          Alert.alert('Posted without media', PRESIGN_UNCONFIGURED_MESSAGE);
-        }
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const busy = posting || flow.busy;
 
   const submit = async () => {
     if (busy) return;
-    let jobs: MediaJob[];
-    try {
-      jobs = mediaPlan(photos, audio);
-    } catch (e) {
-      Alert.alert('Check the media', e instanceof Error ? e.message : 'try again');
+    const planned = planMedia(photos, audio);
+    if (!planned.ok) {
+      Alert.alert('Check the media', planned.message);
       return;
     }
-    setBusy(true);
+    setPosting(true);
     let p: FeedItem;
     try {
       p = await api.createPost({
@@ -444,7 +481,7 @@ function ComposeModal({
         share_analysis: shareAnalysis,
       });
     } catch (e) {
-      setBusy(false);
+      setPosting(false);
       if (isAlreadySharedConflict(e)) {
         Alert.alert('Already posted', 'This session is on the feed already.');
         onAlreadyPosted();
@@ -453,59 +490,16 @@ function ComposeModal({
       Alert.alert('Could not post', e instanceof Error ? e.message : 'try again');
       return;
     }
-    if (jobs.length === 0) {
-      setBusy(false);
-      onPosted(p);
-      return;
-    }
-    const all: UploadRow[] = jobs.map((job) => ({ job, state: { phase: 'queued' } }));
-    setCreated(p);
-    setRows(all);
-    await run(
-      p,
-      all.map((_, i) => i),
-      all
-    );
+    setPosting(false);
+    flow.start(p, planned.jobs);
   };
-
-  const retry = () => {
-    if (!created || busy) return;
-    const failed = rows
-      .map((r, i) => (r.state.phase === 'failed' && !r.state.unconfigured ? i : -1))
-      .filter((i) => i >= 0);
-    if (failed.length === 0) return;
-    void run(created, failed, rows);
-  };
-
-  const finish = async () => {
-    if (!created) return;
-    // Re-read so the "Posted" row and any feed cache carry the attached media with urls.
-    let final = created;
-    try {
-      final = await api.post(created.id);
-    } catch {
-      // The post exists either way; the feed will show the media on its next refresh.
-    }
-    onPosted(final);
-  };
-
-  const uploading = created !== null;
-  const allDone = uploading && rows.every((r) => r.state.phase === 'done');
-  const retryable = rows.some((r) => r.state.phase === 'failed' && !r.state.unconfigured);
-
-  // Every upload landed: close on its own. Anything else waits for a tap so the failures
-  // are read rather than flashed.
-  useEffect(() => {
-    if (allDone && !busy) void finish();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allDone, busy]);
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={() => (uploading ? void finish() : onClose())}
+      onRequestClose={() => (flow.uploading ? void flow.finish() : onClose())}
     >
       <ScrollView
         style={{ flex: 1, backgroundColor: c.bg }}
@@ -513,7 +507,7 @@ function ComposeModal({
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.lg }}>
-          {uploading ? (
+          {flow.uploading ? (
             <View style={{ width: 48 }} />
           ) : (
             <Pressable onPress={onClose} hitSlop={8} disabled={busy}>
@@ -521,10 +515,10 @@ function ComposeModal({
             </Pressable>
           )}
           <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center' }}>
-            {uploading ? 'Uploading' : 'Post session'}
+            {flow.uploading ? 'Uploading' : 'Post session'}
           </Text>
-          {uploading ? (
-            <Pressable onPress={() => void finish()} disabled={busy} hitSlop={8}>
+          {flow.uploading ? (
+            <Pressable onPress={() => void flow.finish()} disabled={busy} hitSlop={8}>
               <Text style={{ color: c.accent, fontSize: 15, fontWeight: '700', opacity: busy ? 0.5 : 1 }}>
                 Done
               </Text>
@@ -538,32 +532,8 @@ function ComposeModal({
           )}
         </View>
 
-        {uploading ? (
-          <View>
-            <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 18, marginBottom: space.md }}>
-              Your post is up. Its photos and voice note are on their way.
-            </Text>
-            {rows.map((r, i) => (
-              <UploadLine key={i} row={r} />
-            ))}
-            {!busy && retryable && (
-              <Pressable
-                onPress={retry}
-                style={({ pressed }) => [
-                  {
-                    backgroundColor: c.accent,
-                    borderRadius: 12,
-                    paddingVertical: space.md,
-                    alignItems: 'center',
-                    marginTop: space.md,
-                  },
-                  pressed && { opacity: 0.8 },
-                ]}
-              >
-                <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 15 }}>Retry failed uploads</Text>
-              </Pressable>
-            )}
-          </View>
+        {flow.uploading ? (
+          <UploadList rows={flow.rows} busy={flow.busy} retryable={flow.retryable} onRetry={flow.retry} />
         ) : (
           <>
             <Text style={composeLabel}>WHO CAN SEE IT</Text>
@@ -638,61 +608,6 @@ function ComposeModal({
         )}
       </ScrollView>
     </Modal>
-  );
-}
-
-/** One upload's line: a thumbnail or the note's length, and where it is. */
-function UploadLine({ row }: { row: UploadRow }) {
-  const { job, state } = row;
-  const what =
-    job.kind === 'photo' ? `Photo ${job.index + 1}` : `Voice note · ${formatClock(job.duration_ms)}`;
-  const status =
-    state.phase === 'queued'
-      ? 'waiting'
-      : state.phase === 'uploading'
-        ? 'uploading…'
-        : state.phase === 'done'
-          ? 'done'
-          : state.unconfigured
-            ? 'not configured'
-            : `failed · ${state.message}`;
-  const failed = state.phase === 'failed';
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: space.sm,
-        backgroundColor: c.card,
-        borderRadius: 10,
-        padding: space.sm,
-        marginBottom: space.sm,
-      }}
-    >
-      {job.kind === 'photo' ? (
-        <Image
-          source={{ uri: job.uri }}
-          resizeMode="cover"
-          accessibilityIgnoresInvertColors
-          style={{ width: 40, height: 40, borderRadius: 6, backgroundColor: c.border }}
-        />
-      ) : (
-        <View style={{ width: 40, height: 40, borderRadius: 6, backgroundColor: c.border, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: c.text, fontSize: 16 }}>▶</Text>
-        </View>
-      )}
-      <Text style={{ color: c.text, fontSize: 14, flex: 1 }}>{what}</Text>
-      {state.phase === 'uploading' ? (
-        <ActivityIndicator color={c.accent} />
-      ) : (
-        <Text
-          style={{ color: failed ? c.danger : state.phase === 'done' ? c.accent : c.textDim, fontSize: 12, fontWeight: '600', maxWidth: 160 }}
-          numberOfLines={2}
-        >
-          {status}
-        </Text>
-      )}
-    </View>
   );
 }
 
