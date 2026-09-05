@@ -69,7 +69,7 @@ describe('display', () => {
 
   test('the paste hint names the variable the uploader reads and the recipe', () => {
     expect(CAPTURE_KEY_PASTE_HINT).toContain('BUILDER_CAPTURE_KEY');
-    expect(CAPTURE_KEY_PASTE_HINT).toContain('docs/cloud-capture.md');
+    expect(CAPTURE_KEY_PASTE_HINT).toContain('docs/hooks-capture.md');
     expect(CAPTURE_KEY_PASTE_HINT.split('. ').length).toBe(1);
   });
 });

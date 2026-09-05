@@ -22,7 +22,7 @@ export const CAPTURE_KEY_DEFAULT_NAME = 'claude.ai/code';
  * block in docs/cloud-capture.md.
  */
 export const CAPTURE_KEY_PASTE_HINT =
-  'Run the setup below once on the machine (or set the two variables in your claude.ai/code environment). Claude Code then posts each session itself — nothing to install, nothing to pair.';
+  'Run the setup below once on the machine, or set BUILDER_URL and BUILDER_CAPTURE_KEY in your claude.ai/code environment, and Claude Code posts each session itself with nothing to install (docs/hooks-capture.md).';
 
 /** The three hook events that ship a session: the prompt (live), each turn, and exit. */
 export const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'SessionEnd'] as const;
