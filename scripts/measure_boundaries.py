@@ -10,6 +10,7 @@ transcripts under spec/fixtures/boundaries/. Read docs/session-boundaries.md fir
 
 Rules (each carries the Tuning constant it reads):
   1. idle_gap        gap between consecutive records > TAU_SESSION (900s).  Unchanged.
+                     The boundary gap is credited (capped) and ended_at extended by it.
   2. human_returned  a presence signal arrives after >= TAU_RETURN_SPLIT (7200s) of
                      autonomous time. The human came back to a still-running agent: that
                      is a new sitting, so the run is finalized and a new session begins.
@@ -83,7 +84,11 @@ def classify(rec: dict) -> tuple[str, bool]:
         if isinstance(content, str):
             text = content
         elif isinstance(content, list):
-            texts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+            texts = [
+                b.get("text", "")
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
             text = "\n".join(texts) if texts else None
         if not is_meta and (ps == "typed" or (ps == "sdk" and origin == "human")):
             return "prompt", True
@@ -169,8 +174,19 @@ def sessionize(
             since_presence = None if last_presence is None else prev["ts"] - last_presence
             autonomous = since_presence is None or since_presence > tau_autonomous
 
-            # Rule 1: idle gap.
+            # Rule 1: idle gap. The boundary gap is credited like any other gap — capped,
+            # to whichever clock was running when it began — and ended_at is extended by
+            # the same amount so active can never exceed elapsed. Credit is a property of
+            # the POOL, not of where the cut lands: without this, merging two sessions
+            # would recover up to `cap` seconds and total active time would depend on tau
+            # (MEASURED in the Swift engine before that fix: 4.5 h of drift across the
+            # threshold range).
             if gap > tau:
+                cur["active"] += credit
+                if autonomous:
+                    cur["autonomous"] += credit
+                else:
+                    cur["attended"] += credit
                 close(cur, "idle_gap", credit)
                 cur = open_session(r)
                 last_presence = r["ts"] if r["presence"] else None
@@ -190,6 +206,9 @@ def sessionize(
                 before = min(boundary - prev["ts"], cap)
                 cur["active"] += before
                 cur["autonomous"] += before
+                # The old session ends AT the boundary, not at its last record: it was
+                # credited up to the boundary, and active must not exceed elapsed.
+                cur["ended_at"] = boundary
                 close(cur, "day_boundary", 0.0)
                 cur = open_session(r)
                 cur["started_at"] = boundary
@@ -208,10 +227,17 @@ def sessionize(
                 continue
 
             # Rule 2: the human returned after a long autonomous run.
-            if r["presence"] and autonomous and since_presence is not None and since_presence >= tau_return:
+            if (
+                r["presence"]
+                and autonomous
+                and since_presence is not None
+                and since_presence >= tau_return
+            ):
                 cur["active"] += credit
                 cur["autonomous"] += credit
-                close(cur, "human_returned", 0.0)
+                # ended_at advances by the credit, as for idle_gap: the run was credited
+                # for the gap, so it must be seen to have lasted that long.
+                close(cur, "human_returned", credit)
                 cur = open_session(r)
                 last_presence = r["ts"]
                 run_start = None
@@ -226,7 +252,9 @@ def sessionize(
                 cur["autonomous"] += credit
                 if run_start is None:
                     run_start = prev["ts"]
-                cur["longest_autonomous_run"] = max(cur["longest_autonomous_run"], r["ts"] - run_start)
+                cur["longest_autonomous_run"] = max(
+                    cur["longest_autonomous_run"], r["ts"] - run_start
+                )
             else:
                 cur["attended"] += credit
             cur["ended_at"] = r["ts"]
@@ -285,7 +313,15 @@ def main() -> int:
         tz = zoneinfo.ZoneInfo(args.tz)
 
     root = pathlib.Path(args.root).expanduser()
-    files = [root] if root.is_file() else sorted(p for p in root.rglob("*.jsonl") if "/" not in str(p.relative_to(root).parent.as_posix()).strip("."))
+    files = (
+        [root]
+        if root.is_file()
+        else sorted(
+            p
+            for p in root.rglob("*.jsonl")
+            if "/" not in str(p.relative_to(root).parent.as_posix()).strip(".")
+        )
+    )
     # Root transcripts only: <projectdir>/<uuid>.jsonl. Sidecars inherit the parent's session.
     if root.is_dir():
         files = [p for p in root.rglob("*.jsonl") if len(p.relative_to(root).parts) == 2] or files
@@ -312,9 +348,14 @@ def main() -> int:
     grid = {}
     for ta in (600, 1200, 1800, 3600):
         for tr in (3600, 7200, 14400):
-            n = sum(len(sessionize(recs, tz, tau_autonomous=ta, tau_return=tr)) for recs in pools.values())
+            n = sum(
+                len(sessionize(recs, tz, tau_autonomous=ta, tau_return=tr))
+                for recs in pools.values()
+            )
             grid[f"tau_autonomous={ta},tau_return={tr}"] = n
-    baseline = sum(len(sessionize(recs, tz, tau_autonomous=1e12, tau_return=1e12)) for recs in pools.values())
+    baseline = sum(
+        len(sessionize(recs, tz, tau_autonomous=1e12, tau_return=1e12)) for recs in pools.values()
+    )
 
     report = {
         "files": len(files),
@@ -338,7 +379,9 @@ def main() -> int:
         },
         "autonomous_seconds_total": sum(s["autonomous"] for s in all_sessions),
         "attended_seconds_total": sum(s["attended"] for s in all_sessions),
-        "longest_autonomous_run_seconds": max((s["longest_autonomous_run"] for s in all_sessions), default=0),
+        "longest_autonomous_run_seconds": max(
+            (s["longest_autonomous_run"] for s in all_sessions), default=0
+        ),
         "sessions_with_zero_presence": sum(1 for s in all_sessions if s["presence"] == 0),
         "sensitivity_session_counts": grid,
         "sessions": all_sessions if len(all_sessions) <= 50 else all_sessions[:50],
@@ -349,8 +392,12 @@ def main() -> int:
         return 0
 
     p = report["presence_interval_seconds"]
-    print(f"files {report['files']}  pools {report['pools']}  timestamped records {report['records']:,}")
-    print(f"sessions: rule 1 only {baseline}  ·  v2 default {len(all_sessions)}  {report['sessions_by_end_reason']}")
+    print(
+        f"files {report['files']}  pools {report['pools']}  timestamped records {report['records']:,}"
+    )
+    print(
+        f"sessions: rule 1 only {baseline}  ·  v2 default {len(all_sessions)}  {report['sessions_by_end_reason']}"
+    )
     print(
         f"presence→presence during activity (n={p['n']}): p50 {fmt(p['p50'])}  p90 {fmt(p['p90'])}  "
         f"p98 {fmt(p['p98'])}  p99 {fmt(p['p99'])}  max {fmt(p['max'] or 0)}  >30m {p['over_1800']}  >2h {p['over_7200']}"

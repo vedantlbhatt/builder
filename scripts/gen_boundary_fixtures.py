@@ -87,7 +87,9 @@ class Tape:
                 "role": "assistant",
                 "model": "claude-sonnet-5",
                 "id": f"msg_{self.n}",
-                "content": [{"type": "tool_use", "id": f"tu_{self.n}", "name": "Bash", "input": {}}],
+                "content": [
+                    {"type": "tool_use", "id": f"tu_{self.n}", "name": "Bash", "input": {}}
+                ],
                 "usage": {"input_tokens": 1, "output_tokens": 1},
             }
             self.recs.append(r)
