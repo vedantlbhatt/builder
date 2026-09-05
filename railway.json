@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "_comment": "Repo-root build (see ./Dockerfile). Set the Railway service's root directory to / to use it; server/railway.json is the server-only build.",
+  "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile" },
+  "deploy": {
+    "preDeployCommand": "alembic upgrade head",
+    "numReplicas": 1,
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

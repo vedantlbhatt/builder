@@ -157,41 +157,61 @@ def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_upl
     pending: list[notify.PendingPush] = []
 
     with db_session(viewer_id=str(device.user_id)) as db:
-        for p in body.sessions:
-            if (reason := sanity_gate(p)) is not None:
-                rejected.append({"client_session_id": p.client_session_id, "reason": reason})
-                continue
-
-            # `state` rides along so the notification decision can tell a live row
-            # becoming final (news) from a final row being refreshed (not news).
-            existing = db.execute(
-                text(
-                    "SELECT id, content_hash, state FROM sessions "
-                    "WHERE user_id = :u AND client_session_id = :c"
-                ),
-                {"u": str(device.user_id), "c": p.client_session_id},
-            ).first()
-
-            if existing and existing.content_hash == p.content_hash:
-                unchanged += 1
-                continue
-
-            repo_id = _upsert_repo(db, p)
-            session_id = _upsert_session(db, device, p, repo_id, existing)
-            _upsert_strip(db, session_id, p)
-            _upsert_stats(db, session_id, p)
-            _upsert_analysis(db, session_id, p)
-            if (push_plan := notify.plan(db, session_id, p, existing)) is not None:
-                pending.append(push_plan)
-            accepted += 1
-
+        accepted, unchanged, rejected, pending = store_payloads(db, device, body.sessions)
         db.execute(
             text("UPDATE devices SET last_seen_at = now() WHERE id = :d"),
             {"d": str(device.device_id)},
         )
 
-    # Committed. Everything below is best-effort. Called through the module attribute
-    # rather than an imported name so a test can replace it at `push.send_session_finished`.
+    send_pending(device, pending)
+    return BatchResponse(accepted=accepted, unchanged=unchanged, rejected=rejected)
+
+
+def store_payloads(
+    db, device: CurrentDevice, payloads: list[SessionUpload]
+) -> tuple[int, int, list[dict], list[notify.PendingPush]]:
+    """The per-session upsert, shared by the batch route and the hook channel
+    (routes/ingest.py) so a session reaches the same tables by the same rules whichever
+    way its transcript arrived. Runs inside the caller's transaction; returns
+    (accepted, unchanged, rejected, pending pushes)."""
+    accepted = 0
+    unchanged = 0
+    rejected: list[dict] = []
+    pending: list[notify.PendingPush] = []
+    for p in payloads:
+        if (reason := sanity_gate(p)) is not None:
+            rejected.append({"client_session_id": p.client_session_id, "reason": reason})
+            continue
+
+        # `state` rides along so the notification decision can tell a live row
+        # becoming final (news) from a final row being refreshed (not news).
+        existing = db.execute(
+            text(
+                "SELECT id, content_hash, state FROM sessions "
+                "WHERE user_id = :u AND client_session_id = :c"
+            ),
+            {"u": str(device.user_id), "c": p.client_session_id},
+        ).first()
+
+        if existing and existing.content_hash == p.content_hash:
+            unchanged += 1
+            continue
+
+        repo_id = _upsert_repo(db, p)
+        session_id = _upsert_session(db, device, p, repo_id, existing)
+        _upsert_strip(db, session_id, p)
+        _upsert_stats(db, session_id, p)
+        _upsert_analysis(db, session_id, p)
+        if (push_plan := notify.plan(db, session_id, p, existing)) is not None:
+            pending.append(push_plan)
+        accepted += 1
+    return accepted, unchanged, rejected, pending
+
+
+def send_pending(device: CurrentDevice, pending: list[notify.PendingPush]) -> None:
+    """After commit. Best-effort: a push failure can never roll back an upload. Called
+    through the module attribute rather than an imported name so a test can replace it
+    at `push.send_session_finished`."""
     for n in pending:
         try:
             push.send_session_finished(
@@ -199,8 +219,6 @@ def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_upl
             )
         except Exception:
             log.exception("push for session %s (%s) failed; not retried", n.session_id, n.kind)
-
-    return BatchResponse(accepted=accepted, unchanged=unchanged, rejected=rejected)
 
 
 def _upsert_repo(db, p: SessionUpload):
