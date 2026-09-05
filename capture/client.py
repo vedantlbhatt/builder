@@ -19,6 +19,13 @@ that has no persistent disk). It is materialised to the credentials path on firs
 that rotations within one container persist for that container's life — and
 `docs/cloud-capture.md` explains why a static copy shared by several containers trips
 the reuse detector.
+
+A CAPTURE KEY (`BUILDER_CAPTURE_KEY`, or `--key`) is the credential for a fleet. It is a
+`bck_…` string the phone minted, sent as the bearer on every request, never refreshed and
+never written to disk by this client. The server accepts it on the two sync routes and
+nowhere else, and a 401 with a key means the key is revoked (or never existed): the client
+reports which key by its prefix and stops. There is nothing to retry — no refresh can
+bring a revoked key back, and the paired-token path is untouched by any of this.
 """
 
 from __future__ import annotations
@@ -52,6 +59,33 @@ class HTTPFailure(Exception):
 class PairingTimedOut(Exception):
     def __str__(self) -> str:
         return "pairing expired before it was approved"
+
+
+#: The server's prefix for a capture key (`CAPTURE_KEY_PREFIX` in builder/auth.py). Checked
+#: before the first request so a pasted refresh token or an empty variable fails here, with
+#: a sentence, rather than as a 401 that reads like a revocation.
+CAPTURE_KEY_PREFIX = "bck_"
+#: How much of a key is ever printed: the same eight characters the phone lists.
+CAPTURE_KEY_DISPLAY_CHARS = 8
+
+
+class CaptureKeyRejected(Exception):
+    """A 401 while authenticating with a capture key: revoked, or never valid. Final."""
+
+    def __init__(self, prefix: str):
+        super().__init__(prefix)
+        self.prefix = prefix
+
+    def __str__(self) -> str:
+        return (
+            f"capture key {self.prefix}… was rejected by the server (revoked or unknown); "
+            "mint a new one in Builder → Settings → Cloud capture"
+        )
+
+
+class MalformedCaptureKey(Exception):
+    def __str__(self) -> str:
+        return f"BUILDER_CAPTURE_KEY does not look like a capture key (expected {CAPTURE_KEY_PREFIX}…)"
 
 
 # ----------------------------------------------------------------------------- credentials
@@ -121,6 +155,24 @@ def load_credentials() -> dict | None:
     return None
 
 
+def capture_key(explicit: str | None = None) -> str | None:
+    """The key from `--key`, else `BUILDER_CAPTURE_KEY`; None when neither is set.
+
+    Whitespace is stripped because the value is pasted into an environment-settings form.
+    Anything else that is not `bck_…` is refused before a request is made.
+    """
+    raw = (explicit if explicit is not None else os.environ.get("BUILDER_CAPTURE_KEY", "")).strip()
+    if not raw:
+        return None
+    if not raw.startswith(CAPTURE_KEY_PREFIX):
+        raise MalformedCaptureKey()
+    return raw
+
+
+def key_prefix(raw: str) -> str:
+    return raw[:CAPTURE_KEY_DISPLAY_CHARS]
+
+
 def machine_identity(existing: dict | None) -> str:
     """The hashed machine id this client presents. Pinned by the credentials file once
     chosen, so a re-pair keeps the same device row on the server."""
@@ -140,12 +192,16 @@ class Client:
         sleep=time.sleep,
         clock=time.time,
         client_version: str = CLIENT_VERSION,
+        key: str | None = None,
     ):
         self.server = server.rstrip("/")
         self._open = opener or urllib.request.urlopen
         self._sleep = sleep
         self._clock = clock
         self.client_version = client_version
+        #: A capture key. When set, `_authenticated` sends it and never touches the
+        #: credentials file or `/v1/auth/refresh`.
+        self.key = key
 
     # -- raw ---------------------------------------------------------------------------
 
@@ -182,7 +238,18 @@ class Client:
         return parsed
 
     def _authenticated(self, method: str, path: str, body: dict | None) -> dict:
-        """Bearer from the credentials file; on 401 refresh ONCE, store, retry ONCE."""
+        """Bearer from the credentials file; on 401 refresh ONCE, store, retry ONCE.
+
+        With a capture key: bearer is the key, a 401 is final (`CaptureKeyRejected`), and
+        neither the credentials file nor the refresh route is consulted.
+        """
+        if self.key is not None:
+            status, parsed = self._request(method, path, body, self.key)
+            if status == 401:
+                raise CaptureKeyRejected(key_prefix(self.key))
+            if not 200 <= status < 300:
+                raise HTTPFailure(status, json.dumps(parsed))
+            return parsed
         creds = load_credentials()
         if creds is None:
             raise NotPaired()

@@ -19,6 +19,21 @@ _CODE_ALPHABET = "BCDFGHJKMNPQRSTVWXYZ23456789"
 APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 
+#: A capture key is `bck_` + 43 url-safe characters (`secrets.token_urlsafe(32)`, 256 bits).
+#: The prefix is how a bearer is told apart from a JWT without trying to decode it, and
+#: how a leaked string is recognisable in a scanner as ours.
+CAPTURE_KEY_PREFIX = "bck_"
+#: What the phone shows and the list returns: `bck_` plus four characters. Enough to tell
+#: two keys apart, 6 bits short of nothing towards guessing the rest.
+CAPTURE_KEY_DISPLAY_CHARS = 8
+#: Live (unrevoked) keys per user. One per cloud environment is the expected shape; ten
+#: is room for a dev box and a few experiments, not for automation that mints keys.
+MAX_LIVE_CAPTURE_KEYS = 10
+#: `last_used_at` is touched at most this often. `Stop` fires after every assistant turn,
+#: so a hook-driven container can present its key several times a minute; a write per
+#: request would turn the busiest table's cheapest read into a row lock per turn.
+CAPTURE_KEY_TOUCH_INTERVAL_SEC = 60
+
 
 @dataclass
 class CurrentDevice:
@@ -212,7 +227,136 @@ def register_device(
     return str(row.id)
 
 
+# ---------------------------------------------------------------------- capture keys
+
+
+def new_capture_key() -> str:
+    """`bck_` + 43 url-safe characters. Generated once, hashed for storage, returned once."""
+    return CAPTURE_KEY_PREFIX + secrets.token_urlsafe(32)
+
+
+def capture_key_prefix(raw: str) -> str:
+    return raw[:CAPTURE_KEY_DISPLAY_CHARS]
+
+
+def create_capture_key(db, user_id: str, name: str) -> dict:
+    """Mint a key and the device row it uploads as. The viewer must already be `user_id`.
+
+    The device row is what makes the rest of the system indifferent to how an upload was
+    authenticated: `sessions.device_id` is NOT NULL, the sync route stamps `last_seen_at`
+    on it, and `device_owner` resolves it. Its `machine_id` is derived from the key's id
+    rather than from anything a container knows, so two keys are always two devices and a
+    key re-created with the same name is a new one (a re-pair, by contrast, un-revokes).
+
+    The cap is enforced under a row lock on the user: two concurrent creates both count
+    nine live keys, and without the lock both insert. `users` has no RLS, and `FOR UPDATE`
+    needs only the UPDATE privilege 0003 grants on every table.
+    """
+    key_id = str(uuid.uuid4())
+    raw = new_capture_key()
+    db.execute(text("SELECT id FROM users WHERE id = :u FOR UPDATE"), {"u": user_id})
+    live = db.execute(
+        text("SELECT count(*) FROM capture_keys WHERE user_id = :u AND revoked_at IS NULL"),
+        {"u": user_id},
+    ).scalar()
+    if live >= MAX_LIVE_CAPTURE_KEYS:
+        raise HTTPException(
+            409, f"at most {MAX_LIVE_CAPTURE_KEYS} live capture keys; revoke one first"
+        )
+    device_id = register_device(
+        db,
+        user_id,
+        machine_id=sha256(f"builder-capture-key-v1|{key_id}"),
+        label=name,
+        platform="capture",
+        agent_version="capture-key",
+    )
+    row = db.execute(
+        text(
+            """
+            INSERT INTO capture_keys (id, user_id, device_id, name, key_hash, key_prefix)
+            VALUES (:id, :u, :d, :name, :h, :prefix)
+            RETURNING id, name, key_prefix, created_at
+            """
+        ),
+        {
+            "id": key_id,
+            "u": user_id,
+            "d": device_id,
+            "name": name,
+            "h": sha256(raw),
+            "prefix": capture_key_prefix(raw),
+        },
+    ).one()
+    return {
+        "id": str(row.id),
+        "name": row.name,
+        "key": raw,
+        "key_prefix": row.key_prefix,
+        "created_at": row.created_at,
+    }
+
+
+def _device_from_capture_key(raw: str) -> CurrentDevice:
+    """Resolve a `bck_` bearer to the device it uploads as.
+
+    Same two halves as `redeem_refresh_token`: the lookup runs viewer-less through the
+    SECURITY DEFINER `capture_key_lookup` (a plain SELECT on `capture_keys` here would see
+    nothing under the owner policy and 401 every valid key), then the viewer is set and
+    `devices` is read under the normal policy.
+
+    Unknown and revoked keys get the SAME 401. The hash lookup means there is nothing to
+    time, but a distinct message for "revoked" would confirm to whoever holds a leaked
+    string that it was once real.
+
+    `last_used_at` is written at most once per `CAPTURE_KEY_TOUCH_INTERVAL_SEC`, decided
+    in Python from the value the lookup already returned, so inside the window the request
+    costs one read and no write.
+    """
+    invalid = HTTPException(401, "invalid capture key")
+    with db_session() as db:
+        row = db.execute(text("SELECT * FROM capture_key_lookup(:h)"), {"h": sha256(raw)}).first()
+        if row is None or row.revoked_at is not None:
+            raise invalid
+        set_viewer(db, str(row.user_id))
+        dev = db.execute(
+            text("SELECT revoked_at FROM devices WHERE id = :d"), {"d": str(row.device_id)}
+        ).first()
+        if dev is None or dev.revoked_at is not None:
+            raise invalid
+        stale = row.last_used_at is None or (datetime.now(UTC) - row.last_used_at) > timedelta(
+            seconds=CAPTURE_KEY_TOUCH_INTERVAL_SEC
+        )
+        if stale:
+            db.execute(
+                text("UPDATE capture_keys SET last_used_at = now() WHERE id = :i"),
+                {"i": str(row.id)},
+            )
+    return CurrentDevice(user_id=row.user_id, device_id=row.device_id)
+
+
 # --------------------------------------------------------------------------- deps
+
+
+def current_uploader(request: Request) -> CurrentDevice:
+    """The sync routes' dependency: a device token OR a capture key.
+
+    This is the ONLY place a capture key is accepted. Every other route depends on
+    `current_device`, which refuses the prefix outright, so a leaked key can upload
+    sessions under its owner's account and do nothing else — not read them back, not post,
+    not mint another key.
+    """
+    token = _bearer(request)
+    if token.startswith(CAPTURE_KEY_PREFIX):
+        return _device_from_capture_key(token)
+    return _device_from_bearer(token)
+
+
+def _bearer(request: Request) -> str:
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        raise HTTPException(401, "missing bearer token")
+    return header[7:]
 
 
 def current_device(request: Request) -> CurrentDevice:
@@ -245,7 +389,13 @@ def _device_from_bearer(token: str) -> CurrentDevice:
     revoked device keeps working for up to `access_token_ttl_seconds` after revocation —
     and "revoke" in the settings screen would be a fifteen-minute suggestion. Tokens are
     short-lived precisely so this check can stay a query rather than a claim.
+
+    A capture key is refused here BY PREFIX, before any decoding: it would fail the JWT
+    check anyway, but the explicit 401 says why, and it makes the scope rule a line of
+    code rather than a property of the token format.
     """
+    if token.startswith(CAPTURE_KEY_PREFIX):
+        raise HTTPException(401, "capture keys are accepted by the sync routes only")
     claims = verify_access_token(token)
     try:
         device = CurrentDevice(user_id=uuid.UUID(claims["sub"]), device_id=uuid.UUID(claims["did"]))
@@ -539,11 +689,17 @@ def upsert_user_from_apple(db, apple_sub: str, email_relay: str | None) -> str:
 
 __all__ = [
     "APPLE_JWKS_URL",
+    "CAPTURE_KEY_PREFIX",
     "GOOGLE_JWKS_URL",
+    "MAX_LIVE_CAPTURE_KEYS",
     "CurrentDevice",
     "ProviderIdentity",
+    "capture_key_prefix",
+    "create_capture_key",
     "current_device",
+    "current_uploader",
     "current_user_id",
+    "new_capture_key",
     "issue_access_token",
     "issue_refresh_token",
     "new_user_code",

@@ -73,6 +73,9 @@ def assert_policies_present() -> None:
         # 0008. Owner-only: a record that a session's completion was announced. Without
         # RLS one viewer could read when another's sessions finished.
         "session_notifications",
+        # 0011. A key's hash is not a secret once it is a row another viewer can read and
+        # offline-match; owner-only like devices.
+        "capture_keys",
     }
     with engine().connect() as conn:
         rows = conn.execute(

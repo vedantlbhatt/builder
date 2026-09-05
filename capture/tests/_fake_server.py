@@ -2,8 +2,9 @@
 
 It implements exactly the behaviour the client depends on and nothing else: bearer
 checking, refresh-token ROTATION with reuse detection (a spent token presented again
-revokes the device), the device-grant start/poll pair, `/v1/sync/known` and the batch
-upload. Every request is recorded so a test can assert what was — and was not — sent.
+revokes the device), capture keys (`bck_…`, sync routes only, revoked == unknown == 401),
+the device-grant start/poll pair, `/v1/sync/known` and the batch upload. Every request is
+recorded so a test can assert what was — and was not — sent.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ class FakeBuilder:
         self.known: dict[str, str] = {}
         self.uploads: list[list[dict]] = []
         self.pending_polls = 0  # authorization_pending answers before "ok"
+        self.valid_keys: set[str] = set()  # capture keys the server accepts on sync routes
         self.counter = 0
         self.lock = threading.Lock()
         server = self
@@ -135,8 +137,13 @@ class FakeBuilder:
                 "expires_in": 900,
             }
 
-        # everything below needs a bearer
-        if token not in self.valid_access:
+        # everything below needs a bearer: a device token, or on the sync routes a key
+        if token is not None and token.startswith("bck_"):
+            if not path.startswith("/v1/sync/"):
+                return 401, {"detail": "capture keys are accepted by the sync routes only"}
+            if token not in self.valid_keys:
+                return 401, {"detail": "invalid capture key"}
+        elif token not in self.valid_access:
             return 401, {"detail": "invalid token"}
         if path == "/v1/sync/known" and method == "GET":
             return 200, {"known": dict(self.known)}

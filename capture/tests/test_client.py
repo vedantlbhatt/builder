@@ -3,8 +3,9 @@
 Refresh-on-401 against a real HTTP server in a thread, including the rotation: every
 refresh returns a NEW refresh token, the old one is spent, and presenting a spent token
 again revokes the device. The client must therefore store the rotated pair BEFORE it
-retries, and must never present a token twice. The pairing flow and chunked upload are
-exercised the same way.
+retries, and must never present a token twice. The pairing flow, the capture-key path
+(bearer is the key, no refresh, a 401 is final) and chunked upload are exercised the same
+way.
 """
 
 from __future__ import annotations
@@ -182,6 +183,76 @@ class Pairing(_Base):
         pending = {"device_code": "DEVCODE", "machine_id": "m" * 64, "label": "x"}
         with self.assertRaises(cl.PairingTimedOut):
             client.await_pairing(pending, interval=5, timeout=30)
+
+
+class CaptureKeyAuth(_Base):
+    """`BUILDER_CAPTURE_KEY` / `--key`: the bearer is the key, there is no credentials file
+    to read, no refresh to attempt, and a 401 is final."""
+
+    KEY = "bck_" + "k" * 43
+
+    def tearDown(self):
+        os.environ.pop("BUILDER_CAPTURE_KEY", None)
+        super().tearDown()
+
+    def test_sends_the_key_as_bearer_and_never_refreshes(self):
+        self.server.valid_keys.add(self.KEY)
+        client = cl.Client(self.url, key=self.KEY)
+        self.assertFalse(self.creds_path.exists(), "no pairing, no credentials file")
+
+        self.assertEqual(client.known_hashes(), {})
+        r = client.upload([{"client_session_id": "s1", "content_hash": "h1"}])
+        self.assertEqual((r["accepted"], r["unchanged"]), (1, 0))
+
+        paths = [p for _, p, _, _ in self.server.requests]
+        self.assertEqual(paths, ["/v1/sync/known", "/v1/sync/sessions:batch"])
+        self.assertEqual({t for _, _, _, t in self.server.requests}, {self.KEY})
+        self.assertEqual(self._refresh_calls(), [])
+        self.assertFalse(self.creds_path.exists(), "a key is never written to disk")
+
+    def test_revoked_key_is_final_one_request_no_refresh(self):
+        """The key is not in the server's live set: exactly one request, a
+        CaptureKeyRejected naming the prefix, and the refresh route is never touched —
+        a revoked key cannot be refreshed back into existence."""
+        client = cl.Client(self.url, key=self.KEY)
+        with self.assertRaises(cl.CaptureKeyRejected) as ctx:
+            client.known_hashes()
+        self.assertEqual(ctx.exception.prefix, "bck_kkkk")
+        self.assertIn("bck_kkkk", str(ctx.exception))
+        self.assertNotIn(self.KEY, str(ctx.exception), "the message must not print the key")
+        self.assertEqual([p for _, p, _, _ in self.server.requests], ["/v1/sync/known"])
+        self.assertEqual(self._refresh_calls(), [])
+
+    def test_key_takes_precedence_over_stale_credentials_on_disk(self):
+        """A container that was once paired and now has a key must not fall back to the
+        dead refresh token when the key path is chosen: the credentials file is not read."""
+        self._write_creds("stale", "R-dead")
+        self.server.valid_keys.add(self.KEY)
+        client = cl.Client(self.url, key=self.KEY)
+        self.assertEqual(client.known_hashes(), {})
+        self.assertEqual({t for _, _, _, t in self.server.requests}, {self.KEY})
+        self.assertEqual(self._refresh_calls(), [])
+        self.assertEqual(self._creds()["refresh_token"], "R-dead", "untouched")
+
+    def test_env_and_flag_resolution(self):
+        self.assertIsNone(cl.capture_key())
+        os.environ["BUILDER_CAPTURE_KEY"] = f"  {self.KEY}\n"
+        self.assertEqual(cl.capture_key(), self.KEY, "pasted whitespace is stripped")
+        self.assertEqual(cl.capture_key("bck_" + "f" * 43), "bck_" + "f" * 43, "--key wins")
+        os.environ["BUILDER_CAPTURE_KEY"] = "R-a-refresh-token"
+        with self.assertRaises(cl.MalformedCaptureKey):
+            cl.capture_key()
+        os.environ["BUILDER_CAPTURE_KEY"] = "   "
+        self.assertIsNone(cl.capture_key(), "blank is unset, not malformed")
+
+    def test_paired_path_is_unchanged_when_no_key_is_set(self):
+        """The control for this class: without a key the client still reads the file and
+        still refreshes on 401, exactly as RefreshOn401 proves in detail."""
+        access, refresh = self.server.seed()
+        self._write_creds(access, refresh)
+        self.server.expire_access()
+        self.assertEqual(cl.Client(self.url).known_hashes(), {})
+        self.assertEqual(len(self._refresh_calls()), 1)
 
 
 class Upload(_Base):

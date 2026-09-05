@@ -80,7 +80,9 @@ def write_live_transcript(path: pathlib.Path, now: float, seconds: int = 400) ->
     path.write_text("".join(json.dumps(r, separators=(",", ":")) + "\n" for r in recs))
 
 
-class DryRun(unittest.TestCase):
+class _Harness(unittest.TestCase):
+    """Two transcripts under a temporary root, a fake server, and paired credentials."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         base = pathlib.Path(self.tmp.name)
@@ -112,6 +114,7 @@ class DryRun(unittest.TestCase):
         self.tmp.cleanup()
         os.environ.pop("BUILDER_CREDENTIALS", None)
         os.environ.pop("BUILDER_TZ", None)
+        os.environ.pop("BUILDER_CAPTURE_KEY", None)
 
     def _run(self, *args) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -119,6 +122,8 @@ class DryRun(unittest.TestCase):
             rc = cli.main(["sync", "--root", str(self.root), "--server", self.url, *args])
         return rc, out.getvalue(), err.getvalue()
 
+
+class DryRun(_Harness):
     def test_dry_run_prints_the_payloads_and_sends_nothing(self):
         rc, out, err = self._run("--dry-run", "--live")
         self.assertEqual(rc, 0)
@@ -161,6 +166,66 @@ class DryRun(unittest.TestCase):
         self.assertEqual([p["state"] for p in self.server.uploads[1]], ["final", "final"])
         state = json.loads(cl.state_path().read_text())
         self.assertEqual(len(state["live"]), 1)
+
+
+class CaptureKeySync(_Harness):
+    """`sync` with a capture key: no credentials file, no pairing prompt, the summary says
+    which key, and a revoked key is one line on stderr and exit 5 — never a retry."""
+
+    KEY = "bck_" + "q" * 43
+
+    def setUp(self):
+        super().setUp()
+        self.creds.unlink()  # this container was never paired
+
+    def test_key_uploads_without_pairing_and_names_itself(self):
+        self.server.valid_keys.add(self.KEY)
+        os.environ["BUILDER_CAPTURE_KEY"] = self.KEY
+        rc, out, err = self._run("--live")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(len(self.server.uploads), 1)
+        self.assertIn("auth: capture key bck_qqqq… (no pairing needed)", out)
+        self.assertNotIn(self.KEY, out + err, "the summary names the prefix, never the key")
+        self.assertNotIn("Not paired", out + err)
+        self.assertFalse(self.creds.exists(), "a key never creates a credentials file")
+        tokens = {t for _, _, _, t in self.server.requests}
+        self.assertEqual(tokens, {self.KEY})
+        self.assertNotIn("/v1/auth/refresh", [p for _, p, _, _ in self.server.requests])
+
+    def test_flag_beats_env(self):
+        flag_key = "bck_" + "z" * 43
+        self.server.valid_keys.add(flag_key)
+        os.environ["BUILDER_CAPTURE_KEY"] = self.KEY  # not valid on the server
+        rc, out, err = self._run("--live", "--key", flag_key)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual({t for _, _, _, t in self.server.requests}, {flag_key})
+
+    def test_revoked_key_is_one_line_exit_5_no_retry(self):
+        os.environ["BUILDER_CAPTURE_KEY"] = self.KEY  # never added to valid_keys: revoked
+        rc, out, err = self._run("--live")
+        self.assertEqual(rc, 5)
+        lines = [line for line in err.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1, err)
+        self.assertIn("bck_qqqq", lines[0])
+        self.assertIn("rejected", lines[0])
+        self.assertNotIn(self.KEY, err)
+        # /known 401s first; nothing is retried and no upload is attempted after it.
+        self.assertEqual([p for _, p, _, _ in self.server.requests], ["/v1/sync/known"])
+        self.assertEqual(self.server.uploads, [])
+
+    def test_malformed_key_fails_before_any_request(self):
+        os.environ["BUILDER_CAPTURE_KEY"] = "R-this-is-a-refresh-token"
+        rc, out, err = self._run("--live")
+        self.assertEqual(rc, 5)
+        self.assertIn("does not look like a capture key", err)
+        self.assertEqual(self.server.requests, [])
+
+    def test_dry_run_with_a_key_still_sends_nothing(self):
+        os.environ["BUILDER_CAPTURE_KEY"] = self.KEY
+        rc, out, err = self._run("--dry-run", "--live")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.server.requests, [])
+        self.assertIn("auth: capture key bck_qqqq…", err)
 
 
 if __name__ == "__main__":

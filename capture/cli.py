@@ -54,6 +54,8 @@ def cmd_pair(a: argparse.Namespace) -> int:
     if a.resume:
         return _resume_pending(c, quiet=False)
 
+    if cl.capture_key() is not None:
+        print("\n  BUILDER_CAPTURE_KEY is set: `sync` uses it and needs no pairing. Pairing anyway.")
     existing = cl.read_json(cl.credentials_path())
     if existing and existing.get("refresh_token"):
         print("\n  Already paired. Pairing again replaces the stored tokens.")
@@ -210,6 +212,8 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
 
 
 def cmd_sync(a: argparse.Namespace) -> int:
+    # Resolved first so a malformed key fails before any transcript is read.
+    key = cl.capture_key(a.key)
     now = time.time()
     payloads, info = build_payloads(a, now)
     state = info.pop("state")
@@ -221,6 +225,7 @@ def cmd_sync(a: argparse.Namespace) -> int:
         + (f", {info['not_visible']} below the visibility floor" if info["not_visible"] else "")
         + (f", {info['excluded']} excluded" if info["excluded"] else "")
         + (f", {info['with_analysis']} with an analysis" if info["with_analysis"] else "")
+        + (f"; auth: capture key {cl.key_prefix(key)}… (no pairing needed)" if key else "")
     )
 
     if a.dry_run:
@@ -235,8 +240,8 @@ def cmd_sync(a: argparse.Namespace) -> int:
         )
         return 0
 
-    c = cl.Client(_server(a.server))
-    if cl.load_credentials() is None:
+    c = cl.Client(_server(a.server), key=key)
+    if key is None and cl.load_credentials() is None:
         rc = _resume_pending(c, quiet=a.quiet)
         if rc != 0:
             if not a.quiet:
@@ -322,6 +327,11 @@ def make_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("sync", help="sessionize the transcript store and upload")
     s.add_argument("--root", default=DEFAULT_ROOT, help=f"transcript root (default {DEFAULT_ROOT})")
     s.add_argument("--server", help="API base URL (or BUILDER_API_URL)")
+    s.add_argument(
+        "--key",
+        help="capture key from Builder → Settings → Cloud capture (or BUILDER_CAPTURE_KEY); "
+        "replaces pairing",
+    )
     s.add_argument("--tz", help="IANA zone for the 04:00 day rule (or BUILDER_TZ / TZ)")
     s.add_argument("--dry-run", action="store_true", help="print the payloads; send nothing")
     s.add_argument("--live", action="store_true", help="also upload the open session as state=live")
@@ -348,6 +358,11 @@ def main(argv: list[str] | None = None) -> int:
     except cl.HTTPFailure as e:
         print(str(e), file=sys.stderr)
         return 4
+    except (cl.CaptureKeyRejected, cl.MalformedCaptureKey) as e:
+        # One line, no retry: a hook that loops on a revoked key would fill the log with
+        # the same sentence every turn and never get anywhere.
+        print(str(e), file=sys.stderr)
+        return 5
     except KeyboardInterrupt:
         return 130
 

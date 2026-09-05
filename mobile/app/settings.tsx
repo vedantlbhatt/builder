@@ -2,11 +2,24 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
+import * as ReactNative from 'react-native';
 import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 
 import { isGoogleConfigured, onGoogleSignIn, startGoogleSignIn } from '../src/auth/googleFlow';
-import { ApiError, type Me } from '../src/data/api';
+import { ApiError, type CaptureKey, type CaptureKeyCreated, type Me } from '../src/data/api';
 import * as cache from '../src/data/cache';
+import {
+  appendKey,
+  atKeyCap,
+  CAPTURE_KEY_DEFAULT_NAME,
+  CAPTURE_KEY_MAX_LIVE,
+  CAPTURE_KEY_NAME_MAX,
+  CAPTURE_KEY_PASTE_HINT,
+  captureKeyNameProblem,
+  keyLabel,
+  lastUsedLabel,
+  withoutKey,
+} from '../src/data/captureKeys';
 import { api } from '../src/data/client';
 import { getMachineId } from '../src/data/machine';
 import { PixelSprite } from '../src/pixel/PixelSprite';
@@ -240,6 +253,10 @@ export default function SettingsScreen() {
             <Button label="Pair" onPress={pair} disabled={pairCode.trim().length < 8} />
           </Section>
 
+          <Section title="Cloud capture">
+            <CaptureKeysPanel />
+          </Section>
+
           <Section title="Profile">
             {me ? (
               <ProfileFields me={me} onChange={setMe} />
@@ -271,6 +288,266 @@ export default function SettingsScreen() {
         <Text style={{ color: c.accent, fontSize: 13, marginTop: space.lg }}>{status}</Text>
       )}
     </ScrollView>
+  );
+}
+
+/**
+ * Capture keys: the credential a Claude Code cloud container uploads with, because the
+ * pairing flow's rotating refresh token cannot be shared between containers
+ * (docs/cloud-capture.md). The list shows name, prefix and last use; "New key" shows the
+ * plaintext ONCE, with a copy button, and forgets it when dismissed — the server keeps a
+ * hash, so there is no second look. Revoke asks first: the container holding that key
+ * gets a 401 from its next upload on.
+ */
+function CaptureKeysPanel() {
+  const [keys, setKeys] = useState<CaptureKey[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [minting, setMinting] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
+  const [created, setCreated] = useState<CaptureKeyCreated | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .captureKeys()
+      .then((r) => {
+        if (!cancelled) setKeys(r.keys);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : 'could not load your keys');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const mint = useCallback(async () => {
+    if (minting) return;
+    const chosen = name.trim() || CAPTURE_KEY_DEFAULT_NAME;
+    if (captureKeyNameProblem(chosen)) return;
+    setMinting(true);
+    setMintError(null);
+    try {
+      const made = await api.createCaptureKey(chosen);
+      setCreated(made);
+      setCopied(false);
+      setName('');
+      setKeys((prev) => appendKey(prev ?? [], { ...made, last_used_at: null }));
+    } catch (e) {
+      setMintError(
+        e instanceof ApiError && e.status === 409
+          ? `You already have ${CAPTURE_KEY_MAX_LIVE} keys. Revoke one first.`
+          : e instanceof Error
+            ? e.message
+            : 'could not create a key'
+      );
+    } finally {
+      setMinting(false);
+    }
+  }, [minting, name]);
+
+  const copy = useCallback(() => {
+    if (!created) return;
+    // React Native's Clipboard is deprecated in favour of expo-clipboard, which is not a
+    // dependency yet; accessed through the namespace so the deprecation notice fires on
+    // the tap, not at app start. The key is also `selectable` below for long-press copy.
+    ReactNative.Clipboard.setString(created.key);
+    setCopied(true);
+  }, [created]);
+
+  const revoke = useCallback((k: CaptureKey) => {
+    Alert.alert(
+      `Revoke ${k.name}?`,
+      `${keyLabel(k.key_prefix)} stops working immediately. Anything still using it will fail to upload until you mint a new key and paste it there.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Revoke',
+          style: 'destructive',
+          onPress: async () => {
+            setRevoking(k.id);
+            try {
+              await api.revokeCaptureKey(k.id);
+              setKeys((prev) => withoutKey(prev ?? [], k.id));
+              setCreated((cur) => (cur && cur.id === k.id ? null : cur));
+            } catch (e) {
+              Alert.alert('Could not revoke', e instanceof Error ? e.message : 'try again');
+            } finally {
+              setRevoking(null);
+            }
+          },
+        },
+      ]
+    );
+  }, []);
+
+  const nameProblem = name.trim() ? captureKeyNameProblem(name) : null;
+  const capped = keys !== null && atKeyCap(keys);
+  const canMint = !minting && keys !== null && !capped && nameProblem === null;
+
+  return (
+    <>
+      <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 19, marginBottom: space.sm }}>
+        Sessions from claude.ai/code run in a cloud container the Mac agent never sees. A
+        capture key lets that container upload them — and do nothing else.
+      </Text>
+
+      {created && (
+        <View
+          style={{
+            backgroundColor: c.bg,
+            borderRadius: 10,
+            padding: space.md,
+            marginBottom: space.md,
+            borderWidth: 1,
+            borderColor: c.accent,
+          }}
+        >
+          <Text style={{ color: c.text, fontSize: 13, fontWeight: '700' }}>
+            {created.name} — copy it now
+          </Text>
+          <Text style={{ color: c.textDim, fontSize: 11, marginTop: space.xs, lineHeight: 16 }}>
+            This is the only time the key is shown. {CAPTURE_KEY_PASTE_HINT}
+          </Text>
+          <Text
+            selectable
+            accessibilityLabel="Capture key"
+            style={{
+              color: c.text,
+              fontSize: 13,
+              fontFamily: 'Menlo',
+              marginTop: space.sm,
+              padding: space.sm,
+              backgroundColor: c.card,
+              borderRadius: 8,
+            }}
+          >
+            {created.key}
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: space.md, marginTop: space.xs }}>
+            <Pressable
+              onPress={() => setCreated(null)}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                { minHeight: TAP_TARGET, minWidth: TAP_TARGET, justifyContent: 'center', paddingHorizontal: space.sm },
+                pressed && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={{ color: c.textDim, fontSize: 14, fontWeight: '600' }}>Done</Text>
+            </Pressable>
+            <Pressable
+              onPress={copy}
+              accessibilityRole="button"
+              accessibilityLabel="Copy capture key"
+              style={({ pressed }) => [
+                {
+                  minHeight: TAP_TARGET,
+                  minWidth: TAP_TARGET,
+                  justifyContent: 'center',
+                  paddingHorizontal: space.md,
+                  borderRadius: 10,
+                  backgroundColor: c.accent,
+                },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={{ color: c.onAccent, fontSize: 14, fontWeight: '700' }}>{copied ? 'Copied' : 'Copy'}</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {keys === null ? (
+        <Text style={{ color: c.textDim, fontSize: 13 }}>{loadError ?? 'Loading your keys…'}</Text>
+      ) : keys.length === 0 ? (
+        <Text style={{ color: c.textDim, fontSize: 13 }}>No keys yet.</Text>
+      ) : (
+        keys.map((k) => (
+          <View
+            key={k.id}
+            style={{ flexDirection: 'row', alignItems: 'center', minHeight: TAP_TARGET, gap: space.sm }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.text, fontSize: 15 }} numberOfLines={1}>
+                {k.name}
+              </Text>
+              <Text style={{ color: c.textDim, fontSize: 11, fontVariant: ['tabular-nums'] }}>
+                {keyLabel(k.key_prefix)} · {lastUsedLabel(k.last_used_at)}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => revoke(k)}
+              disabled={revoking === k.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Revoke ${k.name}`}
+              style={({ pressed }) => [
+                { minHeight: TAP_TARGET, minWidth: TAP_TARGET, justifyContent: 'center', alignItems: 'flex-end' },
+                (pressed || revoking === k.id) && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={{ color: c.danger, fontSize: 14, fontWeight: '600' }}>
+                {revoking === k.id ? 'Revoking…' : 'Revoke'}
+              </Text>
+            </Pressable>
+          </View>
+        ))
+      )}
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: space.md }}>
+        <TextInput
+          value={name}
+          onChangeText={(t) => {
+            setMintError(null);
+            setName(t.slice(0, CAPTURE_KEY_NAME_MAX + 8));
+          }}
+          placeholder={CAPTURE_KEY_DEFAULT_NAME}
+          placeholderTextColor={c.textDim}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!minting}
+          onSubmitEditing={() => void mint()}
+          returnKeyType="done"
+          accessibilityLabel="New key name"
+          style={{
+            flex: 1,
+            color: c.text,
+            backgroundColor: c.bg,
+            borderRadius: 8,
+            paddingHorizontal: space.md,
+            minHeight: TAP_TARGET,
+            fontSize: 15,
+          }}
+        />
+        <Pressable
+          onPress={() => void mint()}
+          disabled={!canMint}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            {
+              minHeight: TAP_TARGET,
+              justifyContent: 'center',
+              paddingHorizontal: space.md,
+              borderRadius: 10,
+              backgroundColor: c.accent,
+              opacity: canMint ? 1 : 0.4,
+            },
+            pressed && canMint && { opacity: 0.7 },
+          ]}
+        >
+          <Text style={{ color: c.onAccent, fontSize: 14, fontWeight: '700' }}>{minting ? 'Minting…' : 'New key'}</Text>
+        </Pressable>
+      </View>
+      <Text style={{ color: mintError || nameProblem ? c.danger : c.textDim, fontSize: 11, marginTop: space.xs }}>
+        {mintError ??
+          nameProblem ??
+          (capped
+            ? `Up to ${CAPTURE_KEY_MAX_LIVE} keys; revoke one to make room.`
+            : 'Name it after where it lives. One key per cloud environment is plenty.')}
+      </Text>
+    </>
   );
 }
 

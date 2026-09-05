@@ -336,6 +336,31 @@ export interface MePatch {
   profile_public?: boolean;
 }
 
+// ------------------------------------------------------------ capture keys
+// Read shapes mirror `server/builder/routes/capture_keys.py`. A key is the non-rotating
+// credential a cloud container uploads with (docs/cloud-capture.md); it can reach the two
+// sync routes and nothing else, so nothing here ever needs to read one back.
+
+/** One row of `GET /v1/capture-keys`: no secret, only the prefix the phone shows. */
+export interface CaptureKey {
+  id: string;
+  name: string;
+  /** `bck_` plus four characters — enough to tell keys apart, never enough to use one. */
+  key_prefix: string;
+  created_at: string;
+  /** Null until the key's first upload; touched at most once a minute after that. */
+  last_used_at: string | null;
+}
+
+/**
+ * The answer to `POST /v1/capture-keys`. `key` is the plaintext and this response is the
+ * ONLY time it exists outside the caller's hands: the server stores a hash. Show it once,
+ * offer to copy it, and never keep it in state longer than the screen that shows it.
+ */
+export interface CaptureKeyCreated extends Omit<CaptureKey, 'last_used_at'> {
+  key: string;
+}
+
 export interface FactionBoardMember extends Author {
   role: 'admin' | 'member';
   share_hours: boolean;
@@ -666,6 +691,26 @@ export class Api {
    */
   patchMe(body: MePatch): Promise<Me> {
     return this.request('PATCH', '/v1/users/me', { body });
+  }
+
+  // ------------------------------------------------------------ capture keys
+
+  /** Live keys, oldest first. Revoked keys are gone from this list. */
+  captureKeys(): Promise<{ keys: CaptureKey[] }> {
+    return this.request('GET', '/v1/capture-keys');
+  }
+
+  /**
+   * Mint a key. 409 when ten live keys already exist (the server's cap); 422 for a blank
+   * or over-long name. The plaintext in the answer is shown once and never requested again.
+   */
+  createCaptureKey(name: string): Promise<CaptureKeyCreated> {
+    return this.request('POST', '/v1/capture-keys', { body: { name } });
+  }
+
+  /** Revoke. The container holding it gets a 401 from its next upload on. 404 if not yours. */
+  revokeCaptureKey(id: string): Promise<void> {
+    return this.request('DELETE', `/v1/capture-keys/${encodeURIComponent(id)}`);
   }
 
   /** Every faction the viewer belongs to, with their role in each. Oldest membership first. */

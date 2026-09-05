@@ -8,12 +8,13 @@ reaches a machine the agent runs on. `docs/integrations.md` has carried that row
 
 `capture/` closes it from the other side. It is a Python package that runs where the
 transcript is — the container, or any dev box — and speaks to the server exactly as the
-Mac does: the same device-pairing flow, the same contract v2 payload, the same endpoints.
-Standard library only, Python 3.11+, because a fresh container has nothing installed.
+Mac does: the same contract v2 payload, the same endpoints, and either a capture key or
+the same device-pairing flow. Standard library only, Python 3.11+, because a fresh
+container has nothing installed.
 
 ```
-python -m capture pair --server https://api.builder.example      # once per device
-python -m capture sync --live                                     # from a hook, or by hand
+BUILDER_CAPTURE_KEY=bck_… python -m capture sync --live           # a cloud container: no pairing
+python -m capture pair --server https://api.builder.example      # a machine you keep: once per device
 python -m capture sync --dry-run                                  # print what would be sent; send nothing
 ```
 
@@ -86,7 +87,39 @@ The last session in a pool is `still_running`. Capture follows the Mac:
   the container will not be there in fifteen minutes to see the gap, and a live row that
   is never finalized would say "Live" on the phone forever.
 
-## Pairing and credentials
+## Credentials: a capture key, or pairing
+
+There are two ways for capture to prove whose sessions it is uploading. They differ in
+exactly one property — whether the credential rotates — and that property decides which
+one a cloud container can use.
+
+### A capture key
+
+A capture key is a `bck_…` string minted on the phone (Settings → Cloud capture → New
+key). The server stores its sha256 and returns the plaintext once; the phone shows it
+once. Set it as `BUILDER_CAPTURE_KEY` (or pass `--key`) and `sync` sends it as the bearer
+on every request, reads no credentials file, and never calls `/v1/auth/refresh`. Because it
+does not rotate, any number of containers may hold the same one — which is the whole point,
+and the reason it exists (`server/alembic/versions/0011_capture_keys.py`).
+
+The server accepts a key on `POST /v1/sync/sessions:batch` and `GET /v1/sync/known` and on
+NOTHING else — not the session list, not the profile, not the feed, not the key routes
+themselves (`server/tests/test_capture_keys.py` presents a live key to every other route
+family and checks the 401 against a device token that gets through). Unknown and revoked
+keys receive the same 401. The phone's list shows each key's name, prefix and when it last
+uploaded (touched at most once a minute); Revoke sets `revoked_at` and revokes the device
+row the key uploads as. A user may hold ten live keys; one per cloud environment is the
+expected number.
+
+**Threat model, in three sentences.** A leaked key lets its holder upload sessions into
+your account and read back the content hashes it already knows — it cannot read a session,
+a profile or a post, cannot mint or revoke keys, and cannot pair a device, so the worst
+outcome is fabricated rows under your name. You revoke it in Settings → Cloud capture, and
+the next request from anything holding it is a 401 (capture prints one line naming the
+key's prefix and exits 5, and never retries). Nothing about a key's use rotates or extends
+it, so a copy that sat unused for a year is exactly as dead as the one you revoked.
+
+### Pairing
 
 `pair` runs the RFC 8628 device flow against `/v1/auth/device/start` and `/device/poll`
 with the same body the Mac sends. It prints the user code, the verification URL and the
@@ -96,9 +129,9 @@ server, `machine_id`, label, access token, refresh token.
 
 `machine_id` is `sha256("builder-machine-v1|" + raw)` where `raw` is `BUILDER_MACHINE_ID`
 if set, else `/etc/machine-id`, else a random UUID pinned by the credentials file. Set
-`BUILDER_MACHINE_ID` in a cloud environment so every container is one device on the server
-(`devices` is unique on `(user, machine_id)`; re-pairing an existing id un-revokes the row
-instead of adding one).
+`BUILDER_MACHINE_ID` on a box you re-pair so it stays one device on the server (`devices`
+is unique on `(user, machine_id)`; re-pairing an existing id un-revokes the row instead of
+adding one).
 
 **Refresh tokens rotate, and a spent one presented again revokes the device.** Access
 tokens live fifteen minutes; on the first 401 capture refreshes once, writes the rotated
@@ -108,9 +141,13 @@ for the cloud is not optional: a static copy of `credentials.json` handed to sev
 containers works exactly once — the second container presents a token the first already
 spent, the server treats that as a leak and revokes the whole chain, and the user is back
 to pairing. `BUILDER_CREDENTIALS_JSON` (the file's contents inline) exists for a single
-long-lived box whose disk is not persistent, not for a fleet. Until the server grows a
-non-rotating headless credential, a fresh container pairs itself — see the recipe below,
-which makes that one tap per remote session.
+long-lived box whose disk is not persistent, not for a fleet. For a fleet, use a key.
+Pairing remains the right credential for a machine you keep: it can be revoked per device
+and its tokens expire on their own.
+
+When both are present, the key wins and the credentials file is not read; `sync`'s summary
+line ends with `auth: capture key bck_xxxx… (no pairing needed)` so a hook log says which
+path ran.
 
 ## Hook recipes
 
@@ -146,15 +183,24 @@ hook's stderr.
 
 ### A Claude Code cloud container
 
-Everything below goes in the repository's own `.claude/settings.json`, because that is the
-only configuration a cloud container inherits. Three hooks:
+Two things: a key in the environment, and hooks in the repository.
+
+**In the cloud environment's settings** (claude.ai/code → the environment → variables),
+four plain variables: `BUILDER_CAPTURE_KEY` (from Settings → Cloud capture; name the key
+after the environment), `BUILDER_API_URL`, `BUILDER_TZ`, and — optional, cosmetic —
+`BUILDER_MACHINE_ID`, any stable string, so the `machine_id` field in the payload does not
+change with the container. Variables set there are secrets to the extent the platform
+makes them so; a key that leaks is revoked in the same screen that minted it.
+
+**In the repository's own `.claude/settings.json`**, because that is the only
+configuration a cloud container inherits, three hooks:
 
 ```json
 {
   "hooks": {
     "SessionStart": [
       { "hooks": [ { "type": "command", "timeout": 120,
-          "command": "test -d ~/.builder/src || git clone --depth 1 https://github.com/vedantlbhatt/builder ~/.builder/src; cd ~/.builder/src && python3 -m capture sync --dry-run --quiet >/dev/null 2>&1; test -s ~/.builder/credentials.json || python3 -m capture pair --server \"$BUILDER_API_URL\" --no-wait" } ] }
+          "command": "test -d ~/.builder/src || git clone --depth 1 https://github.com/vedantlbhatt/builder ~/.builder/src" } ] }
     ],
     "Stop": [
       { "hooks": [ { "type": "command", "timeout": 60,
@@ -168,28 +214,40 @@ only configuration a cloud container inherits. Three hooks:
 }
 ```
 
-and, in the cloud environment's settings, three plain variables:
-`BUILDER_API_URL`, `BUILDER_TZ`, and `BUILDER_MACHINE_ID` (any stable string; it is hashed).
-
 How a session then lands on the phone:
 
-1. `SessionStart` clones the builder checkout (capture imports the reference
-   implementations from it) and, when the container is not paired, starts the device flow
-   with `--no-wait`. That prints the code and the `builder://pair?code=…` link into the
-   hook's output, which Claude Code adds to the assistant's context — so the first thing
-   the assistant can tell you is "approve BCDF-GHJK in Builder to have this session on your
-   phone". One tap. The grant lives fifteen minutes; the pending device code is kept in
-   `~/.builder/pending-pair.json`.
-2. `Stop` runs `sync --live`. If the container is not yet paired it first polls the pending
-   grant once; approved, it stores the tokens and continues. From then on every turn
-   uploads a live snapshot, rate-limited to one per 60 s per session.
+1. `SessionStart` clones the builder checkout — capture imports the reference
+   implementations from it. Nothing else: there is no code to approve and nothing to
+   wait for.
+2. `Stop` runs `sync --live` with the key. Every turn uploads a live snapshot,
+   rate-limited to one per 60 s per session, so the phone shows a live row while the
+   container works.
 3. `SessionEnd` runs `sync --finalize`: the open session becomes `final` /
    `idle_gap` with the gap so far credited, and the phone's live row is replaced.
 
-Sessions that end before you approve the code are not lost: the transcript is still in
-the container, and the next `Stop` or `SessionEnd` that runs paired uploads everything the
-root allowlist finds. Sessions in a container that is destroyed before any pairing are —
-that is the gap that remains, and it is now a one-tap gap rather than a structural one.
+A revoked key does not break the session: the hook prints one line to its stderr
+(`capture key bck_xxxx… was rejected …`) and exits 5, and Claude Code carries on. Paste a
+new key into the environment and the next `Stop` uploads everything the root allowlist
+finds, including the turns that ran while the old key was dead.
+
+#### The alternative: pairing each container
+
+Without a key, a fresh container can still pair itself, at the cost of one tap per
+container. Replace the `SessionStart` command with
+
+```
+test -d ~/.builder/src || git clone --depth 1 https://github.com/vedantlbhatt/builder ~/.builder/src; cd ~/.builder/src && python3 -m capture sync --dry-run --quiet >/dev/null 2>&1; test -s ~/.builder/credentials.json || python3 -m capture pair --server "$BUILDER_API_URL" --no-wait
+```
+
+and set `BUILDER_MACHINE_ID` in the environment so every container is one device on the
+server. `pair --no-wait` prints the code and the `builder://pair?code=…` link into the
+hook's output, which Claude Code adds to the assistant's context — so the first thing the
+assistant can tell you is "approve BCDF-GHJK in Builder to have this session on your
+phone". The grant lives fifteen minutes; the pending device code is kept in
+`~/.builder/pending-pair.json`, and the next `Stop` polls it once, stores the tokens and
+continues. Sessions that end before you approve are not lost — the next `Stop` or
+`SessionEnd` that runs paired uploads them — but sessions in a container destroyed before
+any pairing are, which is the gap a key closes.
 
 Add `--analyze` to the `SessionEnd` command to attach a model-written analysis
 (`spec/analysis.v1.json`) produced by the container's own `claude -p` from a digest of the

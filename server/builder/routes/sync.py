@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from .. import notify
-from ..auth import CurrentDevice, current_device
+from ..auth import CurrentDevice, current_uploader
 from ..contract import SessionUpload
 from ..db import db_session
 from ..strip import COLUMNS, non_idle_seconds
@@ -127,8 +127,11 @@ def sanity_gate(p: SessionUpload) -> str | None:
 
 
 @router.post("/sessions:batch", response_model=BatchResponse)
-def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_device)):
+def upload_batch(body: BatchRequest, device: CurrentDevice = Depends(current_uploader)):
     """Idempotent bulk upsert.
+
+    Authenticated by `current_uploader`: a device token or a capture key. This route and
+    `/known` are the only two that accept a key (`docs/cloud-capture.md`, threat model).
 
     Sized for a first-run backfill in a handful of requests — the whole corpus on the
     reference machine is 557 sessions, roughly three chunks — and for a single session
@@ -469,7 +472,7 @@ def _upsert_analysis(db, session_id, p: SessionUpload):
 
 
 @router.get("/known")
-def known_hashes(device: CurrentDevice = Depends(current_device)):
+def known_hashes(device: CurrentDevice = Depends(current_uploader)):
     """Content hashes the server already has, so the client can skip unchanged sessions.
 
     Turns a replay of the whole history into one small request plus nothing.
