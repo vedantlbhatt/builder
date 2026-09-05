@@ -36,6 +36,7 @@ import {
   type RecordedAudio,
 } from '../../src/social/media';
 import { MediaPicker } from '../../src/social/MediaPicker';
+import { PixelBadge } from '../../src/pixel/PixelBadge';
 import { runUploads, type UploadState } from '../../src/social/upload';
 import { TimelineStrip } from '../../src/strip/TimelineStrip';
 import { classShare, decodeColumns, decodeMarks } from '../../src/strip/decode';
@@ -78,8 +79,8 @@ export default function SessionScreen() {
 
   if (!model || !session) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', backgroundColor: c.bg }}>
-        <ActivityIndicator color={c.accent} />
+      <View style={{ flex: 1, justifyContent: 'center', backgroundColor: c.bg, paddingHorizontal: space.md }}>
+        <PixelBadge state="thinking" text="Reading your session…" />
       </View>
     );
   }
@@ -124,7 +125,7 @@ export default function SessionScreen() {
           pressed && { opacity: 0.8 },
         ]}
       >
-        <Text style={{ color: '#1C1917', fontWeight: '700', fontSize: 16 }}>
+        <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 16 }}>
           {sharing ? 'Preparing…' : 'Share this session'}
         </Text>
       </Pressable>
@@ -157,7 +158,7 @@ export default function SessionScreen() {
                 ])
               }
             >
-              <Text style={{ color: '#E5484D', fontWeight: '600', fontSize: 14 }}>Delete</Text>
+              <Text style={{ color: c.danger, fontWeight: '600', fontSize: 14 }}>Delete</Text>
             </Pressable>
           </View>
         ) : (
@@ -239,13 +240,19 @@ export default function SessionScreen() {
         <AnalysisView analysis={session.analysis} />
       ) : (
         <Section title="Analysis">
-          {/* Quiet, and no spinner: nothing is loading. A final session without an analysis
-              will not grow one by waiting. */}
-          <Text style={{ color: c.textDim, fontSize: 13 }}>
-            {state === 'final'
-              ? 'Analysis not available for this session'
-              : 'Analysis arrives when the session finishes, or at the next checkpoint while it runs unattended.'}
-          </Text>
+          {state === 'final' ? (
+            // Quiet, and no mascot: nothing is coming. A final session without an analysis
+            // will not grow one by waiting, and a thinking Bit would promise otherwise.
+            <Text style={{ color: c.textDim, fontSize: 13 }}>
+              Analysis not available for this session
+            </Text>
+          ) : (
+            <PixelBadge
+              state="thinking"
+              text="Analysis runs when the session ends"
+              style={{ padding: 0 }}
+            />
+          )}
         </Section>
       )}
     </ScrollView>
@@ -453,7 +460,7 @@ function ComposeModal({
                   pressed && { opacity: 0.8 },
                 ]}
               >
-                <Text style={{ color: '#1C1917', fontWeight: '700', fontSize: 15 }}>Retry failed uploads</Text>
+                <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 15 }}>Retry failed uploads</Text>
               </Pressable>
             )}
           </View>
@@ -473,7 +480,7 @@ function ComposeModal({
                     backgroundColor: v === visibility ? c.accent : 'transparent',
                   }}
                 >
-                  <Text style={{ color: v === visibility ? '#1C1917' : c.text, fontWeight: '600', fontSize: 14 }}>
+                  <Text style={{ color: v === visibility ? c.onAccent : c.text, fontWeight: '600', fontSize: 14 }}>
                     {visibilityLabel(v)}
                   </Text>
                 </Pressable>
@@ -579,7 +586,7 @@ function UploadLine({ row }: { row: UploadRow }) {
         <ActivityIndicator color={c.accent} />
       ) : (
         <Text
-          style={{ color: failed ? '#E5484D' : state.phase === 'done' ? c.accent : c.textDim, fontSize: 12, fontWeight: '600', maxWidth: 160 }}
+          style={{ color: failed ? c.danger : state.phase === 'done' ? c.accent : c.textDim, fontSize: 12, fontWeight: '600', maxWidth: 160 }}
           numberOfLines={2}
         >
           {status}

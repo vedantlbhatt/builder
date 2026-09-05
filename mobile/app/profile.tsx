@@ -6,6 +6,8 @@ import * as cache from '../src/data/cache';
 import { api } from '../src/data/client';
 import type { Profile } from '../src/data/api';
 import { LiveSessions } from '../src/live/LiveSessions';
+import { PixelSprite } from '../src/pixel/PixelSprite';
+import { BuilderProfileCard } from '../src/profile/BuilderProfileCard';
 import { ContributionGrid } from '../src/profile/ContributionGrid';
 import { colors, duration, space } from '../src/theme';
 
@@ -44,6 +46,12 @@ export default function ProfileScreen() {
   // Only a server that splits the clocks gets the pair; "0 / 0" from an older one would
   // be a plausible wrong number.
   const hasSplit = attended !== undefined || autonomous !== undefined;
+  // The record is attended time on a v2 server. An older server ranks by active time and
+  // omits `attended_seconds`, so the label follows the field rather than claiming a split
+  // that was never made.
+  const longest = profile.longest_session;
+  const longestLabel = longest?.attended_seconds !== undefined ? 'Longest attended' : 'Longest session';
+  const longestValue = longest ? duration(longest.attended_seconds ?? longest.active_seconds) : null;
 
   return (
     <ScrollView
@@ -71,19 +79,33 @@ export default function ProfileScreen() {
       </Pressable>
 
       <Card>
-        <Text style={{ color: c.text, fontSize: 30, fontWeight: '700' }}>
-          {duration(profile.totals.active_seconds)}
-        </Text>
-        <Text style={{ color: c.textDim, fontSize: 13 }}>
-          across {profile.totals.sessions} sessions
-        </Text>
-        {hasSplit && (
-          <View style={{ flexDirection: 'row', gap: space.xl, marginTop: space.md }}>
-            <Stat label="Attended" value={duration(attended ?? 0)} />
-            <Stat label="Autonomous" value={duration(autonomous ?? 0)} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.text, fontSize: 30, fontWeight: '700' }}>
+              {duration(profile.totals.active_seconds)}
+            </Text>
+            <Text style={{ color: c.textDim, fontSize: 13 }}>
+              across {profile.totals.sessions} sessions
+            </Text>
+          </View>
+          <PixelSprite state="idle" size={48} fps={2} />
+        </View>
+        {(hasSplit || longestValue) && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xl, marginTop: space.md }}>
+            {hasSplit && <Stat label="Attended" value={duration(attended ?? 0)} />}
+            {hasSplit && <Stat label="Autonomous" value={duration(autonomous ?? 0)} />}
+            {longestValue && <Stat label={longestLabel} value={longestValue} />}
           </View>
         )}
       </Card>
+
+      {/* Only a server that computes the aggregate gets the card; an older one is silent
+          rather than told to analyse three sessions it will never aggregate. */}
+      {profile.builder_profile !== undefined && (
+        <Section title="How you build">
+          <BuilderProfileCard profile={profile.builder_profile} />
+        </Section>
+      )}
 
       <Section title="Active hours">
         <ContributionGrid days={recentDays} width={contentWidth} />

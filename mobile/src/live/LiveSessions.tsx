@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, Text, View } from 'react-native';
+import React from 'react';
+import { Pressable, Text, View } from 'react-native';
 
 import type { SessionDetail } from '../data/api';
+import { PixelSprite } from '../pixel/PixelSprite';
 import { colors, space } from '../theme';
-import { livePresenceLine, liveStatusLine } from './format';
+import { livePresenceLine, liveStatusLine, spriteForLive } from './format';
 
 /**
  * The block at the top of Sessions and Profile while the Mac is still working.
@@ -43,16 +44,20 @@ export function LiveSessions({
           style={({ pressed }) => [row, pressed && { opacity: 0.6 }]}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-            <PulsingDot />
-            <Text style={{ color: c.text, fontWeight: '600', fontSize: 15, flex: 1 }} numberOfLines={1}>
-              {s.repo_name ?? 'private repo'}
-            </Text>
+            {/* Bit hammers while someone is at the keyboard and sleeps once the agent has
+                been alone past tauAutonomousSec — the same rule as the presence line. */}
+            <PixelSprite state={spriteForLive(s)} size={32} fps={4} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.text, fontWeight: '600', fontSize: 15 }} numberOfLines={1}>
+                {s.repo_name ?? 'private repo'}
+              </Text>
+              {s.title ? (
+                <Text style={{ color: c.textDim, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
+                  {s.title}
+                </Text>
+              ) : null}
+            </View>
           </View>
-          {s.title ? (
-            <Text style={{ color: c.textDim, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
-              {s.title}
-            </Text>
-          ) : null}
           <Text style={{ color: c.accent, fontSize: 13, marginTop: space.sm, fontVariant: ['tabular-nums'] }}>
             {liveStatusLine(s)}
           </Text>
@@ -60,25 +65,6 @@ export function LiveSessions({
         </Pressable>
       ))}
     </View>
-  );
-}
-
-function PulsingDot() {
-  const opacity = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.2, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 700, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-  return (
-    <Animated.View
-      style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.accent, opacity }}
-    />
   );
 }
 

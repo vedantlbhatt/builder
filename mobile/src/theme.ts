@@ -36,8 +36,36 @@ export function colors(scheme: Scheme) {
     textDim: pick(tokens.surface.textDim),
     accent: pick(tokens.surface.accent),
 
+    /**
+     * Ink on an accent-filled control. The amber is the same in both schemes, so the ink
+     * on it is the light scheme's text colour in both — derived, not a second constant.
+     */
+    onAccent: tokens.surface.text.light,
+    /** Destructive actions and the recording dot. Not in tokens.json; this is the one home. */
+    danger: DANGER,
+    /** A hairline drawn over a camera preview, where no surface token applies. */
+    overlayStroke: OVERLAY_STROKE,
+    /** Google's sign-in button is white by their guideline, in either scheme. */
+    googleButton: tokens.surface.card.light,
+
     graph: tokens.graph.levels[scheme],
   };
+}
+
+const DANGER = '#E5484D';
+const OVERLAY_STROKE = 'rgba(255,255,255,0.8)';
+
+/** Apple's and Android's minimum comfortable tap target, in points. */
+export const TAP_TARGET = 44;
+
+/**
+ * The `hitSlop` that grows a control of `height` points to `TAP_TARGET`, symmetric on all
+ * four sides. Zero when it is already big enough, so a large button is not given a
+ * halo that overlaps its neighbour.
+ */
+export function hitSlopToReach(height: number, target: number = TAP_TARGET) {
+  const pad = Math.max(0, Math.ceil((target - height) / 2));
+  return { top: pad, bottom: pad, left: pad, right: pad };
 }
 
 export const space = tokens.space;

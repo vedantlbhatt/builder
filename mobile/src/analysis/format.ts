@@ -80,3 +80,15 @@ export function pivotTime(atMinute: number): string {
   const rem = m % 60;
   return `t+${h}h ${rem.toString().padStart(2, '0')}m`;
 }
+
+/**
+ * The one-time flourish beside an analysis headline. Only `shipped` earns it: a model that
+ * wrote `progressed` or `explored` is saying the work is not done, and a cheering mascot
+ * over that headline would contradict the sentence it sits next to. Null means no sprite,
+ * not a different one.
+ */
+export function celebrationFor(
+  a: Pick<SessionAnalysis, 'outcome'> | null | undefined
+): 'celebrating' | null {
+  return a?.outcome === 'shipped' ? 'celebrating' : null;
+}

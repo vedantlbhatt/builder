@@ -14,6 +14,7 @@ import { api, SAMPLE_SESSION } from '../src/data/client';
 import * as cache from '../src/data/cache';
 import type { SessionDetail } from '../src/data/api';
 import { LiveSessions } from '../src/live/LiveSessions';
+import { PixelBadge } from '../src/pixel/PixelBadge';
 import { TimelineStrip } from '../src/strip/TimelineStrip';
 import { decodeMarks } from '../src/strip/decode';
 import { colors, duration, space } from '../src/theme';
@@ -117,14 +118,12 @@ export default function SessionsScreen() {
       <LiveSessions sessions={live} onPress={(id) => router.push(`/session/${id}`)} />
 
       {!signedIn && (
-        <View style={banner}>
-          <Text style={{ color: c.text, fontWeight: '600', marginBottom: 4 }}>
-            You are browsing a sample session
-          </Text>
-          <Text style={{ color: c.textDim, fontSize: 13 }}>
-            Sign in on the Settings tab to see your own. Nothing syncs until you do.
-          </Text>
-        </View>
+        <PixelBadge
+          state="waving"
+          title="You are browsing a sample session"
+          text="Sign in on the Settings tab to see your own. Nothing syncs until you do."
+          style={banner}
+        />
       )}
 
       {error && (
@@ -133,6 +132,14 @@ export default function SessionsScreen() {
             Showing saved sessions — {error}
           </Text>
         </View>
+      )}
+
+      {signedIn && sessions.length === 0 && !error && (
+        <PixelBadge
+          state="waving"
+          text="No sessions yet. Pair your Mac in Settings and the first one you finish lands here."
+          style={{ paddingHorizontal: 0 }}
+        />
       )}
 
       {sessions.map((s) => (

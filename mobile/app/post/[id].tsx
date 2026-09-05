@@ -1,7 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -14,10 +13,11 @@ import {
 
 import type { Comment, FeedItem } from '../../src/data/api';
 import { api } from '../../src/data/client';
+import { PixelBadge } from '../../src/pixel/PixelBadge';
 import { PostRow } from '../../src/social/FeedList';
 import { applyKudos, authorName, relativeTime, toggleKudos } from '../../src/social/format';
 import { myHandle, rememberMyHandle } from '../../src/social/identity';
-import { colors, space } from '../../src/theme';
+import { colors, hitSlopToReach, space } from '../../src/theme';
 
 const c = colors('dark');
 const COMMENT_MAX = 500;
@@ -115,8 +115,8 @@ export default function PostScreen() {
 
   if (!post && !error) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', backgroundColor: c.bg }}>
-        <ActivityIndicator color={c.accent} />
+      <View style={{ flex: 1, justifyContent: 'center', backgroundColor: c.bg, paddingHorizontal: space.md }}>
+        <PixelBadge state="thinking" text="Loading the post…" />
       </View>
     );
   }
@@ -146,7 +146,7 @@ export default function PostScreen() {
               <Text style={{ color: c.textDim, fontSize: 12 }}>· {relativeTime(cm.created_at)}</Text>
               <View style={{ flex: 1 }} />
               {me !== null && cm.author.handle === me && (
-                <Pressable onPress={() => remove(cm)} hitSlop={8}>
+                <Pressable onPress={() => remove(cm)} hitSlop={hitSlopToReach(16)} accessibilityRole="button">
                   <Text style={{ color: c.textDim, fontSize: 12 }}>Delete</Text>
                 </Pressable>
               )}
@@ -187,7 +187,7 @@ export default function PostScreen() {
             },
           ]}
         >
-          <Text style={{ color: '#1C1917', fontWeight: '700' }}>Send</Text>
+          <Text style={{ color: c.onAccent, fontWeight: '700' }}>Send</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>

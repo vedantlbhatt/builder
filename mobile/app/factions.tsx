@@ -16,9 +16,10 @@ import {
 import { ApiError, type Faction, type FactionBoard } from '../src/data/api';
 import * as cache from '../src/data/cache';
 import { api } from '../src/data/client';
+import { PixelBadge } from '../src/pixel/PixelBadge';
 import { forgetFaction, normalizeFactionCode, parseFactionList, rememberFaction } from '../src/social/format';
 import { MY_FACTIONS_KEY } from '../src/social/identity';
-import { colors, duration, space } from '../src/theme';
+import { colors, duration, hitSlopToReach, space } from '../src/theme';
 
 const c = colors('dark');
 
@@ -207,9 +208,12 @@ export default function FactionsScreen() {
       </View>
 
       {mine.length === 0 && (
-        <Text style={{ color: c.textDim, fontSize: 13, textAlign: 'center', marginTop: space.lg }}>
-          Create a faction or join one with a code. The board ranks attended hours this week.
-        </Text>
+        <View style={{ marginTop: space.sm }}>
+          <PixelBadge state="waving" text="Start a faction or join one with a code." style={{ paddingHorizontal: 0 }} />
+          <Text style={{ color: c.textDim, fontSize: 12 }}>
+            The board ranks attended hours this week.
+          </Text>
+        </View>
       )}
 
       {mine.map((slug) => {
@@ -220,7 +224,7 @@ export default function FactionsScreen() {
               <Text style={{ color: c.text, fontSize: 18, fontWeight: '700', flex: 1 }}>
                 {b && b !== 'error' ? b.faction.name : slug}
               </Text>
-              <Pressable onPress={() => router.push({ pathname: '/feed', params: { slug } })} hitSlop={8}>
+              <Pressable onPress={() => router.push({ pathname: '/feed', params: { slug } })} hitSlop={hitSlopToReach(18)} accessibilityRole="button">
                 <Text style={{ color: c.accent, fontSize: 13, fontWeight: '600' }}>Feed</Text>
               </Pressable>
             </View>
@@ -291,7 +295,7 @@ const input = {
   fontSize: 15,
 } as const;
 const button = { backgroundColor: c.accent, borderRadius: 10, paddingHorizontal: space.md, justifyContent: 'center' } as const;
-const buttonText = { color: '#1C1917', fontWeight: '700' } as const;
+const buttonText = { color: c.onAccent, fontWeight: '700' } as const;
 const pill = { backgroundColor: c.bg, borderRadius: 999, paddingHorizontal: space.md, paddingVertical: space.sm } as const;
 const th = { color: c.textDim, fontSize: 11, fontWeight: '700' } as const;
 const td = { color: c.text, fontSize: 13 } as const;

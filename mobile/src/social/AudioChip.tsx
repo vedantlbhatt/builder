@@ -152,7 +152,7 @@ export function AudioChip({
     >
       <Text
         style={{
-          color: playing ? '#1C1917' : c.text,
+          color: playing ? c.onAccent : c.text,
           fontSize: 13,
           fontWeight: '600',
           fontVariant: ['tabular-nums'],

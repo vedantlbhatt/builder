@@ -19,3 +19,12 @@ export function livePresenceLine(s: SessionDetail): string {
     ? `Running unattended for ${duration(autonomous)}`
     : "You're at the keyboard";
 }
+
+/**
+ * Which Bit stands beside a live row. The same threshold as the presence line, so the
+ * picture and the sentence can never disagree: `building` while someone is evidently at
+ * the keyboard, `sleeping` once the agent has been on its own past tauAutonomousSec.
+ */
+export function spriteForLive(s: Pick<SessionDetail, 'autonomous_seconds'>): 'building' | 'sleeping' {
+  return (s.autonomous_seconds ?? 0) > AUTONOMOUS_NOTE_SECONDS ? 'sleeping' : 'building';
+}

@@ -6,9 +6,11 @@ import type { Cursor, FollowState, UserPage } from '../../src/data/api';
 import { api } from '../../src/data/client';
 import { FeedList } from '../../src/social/FeedList';
 import { rememberMyHandle } from '../../src/social/identity';
-import { colors, space } from '../../src/theme';
+import { colors, hitSlopToReach, space } from '../../src/theme';
 
 const c = colors('dark');
+/** The follow pill's height; the slop takes the tap target to 44 without a taller pill. */
+const FOLLOW_HEIGHT = 34;
 
 /**
  * Another builder's page: profile header with a follow button, then the posts the viewer
@@ -68,13 +70,16 @@ export default function UserScreen() {
         <Pressable
           onPress={() => void toggleFollow()}
           disabled={busy}
+          hitSlop={hitSlopToReach(FOLLOW_HEIGHT)}
+          accessibilityRole="button"
           style={({ pressed }) => [
             {
               marginTop: space.md,
               alignSelf: 'flex-start',
               borderRadius: 999,
               paddingHorizontal: space.md,
-              paddingVertical: space.sm,
+              minHeight: FOLLOW_HEIGHT,
+              justifyContent: 'center',
               backgroundColor: profile.follow_state ? c.bg : c.accent,
               borderWidth: 1,
               borderColor: profile.follow_state ? c.border : c.accent,
@@ -82,7 +87,7 @@ export default function UserScreen() {
             },
           ]}
         >
-          <Text style={{ color: profile.follow_state ? c.text : '#1C1917', fontWeight: '700', fontSize: 13 }}>
+          <Text style={{ color: profile.follow_state ? c.text : c.onAccent, fontWeight: '700', fontSize: 13 }}>
             {profile.follow_state === 'accepted'
               ? 'Following'
               : profile.follow_state === 'pending'

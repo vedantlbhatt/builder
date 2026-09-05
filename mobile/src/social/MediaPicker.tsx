@@ -238,7 +238,7 @@ function Recorder({
     return (
       <View style={box}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#E5484D' }} />
+          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: c.danger }} />
           <Text style={{ color: c.text, fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] }}>
             {formatClock(elapsedMs)}
           </Text>
@@ -247,7 +247,7 @@ function Recorder({
           </Text>
           <View style={{ flex: 1 }} />
           <Pressable onPress={() => void stop()} hitSlop={8} style={({ pressed }) => [pill, pressed && { opacity: 0.7 }]}>
-            <Text style={{ color: '#1C1917', fontSize: 13, fontWeight: '700' }}>Stop</Text>
+            <Text style={{ color: c.onAccent, fontSize: 13, fontWeight: '700' }}>Stop</Text>
           </Pressable>
         </View>
       </View>
@@ -266,7 +266,7 @@ function Recorder({
                 <Text style={{ color: c.text, fontSize: 13, fontWeight: '600' }}>Re-record</Text>
               </Pressable>
               <Pressable onPress={() => onAudio(null)} hitSlop={8} style={{ marginLeft: space.md }}>
-                <Text style={{ color: '#E5484D', fontSize: 13, fontWeight: '600' }}>Delete</Text>
+                <Text style={{ color: c.danger, fontSize: 13, fontWeight: '600' }}>Delete</Text>
               </Pressable>
             </>
           )}

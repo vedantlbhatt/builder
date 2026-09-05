@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
-import type { SessionAnalysis } from '../generated/analysis';
+import type { Archetype, Dimension, SessionAnalysis } from '../generated/analysis';
 
 /**
  * The phone's view of the server.
@@ -122,6 +122,60 @@ export interface Profile {
   };
   /** Sessions the Mac is still uploading. Absent on a server older than the split. */
   live?: SessionDetail[];
+  /**
+   * The aggregate of the session analyses (server/builder/builder_profile.py). Undefined
+   * on a server that predates it; null until three analysed sessions exist in the window,
+   * because docs/analysis.md forbids reading an archetype off one run.
+   */
+  builder_profile?: BuilderProfile | null;
+}
+
+/** One dimension's aggregate: mean 0-100 over `sessions`, and recent-half minus older-half. */
+export interface BuilderDimension {
+  mean: number;
+  sessions: number;
+  /** Points, rounded to 0.1. Null with too few sessions to split into halves. */
+  trend: number | null;
+}
+
+/** The modal archetype and the whole distribution. `share` is out of `with_archetype`. */
+export interface BuilderArchetype {
+  modal: Archetype | null;
+  share: number | null;
+  /** How many analysed sessions had an archetype at all; short sessions get none. */
+  with_archetype: number;
+  distribution: Record<string, number>;
+}
+
+/** The modal value of one build-style key, its share of the sessions that set it, and the counts. */
+export interface BuilderMode {
+  mode: string | null;
+  share: number | null;
+  distribution: Record<string, number>;
+}
+
+/**
+ * `GET /v1/profile` → `builder_profile`, field for field as the server serialises it.
+ * `dimensions` is keyed by dimension name, not a list; a session's archetype share is out
+ * of the sessions that HAD one (`with_archetype`), not all of them.
+ */
+export interface BuilderProfile {
+  window_days: number;
+  sessions_analysed: number;
+  confidence_mean: number | null;
+  dimensions: Partial<Record<Dimension, BuilderDimension>>;
+  archetype: BuilderArchetype;
+  build_style: Record<string, BuilderMode>;
+  prompting: {
+    specificity_mean: number | null;
+    correction_share_mean: number | null;
+    question_share_mean: number | null;
+    tone_distribution: Record<string, number>;
+  };
+  /** Ranked most-sessions first, ties by name; at most 8. */
+  tags: { tag: string; sessions: number }[];
+  /** Ranked like tags; at most 5. `example` is the most recent verbatim excerpt. */
+  decision_patterns: { pattern: string; sessions: number; example: string }[];
 }
 
 // ------------------------------------------------------------------ social

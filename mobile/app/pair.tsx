@@ -6,6 +6,8 @@ import { Linking, Pressable, Text, View } from 'react-native';
 
 import { api } from '../src/data/client';
 import { parsePairingCode } from '../src/pairing/parse';
+import { PixelSprite } from '../src/pixel/PixelSprite';
+import type { SpriteState } from '../src/pixel/sprites';
 import { colors, space } from '../src/theme';
 
 /**
@@ -25,7 +27,8 @@ type Status =
   | { kind: 'error'; text: string };
 
 const RESCAN_DELAY_MS = 1500;
-const LEAVE_DELAY_MS = 900;
+/** Long enough to see Bit cheer once (three frames at 4 fps is 750 ms) and read the label. */
+const LEAVE_DELAY_MS = 2000;
 
 export default function PairScreen() {
   const router = useRouter();
@@ -110,7 +113,7 @@ export default function PairScreen() {
 
   if (deepLinked) {
     return (
-      <Notice title="Connecting your Mac">
+      <Notice title="Connecting your Mac" sprite={status.kind === 'ok' ? 'celebrating' : undefined}>
         {status.kind === 'idle' ? `Pairing ${parsePairingCode(paramCode) ?? paramCode}…` : status.text}
         {status.kind === 'error' ? <TypeInstead /> : null}
       </Notice>
@@ -129,7 +132,7 @@ export default function PairScreen() {
         <TypeInstead />
       </Notice>
     ) : (
-      <Notice title="Camera access is off">
+      <Notice title="Camera access is off" sprite="idle">
         Allow the camera in iOS Settings to scan, or type the code on the Settings screen.
         <Button label="Open iOS Settings" onPress={() => void Linking.openSettings()} />
         <TypeInstead />
@@ -156,34 +159,49 @@ export default function PairScreen() {
             height: 220,
             borderRadius: 18,
             borderWidth: 2,
-            borderColor: status.kind === 'ok' ? c.accent : 'rgba(255,255,255,0.8)',
+            borderColor: status.kind === 'ok' ? c.accent : c.overlayStroke,
           }}
         />
       </View>
       <View style={{ padding: space.md, paddingBottom: space.xl, backgroundColor: c.bg }}>
-        <Text
-          style={{
-            color: status.kind === 'error' ? '#E5484D' : status.kind === 'ok' ? c.accent : c.text,
-            fontSize: 15,
-            fontWeight: status.kind === 'idle' ? '400' : '600',
-            textAlign: 'center',
-          }}
-        >
-          {status.text}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.md }}>
+          {/* Bit appears only for the cheer; the camera preview is the content until then. */}
+          {status.kind === 'ok' ? <PixelSprite state="celebrating" size={48} fps={4} /> : null}
+          <Text
+            style={{
+              color: status.kind === 'error' ? c.danger : status.kind === 'ok' ? c.accent : c.text,
+              fontSize: 15,
+              fontWeight: status.kind === 'idle' ? '400' : '600',
+              textAlign: 'center',
+              flexShrink: 1,
+            }}
+          >
+            {status.text}
+          </Text>
+        </View>
         <TypeInstead />
       </View>
     </View>
   );
 }
 
-function Notice({ title, children }: { title: string; children: React.ReactNode }) {
+function Notice({
+  title,
+  sprite,
+  children,
+}: {
+  title: string;
+  /** 48pt Bit beside the title: `idle` when the camera is off, `celebrating` on success. */
+  sprite?: SpriteState;
+  children: React.ReactNode;
+}) {
   return (
     <View style={{ flex: 1, backgroundColor: c.bg, padding: space.md }}>
       <View style={{ backgroundColor: c.card, borderRadius: 12, padding: space.md }}>
-        <Text style={{ color: c.text, fontSize: 16, fontWeight: '600', marginBottom: space.sm }}>
-          {title}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, marginBottom: space.sm }}>
+          {sprite ? <PixelSprite state={sprite} size={48} fps={4} /> : null}
+          <Text style={{ color: c.text, fontSize: 16, fontWeight: '600', flex: 1 }}>{title}</Text>
+        </View>
         <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 19 }}>{children}</Text>
       </View>
     </View>

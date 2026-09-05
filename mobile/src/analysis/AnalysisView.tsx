@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 
 import type { FeatureStatus, SessionAnalysis } from '../generated/analysis';
 import { StripClass } from '../generated/strip';
+import { PixelSprite } from '../pixel/PixelSprite';
 import { colors, space } from '../theme';
-import { analysisFooter, labelize, pct, pivotTime, SENSITIVE_WARNING } from './format';
+import { analysisFooter, celebrationFor, labelize, pct, pivotTime, SENSITIVE_WARNING } from './format';
 
 /**
  * The model-written reading of a session, below the card and the numbers.
@@ -16,15 +17,17 @@ import { analysisFooter, labelize, pct, pivotTime, SENSITIVE_WARNING } from './f
  */
 
 const c = colors('dark');
-const RED = '#E5484D'; // the same red as the destructive button in Settings
 const TEAL = c.strip[StripClass.human_edit];
 
 const STATUS_COLOR: Record<FeatureStatus, string> = {
   done: TEAL,
   partial: c.accent,
   started: c.textDim,
-  reverted: RED,
+  reverted: c.danger,
 };
+
+/** How long Bit cheers beside a shipped headline before settling into a still idle pose. */
+export const CELEBRATION_MS = 3000;
 
 export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
   const features = a.features ?? [];
@@ -36,14 +39,21 @@ export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
   const tags = a.tags ?? [];
   const style = a.build_style;
   const prompting = a.prompting;
+  // At most one Bit per card. A shipped session gets the cheer beside its headline; any
+  // other outcome gets the quiet idle pose beside the archetype chip. Two mascots in one
+  // section would make him the subject of the analysis rather than a companion to it.
+  const celebration = celebrationFor(a);
 
   return (
     <>
       <Section title="Analysis">
         {a.headline ? (
-          <Text style={{ color: c.text, fontSize: 22, fontWeight: '700', lineHeight: 28 }}>
-            {a.headline}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space.md }}>
+            <Text style={{ color: c.text, fontSize: 22, fontWeight: '700', lineHeight: 28, flex: 1 }}>
+              {a.headline}
+            </Text>
+            {celebration ? <CelebrationSprite /> : null}
+          </View>
         ) : null}
         {a.summary ? (
           <Text style={{ color: c.text, fontSize: 14, lineHeight: 20, marginTop: space.sm }}>
@@ -51,9 +61,10 @@ export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
           </Text>
         ) : null}
         {(a.outcome || a.archetype) && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, marginTop: space.md }}>
             {a.outcome ? <Chip label={labelize(a.outcome)} tone="accent" /> : null}
             {a.archetype ? <Chip label={labelize(a.archetype)} /> : null}
+            {a.archetype && !celebration ? <PixelSprite state="idle" size={32} fps={2} /> : null}
           </View>
         )}
       </Section>
@@ -227,6 +238,20 @@ export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
 
 const dim = { color: c.textDim, fontSize: 13, lineHeight: 18 } as const;
 
+/**
+ * One cheer, then stillness. Mounts celebrating, and after CELEBRATION_MS switches to a
+ * paused idle frame — the headline is the thing to read, and a mascot that keeps
+ * bouncing beside it for the whole scroll is a distraction, not a reward.
+ */
+function CelebrationSprite() {
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setDone(true), CELEBRATION_MS);
+    return () => clearTimeout(t);
+  }, []);
+  return <PixelSprite state={done ? 'idle' : 'celebrating'} size={48} fps={4} paused={done} />;
+}
+
 // Same styles as the Numbers section on the session screen, so the analysis reads as a
 // continuation of it rather than a second design.
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -257,7 +282,7 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Chip({ label, tone, color }: { label: string; tone?: 'accent'; color?: string }) {
+export function Chip({ label, tone, color }: { label: string; tone?: 'accent'; color?: string }) {
   const fg = color ?? (tone === 'accent' ? c.accent : c.text);
   return (
     <View
@@ -276,7 +301,7 @@ function Chip({ label, tone, color }: { label: string; tone?: 'accent'; color?: 
 }
 
 /** 0-100 as a horizontal bar. Plain Views: no SVG is needed for one rectangle. */
-function Bar({ value }: { value: number }) {
+export function Bar({ value }: { value: number }) {
   const w = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
   return (
     <View style={{ height: 6, borderRadius: 3, backgroundColor: c.border, overflow: 'hidden' }}>

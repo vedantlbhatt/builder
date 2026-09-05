@@ -1,4 +1,5 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -7,10 +8,17 @@ import { isGoogleConfigured, onGoogleSignIn, startGoogleSignIn } from '../src/au
 import * as cache from '../src/data/cache';
 import { api } from '../src/data/client';
 import { getMachineId } from '../src/data/machine';
+import { PixelSprite } from '../src/pixel/PixelSprite';
 import { registerForPush } from '../src/push/push';
 import { colors, space } from '../src/theme';
 
 const c = colors('dark');
+
+/** "Builder · v0.1.0" — the version is read from the config, never typed here twice. */
+function appLine(): string {
+  const v = Constants.expoConfig?.version;
+  return v ? `Builder · v${v}` : 'Builder';
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -111,6 +119,11 @@ export default function SettingsScreen() {
       style={{ flex: 1, backgroundColor: c.bg }}
       contentContainerStyle={{ padding: space.md, paddingBottom: space.xxl }}
     >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+        <PixelSprite state="idle" size={32} fps={2} />
+        <Text style={{ color: c.textDim, fontSize: 13, fontVariant: ['tabular-nums'] }}>{appLine()}</Text>
+      </View>
+
       {!signedIn ? (
         <Section title="Account">
           <Text style={{ color: c.textDim, fontSize: 13, marginBottom: space.md }}>
@@ -132,7 +145,7 @@ export default function SettingsScreen() {
                 height: 48,
                 borderRadius: 10,
                 marginTop: space.sm,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: c.googleButton,
                 alignItems: 'center',
                 justifyContent: 'center',
                 opacity: googleReady ? 1 : 0.4,
@@ -140,7 +153,7 @@ export default function SettingsScreen() {
               pressed && { opacity: 0.7 },
             ]}
           >
-            <Text style={{ color: '#1C1917', fontWeight: '600', fontSize: 16 }}>
+            <Text style={{ color: c.onAccent, fontWeight: '600', fontSize: 16 }}>
               Continue with Google
             </Text>
           </Pressable>
@@ -267,7 +280,7 @@ function Button({
         pressed && { opacity: 0.6 },
       ]}
     >
-      <Text style={{ color: destructive ? '#E5484D' : c.text, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ color: destructive ? c.danger : c.text, fontWeight: '600' }}>{label}</Text>
     </Pressable>
   );
 }

@@ -12,9 +12,10 @@ import {
 
 import type { Cursor, FeedItem, FeedPage } from '../data/api';
 import { api } from '../data/client';
+import { PixelBadge } from '../pixel/PixelBadge';
 import { TimelineStrip } from '../strip/TimelineStrip';
 import { decodeMarks } from '../strip/decode';
-import { colors, duration, space } from '../theme';
+import { colors, duration, hitSlopToReach, space } from '../theme';
 import { AudioChip } from './AudioChip';
 import { PhotoGrid } from './PhotoGrid';
 import {
@@ -133,9 +134,7 @@ export function FeedList({ load, header = null, emptyText }: Props) {
         </>
       }
       ListEmptyComponent={
-        <View style={{ paddingVertical: space.xl, alignItems: 'center' }}>
-          <Text style={{ color: c.textDim, fontSize: 14, textAlign: 'center' }}>{emptyText}</Text>
-        </View>
+        <PixelBadge state="waving" text={emptyText} style={{ paddingVertical: space.xl }} />
       }
       ListFooterComponent={
         loadingMore ? (
@@ -249,16 +248,18 @@ export function PostRow({
       <View style={{ flexDirection: 'row', gap: space.md, marginTop: space.md, alignItems: 'center' }}>
         <Pressable
           onPress={() => onKudos(item)}
-          hitSlop={8}
+          hitSlop={COUNTER_HIT_SLOP}
+          accessibilityRole="button"
           style={({ pressed }) => [counter, item.you_kudosed && counterOn, pressed && { opacity: 0.6 }]}
         >
-          <Text style={{ color: item.you_kudosed ? '#1C1917' : c.text, fontSize: 13, fontWeight: '600' }}>
+          <Text style={{ color: item.you_kudosed ? c.onAccent : c.text, fontSize: 13, fontWeight: '600' }}>
             {item.you_kudosed ? 'Kudos given' : 'Kudos'} · {item.kudos_count}
           </Text>
         </Pressable>
         <Pressable
           onPress={() => linkToPost && router.push(`/post/${item.id}`)}
-          hitSlop={8}
+          hitSlop={COUNTER_HIT_SLOP}
+          accessibilityRole="button"
           style={({ pressed }) => [counter, pressed && { opacity: 0.6 }]}
         >
           <Text style={{ color: c.text, fontSize: 13, fontWeight: '600' }}>
@@ -282,12 +283,17 @@ const row = {
 
 const meta = { color: c.textDim, fontSize: 12 } as const;
 
+/** The pills are 32pt tall; the slop takes the tap target to 44 without fattening them. */
+const COUNTER_HEIGHT = 32;
+const COUNTER_HIT_SLOP = hitSlopToReach(COUNTER_HEIGHT);
+
 const counter = {
   borderRadius: 999,
   borderWidth: 1,
   borderColor: c.border,
   paddingHorizontal: space.md,
-  paddingVertical: 6,
+  minHeight: COUNTER_HEIGHT,
+  justifyContent: 'center',
 } as const;
 
 const counterOn = { backgroundColor: c.accent, borderColor: c.accent } as const;
