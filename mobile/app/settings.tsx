@@ -29,14 +29,21 @@ export default function SettingsScreen() {
       // A per-install identifier, hashed server-side into a device row. Not the IDFV
       // itself as an identity — it is stable per vendor, so treating it as one would let
       // two apps from the same vendor correlate installs.
-      const machineId = (Application.getIosIdForVendorAsync
+      const vendorId = (Application.getIosIdForVendorAsync
         ? await Application.getIosIdForVendorAsync()
-        : null) ?? 'unknown';
+        : null) ?? '';
 
-      const tokens = await api.signInWithApple(
-        credential.identityToken,
-        machineId.replace(/-/g, '').padEnd(64, '0').slice(0, 64)
-      );
+      // The server's `machine_id` domain is sha256hex, ^[0-9a-f]{64}$, but it treats the
+      // value as an opaque id — any 64 lowercase hex chars are accepted. The IDFV is 32 hex
+      // digits (a UUID), so it is lowercased, de-dashed and left-padded with zeros rather
+      // than hashed, which keeps expo-crypto out of the dependency list.
+      const machineId = vendorId
+        .toLowerCase()
+        .replace(/[^0-9a-f]/g, '')
+        .slice(-64)
+        .padStart(64, '0');
+
+      const tokens = await api.signInWithApple(credential.identityToken, machineId);
       await api.setTokens(tokens.access_token, tokens.refresh_token);
       setSignedIn(true);
       setStatus('Signed in. Pull to refresh on Sessions.');

@@ -1,5 +1,5 @@
-import { Link, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { Link, useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -50,9 +50,13 @@ export default function SessionsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // On focus, not on mount: coming back from Settings after signing in should show the
+  // user's own sessions without a manual pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
