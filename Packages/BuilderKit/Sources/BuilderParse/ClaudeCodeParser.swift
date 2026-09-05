@@ -18,7 +18,12 @@ public struct ClaudeCodeParser: HarnessParser {
     ///    record beginning `[Request interrupted by user` is an `.interrupt`. Both were
     ///    `.noise` under version 1, so every already-ingested remote session must be
     ///    re-read or it stays filed as unattended (docs/session-boundaries.md).
-    public let parserVersion = 2
+    /// 3: `LivePathResolver` resolves the DAG as a forest and treats only a fork whose
+    ///    surviving child is a human record as a rewind. Under version 2 parallel tool
+    ///    calls, stop-hook continuations and second roots were filed as rewound (575 records
+    ///    on one machine, `scripts/measure_live_path.py`); `on_live_path` is written at
+    ///    ingest, so every source must be re-read.
+    public let parserVersion = 3
 
     private let projectsRoot: String
 
