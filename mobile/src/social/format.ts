@@ -114,46 +114,6 @@ export function replaceItem<T extends { id: string }>(items: T[], next: T): T[] 
 
 // ------------------------------------------------------------ own post lookup
 
-/** A page loader over the viewer's own posts, newest first (`GET /v1/users/{handle}`). */
-export type OwnPostsLoader = (cursor: Cursor | null) => Promise<FeedPage>;
-
-/** Pages the lookup will read before giving up: 4 × 30 posts. */
-export const OWN_POST_LOOKUP_MAX_PAGES = 4;
-
-/** Clock skew allowed between the Mac's `ended_at` and the server's post `created_at`. */
-export const OWN_POST_LOOKUP_SLACK_MS = 24 * 3600 * 1000;
-
-/**
- * Find the viewer's post for a session by paging their own posts, newest first.
- *
- * There is no `GET /v1/posts?session_id=` and the session detail carries `is_shared` but
- * no post id, so the post has to be found. Two stops besides "found" and "no more pages":
- * a post is created only after its session is `final`, so a page whose oldest post
- * predates the session's `ended_at` (minus a day of slack for the two clocks) means every
- * remaining page is older still; and a hard page cap, because a lookup on mount must not
- * turn into a crawl of someone's entire history.
- */
-export async function findPostForSession(
-  load: OwnPostsLoader,
-  sessionId: string,
-  endedAt: string,
-  maxPages: number = OWN_POST_LOOKUP_MAX_PAGES
-): Promise<FeedItem | null> {
-  const endedMs = Date.parse(endedAt);
-  const floor = Number.isNaN(endedMs) ? Number.NEGATIVE_INFINITY : endedMs - OWN_POST_LOOKUP_SLACK_MS;
-  let cursor: Cursor | null = null;
-  for (let page = 0; page < maxPages; page++) {
-    const p: FeedPage = await load(cursor);
-    const hit = p.items.find((it) => it.session.id === sessionId);
-    if (hit) return hit;
-    const last = p.items[p.items.length - 1];
-    if (last && Date.parse(last.created_at) < floor) return null;
-    cursor = nextCursor(p);
-    if (!cursor) return null;
-  }
-  return null;
-}
-
 /**
  * The one 409 from `POST /v1/posts` that means "this already worked": the session has a
  * post. The other 409 there ("a live session cannot be shared until it finishes") is a

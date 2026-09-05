@@ -71,6 +71,13 @@ export interface SessionDetail {
   unattended: boolean;
   timeline_fidelity: string;
   is_shared: boolean;
+  /**
+   * The VIEWER'S OWN post for this session (any visibility), null when there is none. The
+   * server sends it on every session shape (list, live, profile live, detail); it is
+   * optional here only because a server older than the field omits it, and the screen
+   * must read "unknown" rather than "no post" from that absence.
+   */
+  post_id?: string | null;
   /** Only on the detail endpoint; absent from the list. Null when no strip was stored. */
   strip?: SessionStrip | null;
   stats?: SessionStats | null;

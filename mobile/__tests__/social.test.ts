@@ -6,15 +6,12 @@
 
 import { describe, expect, test } from 'bun:test';
 
-import type { Cursor, FeedItem, FeedPage } from '../src/data/api';
+import type { FeedItem, FeedPage } from '../src/data/api';
 import {
   applyKudos,
-  findPostForSession,
   isAlreadySharedConflict,
   nextCursor,
   normalizeFactionCode,
-  OWN_POST_LOOKUP_MAX_PAGES,
-  OWN_POST_LOOKUP_SLACK_MS,
   relativeTime,
   replaceItem,
   revertKudos,
@@ -144,79 +141,6 @@ describe('kudos rollback touches only the two kudos fields', () => {
   test('updateKudos never resurrects a row a refresh dropped', () => {
     const list = [{ ...tapped, id: 'p2' }];
     expect(updateKudos(list, 'p1', { kudos_count: 1, you_kudosed: true })).toEqual(list);
-  });
-});
-
-describe('findPostForSession', () => {
-  const ended = '2026-09-01T12:00:00.000Z';
-  const item = (id: string, sessionId: string, createdAt: string) =>
-    ({ id, session: { id: sessionId }, created_at: createdAt }) as unknown as FeedItem;
-
-  /** A loader over fixed pages that records the cursors it was asked for. */
-  function pages(all: FeedItem[][]) {
-    const asked: (Cursor | null)[] = [];
-    const load = async (cursor: Cursor | null): Promise<FeedPage> => {
-      asked.push(cursor);
-      const i = cursor ? Number(cursor.beforeId) : 0;
-      const items = all[i] ?? [];
-      const more = i + 1 < all.length;
-      return {
-        items,
-        next_before: more ? items[items.length - 1]!.created_at : null,
-        next_before_id: more ? String(i + 1) : null,
-      };
-    };
-    return { load, asked };
-  }
-
-  test('finds the post on a later page and stops there', async () => {
-    const { load, asked } = pages([
-      [item('a', 'other', '2026-09-03T00:00:00Z')],
-      [item('b', 'mine', '2026-09-02T00:00:00Z')],
-      [item('c', 'older', '2026-09-01T00:00:00Z')],
-    ]);
-    const found = await findPostForSession(load, 'mine', ended);
-    expect(found?.id).toBe('b');
-    expect(asked.length).toBe(2);
-  });
-
-  test('stops once a page is older than the session ended (a post cannot predate its session)', async () => {
-    const tooOld = new Date(Date.parse(ended) - OWN_POST_LOOKUP_SLACK_MS - 1000).toISOString();
-    const { load, asked } = pages([
-      [item('a', 'other', '2026-09-03T00:00:00Z'), item('b', 'other2', tooOld)],
-      [item('c', 'mine', '2026-08-01T00:00:00Z')],
-    ]);
-    expect(await findPostForSession(load, 'mine', ended)).toBeNull();
-    expect(asked.length).toBe(1);
-  });
-
-  test('a post within the slack of ended_at is still reached', async () => {
-    const skewed = new Date(Date.parse(ended) - OWN_POST_LOOKUP_SLACK_MS + 1000).toISOString();
-    const { load } = pages([[item('a', 'other', '2026-09-03T00:00:00Z')], [item('b', 'mine', skewed)]]);
-    expect((await findPostForSession(load, 'mine', ended))?.id).toBe('b');
-  });
-
-  test('stops at the last page and at the page cap', async () => {
-    const short = pages([[item('a', 'other', '2026-09-03T00:00:00Z')]]);
-    expect(await findPostForSession(short.load, 'mine', ended)).toBeNull();
-    expect(short.asked.length).toBe(1);
-
-    const endless = pages(
-      Array.from({ length: OWN_POST_LOOKUP_MAX_PAGES + 3 }, (_, i) => [
-        item(`p${i}`, `s${i}`, '2026-09-03T00:00:00Z'),
-      ])
-    );
-    expect(await findPostForSession(endless.load, 'mine', ended)).toBeNull();
-    expect(endless.asked.length).toBe(OWN_POST_LOOKUP_MAX_PAGES);
-  });
-
-  test('an unparseable ended_at disables the date stop but not the cap', async () => {
-    const { load, asked } = pages([
-      [item('a', 'other', '2020-01-01T00:00:00Z')],
-      [item('b', 'mine', '2019-01-01T00:00:00Z')],
-    ]);
-    expect((await findPostForSession(load, 'mine', 'not a date'))?.id).toBe('b');
-    expect(asked.length).toBe(2);
   });
 });
 

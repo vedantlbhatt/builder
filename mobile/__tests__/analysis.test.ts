@@ -107,6 +107,7 @@ describe('live lines', () => {
     unattended: false,
     timeline_fidelity: 'full',
     is_shared: false,
+    post_id: null,
     state: 'live',
   } satisfies SessionDetail;
 

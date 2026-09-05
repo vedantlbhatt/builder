@@ -27,7 +27,6 @@ import {
 import * as cache from '../../src/data/cache';
 import { api, SAMPLE_SESSION } from '../../src/data/client';
 import {
-  findPostForSession,
   isAlreadySharedConflict,
   VISIBILITIES,
   visibilityLabel,
@@ -50,25 +49,15 @@ import { colors, compactNumber, duration, hitSlopToReach, space } from '../../sr
 const c = colors('dark');
 
 /**
- * Resolve the viewer's own post for a session, or null when there is none to show.
- *
- * The server keeps `sessions.is_shared` in step with the post but sends no post id, and
- * there is no lookup by session; the viewer's own posts (`GET /v1/users/{handle}`) are
- * the closest thing, so page those. No handle yet means no page to read, and the caller
- * falls back to the "posted" row without a Delete.
+ * The viewer's own post for this session, from the id the detail carries. `post_id` is the
+ * server's answer for ANY visibility — a private post too, which `is_shared` deliberately
+ * leaves down — and null when there is none. The row itself (visibility, Delete) comes
+ * from GET /v1/posts/{id}. A server older than the field omits it; then `is_shared` alone
+ * decides, and the row reads "posted" without a Delete.
  */
-async function lookUpOwnPost(sessionId: string, endedAt: string): Promise<FeedItem | null> {
-  const me = await api.getMe();
-  if (!me.handle) return null;
-  const handle = me.handle;
-  return findPostForSession(
-    async (cursor) => {
-      const page = await api.user(handle, cursor ?? undefined);
-      return { items: page.posts, next_before: page.next_before, next_before_id: page.next_before_id };
-    },
-    sessionId,
-    endedAt
-  );
+function sharedFromDetail(s: SessionDetail): boolean {
+  if (s.post_id === undefined) return s.is_shared;
+  return s.post_id !== null;
 }
 
 export default function SessionScreen() {
@@ -92,7 +81,7 @@ export default function SessionScreen() {
     const show = (s: SessionDetail, code: string) => {
       setSession(s);
       setModel(toCardModel(s, code));
-      setShared(s.is_shared);
+      setShared(sharedFromDetail(s));
     };
     (async () => {
       if (id === 'sample') {
@@ -112,16 +101,17 @@ export default function SessionScreen() {
   }, [id]);
 
   // A session posted on a previous visit, after a restart, or from another device: the
-  // detail says `is_shared` and this mount has no post. Find it, so the row can carry
+  // detail names the post and this mount does not hold it. Load the row, so it can carry
   // its visibility and Delete rather than "Post to the feed" and a 409.
-  const endedAt = session?.ended_at;
+  const postId = session?.post_id ?? null;
   useEffect(() => {
-    if (!shared || post || !id || id === 'sample' || !endedAt) return;
+    if (!postId || post?.id === postId || !id || id === 'sample') return;
     let cancelled = false;
     setLooking(true);
-    lookUpOwnPost(id, endedAt)
+    api
+      .post(postId)
       .then((found) => {
-        if (!cancelled && found) setPost(found);
+        if (!cancelled) setPost(found);
       })
       .catch(() => {
         // The row still says "posted"; only the Delete is missing, and the feed has it.
@@ -132,7 +122,7 @@ export default function SessionScreen() {
     return () => {
       cancelled = true;
     };
-  }, [shared, post, id, endedAt]);
+  }, [postId, post, id]);
 
   if (!model || !session) {
     return (
@@ -209,6 +199,8 @@ export default function SessionScreen() {
                         await api.deletePost(post.id);
                         setPost(null);
                         setShared(false);
+                        // Forget the id too, or the loader above would fetch a deleted post.
+                        setSession((cur) => (cur ? { ...cur, post_id: null, is_shared: false } : cur));
                         // The cached detail is what the next visit shows first.
                         void cache.putDetail({ ...session, is_shared: false }).catch(() => undefined);
                       } catch (e) {
@@ -223,8 +215,8 @@ export default function SessionScreen() {
             </Pressable>
           </View>
         ) : shared ? (
-          // The post exists but this mount does not hold it (no handle to page, or it is
-          // deeper than the lookup reads). Never offer to post again: the server would
+          // The post exists but this mount does not hold it (an older server sent no id, or
+          // the row failed to load). Never offer to post again: the server would
           // answer 409. The feed is where the post — and its Delete — live.
           <View style={[postedBox, { flexDirection: 'row', alignItems: 'center' }]}>
             <Text style={{ color: c.text, fontSize: 14, flex: 1 }}>Posted to the feed</Text>
@@ -259,16 +251,27 @@ export default function SessionScreen() {
           setPost(p);
           setShared(true);
           setComposing(false);
-          // Mirror the server's `_set_shared`: a private post leaves the flag down.
-          void cache
-            .putDetail({ ...session, is_shared: p.visibility !== 'private' })
-            .catch(() => undefined);
+          // Mirror the server's `_set_shared`: a private post leaves the flag down; the
+          // post id is what says "posted" for every visibility.
+          const next = { ...session, is_shared: p.visibility !== 'private', post_id: p.id };
+          setSession(next);
+          void cache.putDetail(next).catch(() => undefined);
         }}
         onAlreadyPosted={() => {
           // A private post, or one made between the detail load and now: the server
-          // says it exists. Switch to the posted state and let the lookup find the row.
+          // says it exists. Switch to the posted state and re-read the detail for its id,
+          // which the loader above turns into the row.
           setShared(true);
           setComposing(false);
+          if (id && id !== 'sample') {
+            void api
+              .session(id)
+              .then(async (fresh) => {
+                setSession(fresh);
+                await cache.putDetail(fresh);
+              })
+              .catch(() => undefined);
+          }
         }}
       />
 

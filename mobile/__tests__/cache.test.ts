@@ -53,6 +53,7 @@ function session(id: string, extra: Partial<SessionDetail> = {}): SessionDetail 
     unattended: false,
     timeline_fidelity: 'full',
     is_shared: false,
+    post_id: null,
     ...extra,
   };
 }
