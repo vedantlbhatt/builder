@@ -14,8 +14,15 @@ Mac's final payload arrives. Four rules, in the order they are checked:
    `!unattended` for a long time, and the whole point of the second title is that an
    overnight run is worth looking at even though it can never be a record.
 4. Backfill must be silent. First launch finalizes the whole history at once, and an
-   alert is only meaningful if it is news, so anything observed more than
+   alert is only meaningful if it is news, so any session that ENDED more than
    `NOTIFY_HORIZON_SEC` ago is RECORDED as notified (`suppressed_stale`) and not sent.
+   The horizon is measured from the session's own `ended_at`, never from
+   `agent_observed_at`: the Mac stamps that field with `Date()` when it BUILDS the payload
+   (SyncCommand.swift), so on first pairing — or after any server reset — every historical
+   final arrives with `existing=None` and an observation age of seconds. Anchored there,
+   the horizon is unreachable by real traffic and the whole history is announced. That is
+   the exact failure this rule exists to prevent, and `SessionLifecycle.staleNotification
+   Seconds` on the Mac anchors on `endedAt` for the same reason.
 
 The decision and its record happen inside the upload transaction; the send happens after
 it commits (routes/sync.py). A push failure can therefore never roll back an upload, and
@@ -34,11 +41,28 @@ from .contract import SessionUpload
 #: Mirrors `Tuning.tauSessionSec` (900 s), the idle gap that ends 99.8% of sessions.
 TAU_SESSION_SEC = 900
 
+#: Mirrors `Daemon.Config.tickSeconds` (30 s): the lifecycle tick that notices a gap has
+#: crossed `tauSessionSec` and finalizes the session.
+DAEMON_TICK_SEC = 30
+
+#: Mirrors `Tuning.liveUploadMinIntervalSec` (60 s), "one tick of the daemon, which is the
+#: finest cadence anything upstream changes at" — the most a sync pass trails a finalize.
+SYNC_PASS_SEC = 60
+
+#: How long after a session ENDS its final payload arrives, when everything is on time:
+#: the gap has to reach `tauSessionSec` before the lifecycle can call it over, the next
+#: daemon tick finalizes it, and the next sync pass uploads it.
+#:
+#:     900 + 30 + 60 = 990 s  ->  "about 1000 s after ended_at"
+EXPECTED_FINAL_LAG_SEC = TAU_SESSION_SEC + DAEMON_TICK_SEC + SYNC_PASS_SEC
+
 #: "Anything older than twice the session threshold is recorded as notified without
-#: being delivered." A final payload arrives, in practice, one poll after the gap closes,
-#: so twice the gap is a generous "this just happened"; a first-run backfill is hours to
-#: years behind it.
+#: being delivered." Mirrors `SessionLifecycle.staleNotificationSeconds`
+#: (`Tuning.tauSessionSec * 2`) and, like it, is measured from the session's END: a
+#: genuine transition lands ~990 s after `ended_at`, so 1800 s leaves ~13 minutes for a
+#: late tick or a slow sync, while a first-run backfill is hours to years behind it.
 NOTIFY_HORIZON_SEC = 2 * TAU_SESSION_SEC
+assert NOTIFY_HORIZON_SEC > EXPECTED_FINAL_LAG_SEC, "an on-time final must clear the horizon"
 
 #: The ends that mean the work stopped. Everything else is a cut, not a stop.
 NOTIFYING_END_REASONS = frozenset({"idle_gap"})
@@ -84,7 +108,10 @@ def plan(db, session_id, p: SessionUpload, existing, now: datetime | None = None
     if already is not None:
         return None
 
-    age = ((now or datetime.now(UTC)) - p.agent_observed_at).total_seconds()
+    # The session's own clock, not the payload's. `agent_observed_at` is always "now" on
+    # a shipped client (see the module docstring), so it cannot tell a backfill from a
+    # transition; `ended_at` can, and it is the same clock the Mac's lifecycle uses.
+    age = ((now or datetime.now(UTC)) - p.ended_at).total_seconds()
     if age > NOTIFY_HORIZON_SEC:
         _record(db, session_id, "suppressed_stale")
         return None

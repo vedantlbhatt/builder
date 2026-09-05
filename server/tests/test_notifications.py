@@ -58,20 +58,26 @@ def sent(monkeypatch):
     return calls
 
 
-def _fresh_final(minutes_ago: int = 5, **overrides) -> dict:
-    """A final, notable, attended session whose end was observed `minutes_ago`.
+def _fresh_final(ended_seconds_ago: int = 1000, **overrides) -> dict:
+    """A final, notable, attended session that ENDED `ended_seconds_ago`.
 
-    1h 42m attended (6120 s), observed five minutes ago by default — well inside the
-    2 x 900 s horizon."""
-    observed = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=minutes_ago)
-    ended = observed - timedelta(minutes=15)
+    1h 42m attended (6120 s). The default end is 1000 s ago — what an on-time final looks
+    like (notify.EXPECTED_FINAL_LAG_SEC: 900 s gap + 30 s tick + 60 s sync pass) and well
+    inside the 1800 s horizon.
+
+    `agent_observed_at` is always NOW, whatever the end was, because that is what the
+    shipped client sends: SyncCommand.swift stamps it with `Date()` at payload-build
+    time. A fixture that back-dated it would let a horizon anchored on the wrong field
+    pass its own test."""
+    now = datetime.now(UTC).replace(microsecond=0)
+    ended = now - timedelta(seconds=ended_seconds_ago)
     base = {
         "started_at": ended - timedelta(seconds=6120),
         "ended_at": ended,
         "active_seconds": 6120,
         "attended_seconds": 6120,
         "autonomous_seconds": 0,
-        "agent_observed_at": observed,
+        "agent_observed_at": now,
     }
     base.update(overrides)
     return _payload(**base)
@@ -148,16 +154,24 @@ def test_a_live_upload_sends_nothing_and_its_final_sends_once(client, paired, se
     assert _recorded(uid) == {csid: "session_finished"}
 
 
-def test_a_final_observed_three_hours_ago_is_recorded_as_suppressed_not_sent(client, paired, sent):
+def test_a_backfilled_final_that_ended_three_hours_ago_is_suppressed_not_sent(client, paired, sent):
     """Backfill must be silent — and the silence must be remembered, or a later
-    re-upload of the same session would find no record and announce it after all."""
+    re-upload of the same session would find no record and announce it after all.
+
+    This is the first-pairing shape exactly: the session ended hours ago, the server has
+    never seen it (existing=None), and `agent_observed_at` is seconds old because the Mac
+    stamped it when it built the payload. A horizon measured from the observation time
+    sees a fresh session here and announces the whole history; the earlier version of
+    this test only passed because it hand-set the observation 180 minutes back, which no
+    shipped client does."""
     uid, headers = paired
-    stale = _fresh_final(minutes_ago=180, analysis=SAMPLE_ANALYSIS)
-    _upload(client, headers, stale)
+    stale = _fresh_final(ended_seconds_ago=3 * 3600, analysis=SAMPLE_ANALYSIS)
+    assert stale["agent_observed_at"] > stale["ended_at"]  # observed now, ended long ago
+    assert _upload(client, headers, stale)["accepted"] == 1
     assert sent == []
     assert _recorded(uid) == {stale["client_session_id"]: "suppressed_stale"}
 
-    # Even if a refresh arrives with a fresh observation time.
+    # A refresh with yet another fresh observation time changes nothing.
     fresh_again = {
         **stale,
         "content_hash": uuid.uuid4().hex * 2,
@@ -166,6 +180,67 @@ def test_a_final_observed_three_hours_ago_is_recorded_as_suppressed_not_sent(cli
     _upload(client, headers, fresh_again)
     assert sent == []
     assert _recorded(uid) == {stale["client_session_id"]: "suppressed_stale"}
+
+
+def test_seventy_one_historical_finals_on_first_pairing_send_nothing(client, paired, sent):
+    """The number from CLAUDE.md, run through the route as one backfill batch. Every one
+    is notable, every one is `idle_gap`, every one is observed just now, and every one
+    ended at least an hour ago. None may be delivered; all must be remembered."""
+    uid, headers = paired
+    history = [
+        _fresh_final(ended_seconds_ago=3600 + i * 7200, analysis=SAMPLE_ANALYSIS) for i in range(71)
+    ]
+    assert _upload(client, headers, *history)["accepted"] == 71
+    assert sent == []
+    assert set(_recorded(uid).values()) == {"suppressed_stale"}
+    assert len(_recorded(uid)) == 71
+
+
+def test_the_horizon_is_measured_from_ended_at_not_agent_observed_at(client, paired, sent):
+    """The positive case that pins the anchor. An on-time final — ended 1000 s ago, which
+    is one gap, one tick and one sync pass — is delivered. The same payload with the
+    observation time pushed hours back is STILL delivered, because the observation time
+    is not part of the decision; and a payload observed just now whose end is past the
+    horizon is not."""
+    uid, headers = paired
+
+    on_time = _fresh_final(ended_seconds_ago=1000)
+    _upload(client, headers, on_time)
+    assert [c["session_id"] for c in sent] and sent[-1]["title"].startswith("Session finished")
+    assert _recorded(uid)[on_time["client_session_id"]] == "session_finished"
+
+    observed_long_ago = _fresh_final(
+        ended_seconds_ago=1000,
+        agent_observed_at=datetime.now(UTC) - timedelta(hours=6),
+    )
+    _upload(client, headers, observed_long_ago)
+    assert _recorded(uid)[observed_long_ago["client_session_id"]] == "session_finished"
+    assert len(sent) == 2
+
+    # Just past the horizon: 1800 s + a tick. Observed now, like everything else.
+    just_stale = _fresh_final(ended_seconds_ago=1800 + 30)
+    _upload(client, headers, just_stale)
+    assert _recorded(uid)[just_stale["client_session_id"]] == "suppressed_stale"
+    assert len(sent) == 2
+
+
+def test_a_naive_timestamp_is_a_422_not_a_500(client, paired, sent):
+    """`agent_observed_at`, `started_at` and `ended_at` are `AwareDatetime` on the wire.
+    A timezone-less string used to parse as a naive datetime, and the first
+    `now(UTC) - naive` in notify.plan raised TypeError out of the transaction: the whole
+    batch rolled back and the client saw a 500 with no session named. Now the contract
+    rejects it at the door, before anything touches the database."""
+    uid, headers = paired
+    good = _fresh_final()
+    for field in ("agent_observed_at", "started_at", "ended_at"):
+        bad = {**_fresh_final(), field: good[field].replace("Z", "").split("+")[0]}
+        assert "Z" not in bad[field] and "+" not in bad[field], bad[field]
+        r = client.post("/v1/sync/sessions:batch", json={"sessions": [good, bad]}, headers=headers)
+        assert r.status_code == 422, r.text
+        locs = [tuple(e["loc"]) for e in r.json()["detail"]]
+        assert ("body", "sessions", 1, field) in locs, locs
+    assert sent == []
+    assert _recorded(uid) == {}
 
 
 def test_an_unattended_run_gets_the_run_title(client, paired, sent):

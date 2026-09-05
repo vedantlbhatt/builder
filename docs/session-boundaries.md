@@ -103,6 +103,14 @@ start it — but its **record eligibility uses `attended_seconds`, never `active
 That closes the hole the old rule left open: the 5h40m "longest session" that was a
 machine's record would now score its attended minutes.
 
+Either notification is sent only if the session **ended** within `2 × tauSessionSec`
+(1800 s) of being finalized; older ones are recorded as `suppressed_stale` and never sent,
+so a first-launch backfill is silent. The horizon is measured from `ended_at` on both the
+Mac (`SessionLifecycle.staleNotificationSeconds`) and the server (`notify.NOTIFY_HORIZON_SEC`),
+never from `agent_observed_at`, which the client stamps at payload-build time and is
+therefore always "now". An on-time final lands about 1000 s after the end (900 s gap +
+30 s tick + 60 s sync pass), so 1800 s leaves ~13 minutes for a late tick.
+
 "Agent run finished" is a new notification class. It is genuinely useful — it is the
 moment you want to look at what happened — and it is exactly the case the old design
 silenced because `notable` folded in `!unattended`. It does not count as a record and it
