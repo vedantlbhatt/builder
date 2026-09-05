@@ -1,6 +1,6 @@
 SWIFT_PKG := Packages/BuilderKit
 
-.PHONY: help gen check-gen build test scan watch doctor share clean
+.PHONY: help gen check-gen build test scan watch doctor share clean measure analyze fixtures
 
 help:
 	@echo "gen        regenerate everything from privacy/, spec/ and design/"
@@ -10,6 +10,9 @@ help:
 	@echo "scan       parse everything on disk into the local store"
 	@echo "watch      run the daemon: watch, sessionize, notify on completion"
 	@echo "doctor     diagnostics, per-source row counts, records, rollups"
+	@echo "measure    what the session-boundary rules do to ~/.claude/projects (read-only)"
+	@echo "analyze    T=<transcript.jsonl>  digest it and have your own Claude Code read it"
+	@echo "fixtures   regenerate spec/fixtures/boundaries from the reference implementation"
 
 # The four specs are the only hand-edited definitions of the wire payload, the strip
 # format, the palette and the session analysis. Everything downstream is generated into
@@ -53,3 +56,17 @@ share:
 
 clean:
 	swift package --package-path $(SWIFT_PKG) clean
+
+# Read-only: presence-interval distribution and the sensitivity grid for the two boundary
+# thresholds that ship as judgement calls (docs/session-boundaries.md). Run it on your own
+# corpus before changing either number.
+measure:
+	@python3 scripts/measure_boundaries.py $${ROOT:-$$HOME/.claude/projects}
+
+# One session, end to end: digest -> claude -p -> validated SessionAnalysis JSON.
+analyze:
+	@test -n "$(T)" || (echo "usage: make analyze T=path/to/transcript.jsonl"; exit 2)
+	@python3 -m analysis run "$(T)" --out "$${OUT:-analysis.json}"
+
+fixtures:
+	@python3 scripts/gen_boundary_fixtures.py

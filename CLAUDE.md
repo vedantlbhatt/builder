@@ -170,8 +170,16 @@ make share        render the last notable session to a PNG
 
 ./scripts/make_app.sh          assemble Builder.app
 cd mobile && bun test          strip conformance, same fixtures as Swift
-cd server && pytest            contract, RLS, boot guard
+cd server && pytest            contract, RLS, boot guard, auth bootstrap
+make measure                   boundary rules over your corpus, read-only
+make analyze T=<jsonl>         digest + your own Claude Code -> SessionAnalysis
+python -m analysis probe DIR   what record shapes a foreign transcript store holds
 ```
+
+Design notes worth reading before touching the corresponding code: `docs/session-boundaries.md`
+(when a session ends, two clocks, three cuts), `docs/analysis.md` (the digest rules and the
+prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/social.md`
+(the layer that is deliberately not built yet).
 
 ## What each suite is actually for
 
