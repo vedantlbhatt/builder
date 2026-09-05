@@ -79,12 +79,35 @@ the CLI's schema validator rejects a `$schema` header, so it is stripped.
 
 ## When it runs (agent)
 
-On finalization, for every end reason — so after a `human_returned` end the first thing you
-see when you sit down is what happened while you were away. For a live session in an
-autonomous run, a checkpoint every `Tuning.analysisCheckpointSec` (2 h), so the phone can
-answer "what has it done so far" at 3 a.m. Results are stored in the durable store (they
-cost money to regenerate), keyed by session and digest hash, and attached to the next
-upload when analysis upload is on.
+For every session the lifecycle holds `final`, for every end reason — so after a
+`human_returned` end the first thing you see when you sit down is what happened while you
+were away. For a live session in an autonomous run, a checkpoint every
+`Tuning.analysisCheckpointSec` (2 h), so the phone can answer "what has it done so far" at
+3 a.m. Results are stored in the durable store (they cost money to regenerate), keyed by
+session and digest hash, and attached to the next upload when analysis upload is on.
+
+The final trigger is the *state*, not the transition into it. `AnalysisScheduler.consider`
+runs on every tick and offers a final job to any `final` session that is worth analysing,
+ended within `backfillHorizonSec` (24 h), has no final row — a surviving checkpoint row
+does not count — and has not failed within `retryAfterFailureSec` (30 min). An earlier
+version offered the job only on the tick where the lifecycle transition fired, so a
+`claude -p` that failed on that tick (CLI not on a Finder-launched app's PATH, the 480 s
+timeout, a locked database, a transient exit 1) was never retried, and the run's last
+checkpoint went up on the final upload as if it were the reading of the whole session. Two
+rules now hold: a failed final is re-offered once the backoff expires, at most
+`backfillHorizonSec / retryAfterFailureSec` = 48 times before it is left to
+`builder analyze --all-missing`; and `builder sync` attaches a checkpoint row only to a
+`live` upload — a `final` upload without a final row goes up with no analysis rather than
+the wrong one (`AnalysisSchedulerTests`).
+
+The digest reads ROOT transcripts only. Subagent sidecars
+(`<projectdir>/<uuid>/subagents/*.jsonl`) are ingested with the parent's cwd, repo and
+timestamps, so a query by pool and window would hand the Swift digest two files where
+`analysis/digest.py` reads one, and the two would never again agree on `digest_hash`.
+`AnalysisJob.make` filters `is_sidechain = 0` on the event query and then applies
+`ClaudeCodeParser.isRootTranscript` — the allowlist on path shape — to every resolved file,
+recovering the path relative to the project directory from the source id
+(`DigestTests.sidecarContributesNothingToTheDigest`).
 
 ## What the numbers are not
 

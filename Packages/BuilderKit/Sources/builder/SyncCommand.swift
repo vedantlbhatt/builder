@@ -304,15 +304,17 @@ enum SyncCommand {
             // notable span is unattended, any presence at all is not.
             let unattended = presence == 0 && (s.bool(42) || active >= Int(Tuning.notableMinActiveSec))
 
-            // The stored analysis, whichever is newest (a checkpoint until the final one
-            // lands). Attached only when upload is on, so it is also folded into the
-            // hash only then.
+            // The stored analysis. A checkpoint row rides ONLY a live upload: the wire
+            // carries no checkpoint marker, so a mid-run reading attached to a `final`
+            // upload would be presented as the reading of the whole session. That
+            // happened whenever the final `claude -p` failed and left the run's last
+            // checkpoint as the only row; the scheduler now retries the final, and until
+            // it lands the final upload goes up with no analysis rather than the wrong
+            // one. Attached only when upload is on, and it is inside the hash only then.
             var analysis: SessionAnalysis?
-            var analysisTag = "-"
-            if attachAnalysis, let rec = analyses[id] {
+            if attachAnalysis, let rec = analyses[id], !(rec.checkpoint && !isLive) {
                 if let decoded = try? rec.decoded() {
                     analysis = decoded
-                    analysisTag = "\(rec.digestHash)|\(rec.generatedAt)|\(rec.checkpoint)"
                 } else {
                     FileHandle.standardError.write(
                         Data("warning: stored analysis for \(id.prefix(8)) did not decode; not attached\n".utf8))
@@ -321,32 +323,31 @@ enum SyncCommand {
 
             let title = isPublic ? s.text(40) : nil
 
-            // The content hash is what makes re-sync free. It covers everything that can
-            // change, so an unchanged session is skipped without the server being asked —
-            // and everything that CAN change must be in it, or a live→final flip, a title
-            // that arrives later, a re-derived strip or a fresh analysis comes back
-            // `unchanged` from /v1/sync/known and is never refreshed.
-            let stripTag =
-                strip.map {
-                    Hashing.sha256Hex(Data($0.cols)) + "|"
-                        + $0.marks.map { "\($0.ms):\($0.k)" }.joined(separator: ",")
-                } ?? "nostrip"
-            let hashInput =
-                "\(id)|\(endedTS)|\(s.double(4) ?? 0)|\(s.int(19) ?? 0)"
-                + "|\(s.int(21) ?? 0)|\(s.int(11) ?? 0)|\(tokensReported)|\(isPublic)"
-                + "|\(uploadState)|\(endReason)|\(attended)|\(autonomous)|\(presence)|\(unattended)"
-                + "|\(title ?? "")|\(stripTag)|\(analysisTag)"
-
-            out.append(
-                SessionUpload(
+            // The content hash is what makes re-sync free: `sync()` skips a payload whose
+            // hash /v1/sync/known already holds, and the server answers `unchanged` on a
+            // match. So it must cover EVERYTHING the server would store, or a re-ingest
+            // that moves only some field never re-syncs. An earlier hand-picked list
+            // covered 17 fields and missed the token buckets, the tool counts, files
+            // touched/created, lines removed, commit insertions/deletions, models,
+            // model_state, abandoned_branch_tokens and both version stamps — a parser
+            // fix that corrected token totals would have left every synced session
+            // wrong on the server forever, with nothing anywhere saying so.
+            //
+            // The hash is therefore of the ENCODED PAYLOAD ITSELF — the same bytes the
+            // wire carries, through the same `SessionUpload.encoder()` (sorted keys,
+            // ISO-8601 dates), with the three fields that describe this upload rather
+            // than the session held constant: `content_hash` empty, `agent_observed_at`
+            // at the epoch, `client_clock_offset_ms` at 0. A field cannot be on the wire
+            // and outside the hash.
+            var upload = SessionUpload(
                     clientSessionID: id,
                     machineID: machineID,
-                    contentHash: Hashing.sha256Hex(hashInput),
+                    contentHash: "",  // held constant while hashing; set below
                     clientVersion: "0.1.0",
                     sessionizerVersion: Tuning.sessionizerVersion,
                     activeCalcVersion: Tuning.activeCalcVersion,
                     harness: harness,
-                    agentObservedAt: Date(),
+                    agentObservedAt: Date(timeIntervalSince1970: 0),  // held constant; set below
                     clientClockOffsetMs: 0,
                     startedAt: started,
                     endedAt: ended,
@@ -393,7 +394,10 @@ enum SyncCommand {
                     autonomousSeconds: autonomous,
                     presenceCount: presence,
                     unattended: unattended,
-                    analysis: analysis))
+                    analysis: analysis)
+            upload.contentHash = Hashing.sha256Hex(try SessionUpload.encoder().encode(upload))
+            upload.agentObservedAt = Date()
+            out.append(upload)
         }
 
         return out

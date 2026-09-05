@@ -2,6 +2,8 @@ import BuilderAnalysis
 import BuilderIngest
 import BuilderModel
 import BuilderParse
+import BuilderSchema
+import BuilderSQLite
 import Foundation
 import Testing
 
@@ -199,6 +201,107 @@ struct DigestTests {
         #expect(d.coverage == 0.486)
         #expect(d.text.unicodeScalars.count == 60531)
         #expect(d.hash == "0615d4abbe6e0823833030e7078c91d6d38c4fe7f6722865c9136f6ebb4e7530")
+    }
+
+    // MARK: - Root transcripts only
+
+    /// A subagent sidecar is ingested with its parent's cwd, repo and timestamps, so the
+    /// scheduler's pool predicate alone would hand the digest two files where the Python
+    /// reference reads one — and the two would never again agree on `digest_hash`.
+    ///
+    /// The fixture tree is exactly what `~/.claude/projects` holds: the root at
+    /// `<projectdir>/<uuid>.jsonl` and a sidecar at `<projectdir>/<uuid>/subagents/agent-x.jsonl`,
+    /// ingested through the real coordinator into a scratch store, sessionized with the
+    /// deriver's pooling, and resolved through `AnalysisJob.make` — the scheduler's path.
+    @Test func sidecarContributesNothingToTheDigest() throws {
+        let tmp = NSTemporaryDirectory() + "builder-digest-sidecar-\(UUID().uuidString)"
+        let proj = tmp + "/projects/proj"
+        let sidecarDir = proj + "/00000000-0000-4000-8000-000000000001/subagents"
+        try FileManager.default.createDirectory(atPath: sidecarDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+
+        let rootPath = proj + "/00000000-0000-4000-8000-000000000001.jsonl"
+        let sidecarPath = sidecarDir + "/agent-x.jsonl"
+        try FileManager.default.copyItem(atPath: try #require(Self.fixtureTranscript).path, toPath: rootPath)
+        // Inside the root's window (which opens 13:00:00Z), same cwd, flagged the way a
+        // real subagent record is; a Read call and a prompt the fixture does not have.
+        let sidecar = """
+            {"type":"user","uuid":"side-0001","parentUuid":null,"sessionId":"00000000-0000-4000-8000-000000000001","timestamp":"2026-03-10T13:00:30.000Z","cwd":"/Users/dev/proj","version":"2.1.0","isSidechain":true,"agentId":"agent-x","message":{"role":"user","content":"SIDECAR-PROMPT-MUST-NOT-APPEAR"},"promptSource":"typed"}
+            {"type":"assistant","uuid":"side-0002","parentUuid":"side-0001","sessionId":"00000000-0000-4000-8000-000000000001","timestamp":"2026-03-10T13:00:31.000Z","cwd":"/Users/dev/proj","version":"2.1.0","isSidechain":true,"agentId":"agent-x","message":{"role":"assistant","model":"claude-sonnet-5","id":"msg_side_2","content":[{"type":"tool_use","id":"tu_side_2","name":"Read","input":{"file_path":"/Users/dev/proj/SIDECAR.md"}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+
+            """
+        try sidecar.write(toFile: sidecarPath, atomically: true, encoding: .utf8)
+
+        let state = try SchemaManager.openState(path: tmp + "/state.sqlite")
+        let parser = ClaudeCodeParser(projectsRoot: tmp + "/projects")
+        try IngestCoordinator(db: state, parsers: [parser]).run()
+
+        // The deriver's pooling, so `poolKey` is what `AnalysisJob.make` expects.
+        let pooling = Sessionizer.Pooling.explicit { e in
+            "\(e.harness.rawValue)|\(e.extra?["repo_id"] ?? e.cwd ?? "unknown")"
+        }
+        let sessions = Sessionizer.sessions(
+            from: try IngestCoordinator.loadEvents(db: state),
+            options: .init(pooling: pooling, calendar: BoundaryFixtureTests.newYork))
+        let s = try #require(sessions.first)
+        #expect(sessions.count == 1)
+
+        // The negative control: the sidecar WAS ingested, inside the window, in the pool,
+        // and without the filters it would have been the second source. A test that
+        // cannot reach the code it is trying to violate passes for the wrong reason.
+        let pool = String(s.poolKey.dropFirst("claude_code|".count))
+        let sidecarTS = 1_773_147_630.0  // 2026-03-10T13:00:30Z
+        #expect(s.startedAt <= sidecarTS && sidecarTS <= s.endedAt)
+        #expect(try state.scalarInt("SELECT COUNT(*) FROM raw_event WHERE is_sidechain = 1") ?? 0 >= 2)
+        #expect(try state.scalarText(
+            "SELECT path FROM ingest_watermark WHERE path = ?", [.text(sidecarPath)]) == sidecarPath)
+        #expect(
+            try state.scalarInt(
+                """
+                SELECT COUNT(DISTINCT source_id) FROM raw_event
+                WHERE harness = 'claude_code' AND ts >= ? AND ts <= ?
+                  AND COALESCE(CAST(repo_id AS TEXT), cwd, 'unknown') = ?
+                """, [.double(s.startedAt), .double(s.endedAt), .text(pool)]) == 2)
+
+        let job = try AnalysisJob.make(for: s, checkpoint: false, state: state, repoNames: [:])
+        #expect(job.transcripts == [rootPath])
+
+        let d = try job.digest()
+        #expect(!d.text.contains("SIDECAR"))
+        #expect(!d.text.contains("Read"))
+        #expect(d.stats.promptsSent == 3)
+        #expect(d.stats.toolCalls == 54)
+        // And byte-identical to the root digested alone over the same window.
+        let alone = try SessionDigest.build(
+            harness: .claudeCode, transcripts: [rootPath], start: s.startedAt, end: s.endedAt,
+            meta: job.meta)
+        #expect(d.text == alone.text && d.hash == alone.hash)
+    }
+
+    /// The path allowlist on its own, for the layer the SQL filter cannot reach: a
+    /// sidecar whose records claim `isSidechain: false` still resolves to a path that is
+    /// not `<projectdir>/<uuid>.jsonl`, and the source id says which split of the
+    /// absolute path is the project directory.
+    @Test func onlyRootShapedPathsPassTheAllowlist() {
+        func id(_ descriptor: String) -> String {
+            Hashing.sourceID(harness: .claudeCode, descriptor: descriptor)
+        }
+        let root = "/Users/me/.claude/projects/-Users-me-app/abc.jsonl"
+        #expect(AnalysisJob.isRootTranscript(path: root, sourceID: id("-Users-me-app/abc.jsonl")))
+        #expect(AnalysisJob.claudeCodeRelativePath(path: root, sourceID: id("-Users-me-app/abc.jsonl")) == "abc.jsonl")
+
+        let sidecar = "/Users/me/.claude/projects/-Users-me-app/abc/subagents/agent-x.jsonl"
+        let sidecarID = id("-Users-me-app/abc/subagents/agent-x.jsonl")
+        #expect(AnalysisJob.claudeCodeRelativePath(path: sidecar, sourceID: sidecarID) == "abc/subagents/agent-x.jsonl")
+        #expect(!AnalysisJob.isRootTranscript(path: sidecar, sourceID: sidecarID))
+        // Not a denylist on `subagents/`: any depth under the uuid directory is a sidecar.
+        let future = "/Users/me/.claude/projects/-Users-me-app/abc/futuredir/x.jsonl"
+        #expect(!AnalysisJob.isRootTranscript(path: future, sourceID: id("-Users-me-app/abc/futuredir/x.jsonl")))
+        // A projects root of any depth, including one component, still resolves.
+        #expect(AnalysisJob.isRootTranscript(path: "/p/abc.jsonl", sourceID: id("p/abc.jsonl")))
+        // A path the id does not name is not a root — fail closed, never open.
+        #expect(!AnalysisJob.isRootTranscript(path: root, sourceID: id("-Users-me-other/abc.jsonl")))
+        #expect(!AnalysisJob.isRootTranscript(path: "abc.jsonl", sourceID: id("abc.jsonl")))
     }
 
     @Test func emptySessionRendersTheEmptyDigest() {
