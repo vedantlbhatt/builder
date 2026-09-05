@@ -23,6 +23,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import hashlib
+import itertools
 import json
 import pathlib
 import re

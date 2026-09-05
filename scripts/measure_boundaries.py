@@ -37,7 +37,6 @@ import argparse
 import datetime as dt
 import json
 import pathlib
-import statistics
 import sys
 
 TAU_SESSION = 900.0

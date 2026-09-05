@@ -19,7 +19,7 @@ import sys
 import zoneinfo
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-import measure_boundaries as mb  # noqa: E402
+import measure_boundaries as mb
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "spec" / "fixtures" / "boundaries"
