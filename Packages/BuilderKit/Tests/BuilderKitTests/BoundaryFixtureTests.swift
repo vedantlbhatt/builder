@@ -190,7 +190,8 @@ struct BoundaryFixtureTests {
         // The 04:00 piece is a cut: the work continued, so it is never announced. The
         // still-running piece IS the run that will be announced when silence ends it.
         #expect(robot.filter(\.isCut).allSatisfy { !$0.runFinished }, "a cut is not a finished run")
-        #expect(robot.filter { !$0.isCut }.allSatisfy(\.runFinished), "the live piece is the run")
+        let livePieces = robot.filter { !$0.isCut }
+        #expect(livePieces.allSatisfy { $0.runFinished }, "the live piece is the run")
         // And a robot's first human visitor opens a new session rather than joining it.
         #expect(try reasons("robot_then_human_arrives") == [.humanReturned, .stillRunning])
     }
