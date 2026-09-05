@@ -49,7 +49,13 @@ enum WatchCommand {
                 let pending = try lifecycle.pendingNotifications(
                     for: sessions, transitions: transitions)
 
-                for session in pending {
+                // Two headlines, one delivery path. A finished sitting congratulates
+                // the person; a finished unattended run tells them to go and look.
+                var queue: [(session: DetectedSession, kind: SessionAlert.Kind)] = []
+                for s in pending.sessionFinished { queue.append((session: s, kind: .sessionFinished)) }
+                for s in pending.runFinished { queue.append((session: s, kind: .runFinished)) }
+
+                for (session, kind) in queue {
                     let repoID = try? cache.scalarInt(
                         "SELECT repo_id_primary FROM session WHERE client_session_id = ?",
                         [.text(session.clientSessionID)])
@@ -59,6 +65,7 @@ enum WatchCommand {
 
                     let alert = SessionAlert(
                         session: session,
+                        kind: kind,
                         repoName: repoID.flatMap { $0 }.flatMap { repoNames[$0] },
                         agentLines: lines.flatMap { $0 } ?? 0,
                         prompts: session.promptCount)

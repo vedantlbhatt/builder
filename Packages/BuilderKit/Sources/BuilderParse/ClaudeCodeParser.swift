@@ -13,7 +13,12 @@ public struct ClaudeCodeParser: HarnessParser {
 
     /// Bump this when the interpretation of the same bytes changes. Sources whose stored
     /// watermark carries an older version are deleted and re-read from zero.
-    public let parserVersion = 1
+    ///
+    /// 2: `promptSource == "sdk"` + `origin.kind == "human"` is a prompt, and a user
+    ///    record beginning `[Request interrupted by user` is an `.interrupt`. Both were
+    ///    `.noise` under version 1, so every already-ingested remote session must be
+    ///    re-read or it stays filed as unattended (docs/session-boundaries.md).
+    public let parserVersion = 2
 
     private let projectsRoot: String
 
@@ -231,15 +236,36 @@ public struct ClaudeCodeParser: HarnessParser {
             // MEASURED: 18,836 records of type "user", but only 1,456 are a human typing.
             // The rest are tool results and system-injected context. Counting them all as
             // prompts inflates the number by ~13x, and "prompts" is a card metric.
+            //
+            // Sessions driven from the Claude Code web/phone UI stamp their prompts as
+            // `promptSource: "sdk"` with `origin.kind: "human"` instead of `typed`.
+            // MEASURED on a remote transcript: 9 of 9 human prompts were sdk/human and 0
+            // were typed, so the typed-only rule counted zero prompts and would have
+            // filed the whole sitting as unattended. Slash commands (`/model`, `/effort`)
+            // and `isMeta` injections remain non-prompts under both shapes.
             let promptSource = r.promptSource.string
             let isMeta = r.isMeta.bool ?? false
-            let isHumanPrompt = (promptSource == "typed") && !isMeta
+            let isHumanPrompt =
+                !isMeta
+                && (promptSource == "typed"
+                    || (promptSource == "sdk" && r.origin.kind.string == "human"))
 
             var out: [NormalizedEvent] = []
 
             // `.message.content` is a plain String on 3,299 user records and an array of
             // blocks on the rest. `contentBlocks` normalizes both.
             let blocks = r.message.content.contentBlocks
+
+            // The harness sentinel for Escape / "stop". The text is the String content, or
+            // the joined `text` blocks; a record with no text block is never an interrupt.
+            // A presence signal, not a prompt — nobody presses stop from the other room.
+            var textParts: [String] = []
+            for b in blocks where b.type.string == "text" {
+                textParts.append(b.text.string ?? "")
+            }
+            let isInterrupt =
+                !textParts.isEmpty
+                && textParts.joined(separator: "\n").hasPrefix(Tuning.interruptPrefix)
             for (i, b) in blocks.enumerated() where b.type.string == "tool_result" {
                 var e = base(.toolResult, idSuffix: "#tr\(i)")
                 e.toolID = b.tool_use_id.string
@@ -276,6 +302,8 @@ public struct ClaudeCodeParser: HarnessParser {
 
             if isHumanPrompt {
                 out.append(base(.prompt))
+            } else if isInterrupt {
+                out.append(base(.interrupt))
             } else if out.isEmpty {
                 out.append(base(.noise))
             }

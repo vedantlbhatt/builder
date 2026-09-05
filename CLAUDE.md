@@ -69,8 +69,15 @@ active can never exceed elapsed.
 
 **Ranking sessions by duration alone.** The longest session in the corpus — 5h40m active —
 had ZERO typed prompts: an autonomous run in an automation repo, about to become the
-headline personal record. Sessions with no typed prompt are `unattended`: they count toward
-hours, they cannot win a record or trigger a notification.
+headline personal record. The rule that replaced it: every session carries two clocks,
+`attended` (within `tauAutonomousSec` of a presence signal) and `autonomous`, and
+**attended time decides records** — a kickoff prompt plus eight autonomous hours scores its
+attended minutes. `unattended` means zero PRESENCE SIGNALS (typed or remote-human prompt,
+interrupt, human file edit), not zero prompts; such runs count toward hours, can never win a
+record or extend a streak, and when they stop they fire "Agent run finished" rather than
+"Session finished". A presence signal after 2 h of autonomy, or 04:00 during autonomy, cuts
+the run; an attended late night is never split. The reference implementation is
+`scripts/measure_boundaries.py` and the design is `docs/session-boundaries.md`.
 
 **Treating `type: "user"` as a prompt.** 18,836 user records, 1,456 typed prompts. The rest
 are tool results and system injections. Checked whether records missing `promptSource` were
@@ -107,6 +114,9 @@ adjacent pairs are already inverted.
 - Cursor never writes token counts: all 14,565 message rows are `{0, 0}`. Absent, not zero.
 - Codex writes EMPTY STRINGS, not NULLs, for columns added in later migrations.
 - Codex version-stamps its filenames (`state_5.sqlite`). Glob and take the highest integer.
+- Remote sessions (Claude Code web/phone) stamp human prompts as `promptSource: "sdk"` with
+  `origin.kind: "human"`, never `"typed"`. MEASURED: 9 of 9 on a remote transcript. A
+  typed-only rule counts zero prompts and files the entire sitting as unattended.
 
 ## Later findings, same rule
 

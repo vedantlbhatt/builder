@@ -103,15 +103,31 @@ CREATE TABLE session (
   model_state         TEXT NOT NULL CHECK (model_state IN ('known','partial','unknown')),
 
   is_background       INTEGER NOT NULL DEFAULT 0,
+  -- ZERO presence signals (typed or remote-human prompt, interrupt, human file edit)
+  -- over a notable span. Counts toward hours; never a record, a streak, or a
+  -- "session finished" alert. See docs/session-boundaries.md.
   unattended          INTEGER NOT NULL DEFAULT 0,
   time_quality        TEXT NOT NULL DEFAULT 'ok' CHECK (time_quality IN ('ok','mtime_corrected')),
   merge_group_id      TEXT,             -- SEAM for cross-harness merge. Unused today.
-  visibility          TEXT NOT NULL DEFAULT 'anonymous'
+  visibility          TEXT NOT NULL DEFAULT 'anonymous',
+
+  -- Two clocks inside active_seconds: attended + autonomous == active_seconds, always.
+  -- Attended is active time within Tuning.tauAutonomousSec of a presence signal, and it
+  -- is what decides records — a kickoff prompt plus eight autonomous hours scores its
+  -- attended minutes, not the machine's night.
+  attended_seconds    REAL NOT NULL DEFAULT 0,
+  autonomous_seconds  REAL NOT NULL DEFAULT 0,
+  n_presence          INTEGER NOT NULL DEFAULT 0,
+  -- idle_gap is the only end that means the work stopped, and the only one that notifies.
+  end_reason          TEXT NOT NULL DEFAULT 'idle_gap'
+                      CHECK (end_reason IN ('idle_gap','human_returned','day_boundary','still_running')),
+  -- unattended AND idle_gap: the "Agent run finished" notification class.
+  run_finished        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX session_start_idx   ON session(started_at DESC);
 CREATE INDEX session_day_idx     ON session(day);
 CREATE INDEX session_notable_idx ON session(notable, started_at DESC);
-CREATE INDEX session_record_idx  ON session(active_seconds DESC)
+CREATE INDEX session_record_idx  ON session(attended_seconds DESC)
   WHERE notable = 1 AND unattended = 0 AND time_quality = 'ok';
 
 -- ---- session_repo ----------------------------------------------------------

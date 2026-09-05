@@ -6,33 +6,67 @@ import Foundation
 /// Built here rather than in the UI so the terminal, the menu bar app and the phone all
 /// say the same thing, and so the wording can be tested.
 public struct SessionAlert: Sendable {
+    /// Which headline. They are different sentences to different people: one
+    /// congratulates the person who was there, the other tells them a machine they
+    /// walked away from has stopped.
+    public enum Kind: String, Sendable {
+        case sessionFinished = "session_finished"
+        case runFinished = "run_finished"
+    }
+
+    public let kind: Kind
     public let title: String
     public let body: String
     public let clientSessionID: String
 
-    /// "Session finished: 1h 42m in gt-transit"
+    /// "Session finished: 1h 42m in gt-transit" / "+2,140 lines · 9 prompts"
+    /// "Agent run finished: 6h 12m in gt-transit" / "+2,101 lines · ran unattended · started 23:04"
     ///
     /// Duration first because it is the one number that is always available and always
     /// true — Cursor sessions have no tokens and many sessions have no commits, so
     /// leading with either would produce an alert that reads as broken for a large
     /// fraction of real sessions.
-    public init(session: DetectedSession, repoName: String?, agentLines: Int, prompts: Int) {
+    public init(
+        session: DetectedSession, kind: Kind = .sessionFinished,
+        repoName: String?, agentLines: Int, prompts: Int
+    ) {
+        self.kind = kind
         let duration = SessionAlert.duration(session.activeSeconds)
+        let headline: String
+        switch kind {
+        case .sessionFinished: headline = "Session finished"
+        case .runFinished: headline = "Agent run finished"
+        }
         if let repoName {
-            title = "Session finished: \(duration) in \(repoName)"
+            title = "\(headline): \(duration) in \(repoName)"
         } else {
-            title = "Session finished: \(duration)"
+            title = "\(headline): \(duration)"
         }
 
         var parts: [String] = []
         if agentLines > 0 { parts.append("+\(SessionAlert.int(agentLines)) lines") }
-        if prompts > 0 { parts.append("\(prompts) prompt\(prompts == 1 ? "" : "s")") }
-        let elapsed = SessionAlert.duration(session.wallSeconds)
-        if session.wallSeconds > session.activeSeconds * 1.2 {
-            parts.append("\(elapsed) elapsed")
+        switch kind {
+        case .sessionFinished:
+            if prompts > 0 { parts.append("\(prompts) prompt\(prompts == 1 ? "" : "s")") }
+            let elapsed = SessionAlert.duration(session.wallSeconds)
+            if session.wallSeconds > session.activeSeconds * 1.2 {
+                parts.append("\(elapsed) elapsed")
+            }
+        case .runFinished:
+            // No prompt count: by definition there were none. When it started is the
+            // one thing the person does remember about a run they walked away from.
+            parts.append("ran unattended")
+            parts.append("started \(SessionAlert.clock(session.startedAt))")
         }
         body = parts.joined(separator: " · ")
         clientSessionID = session.clientSessionID
+    }
+
+    /// Local wall-clock time, "23:04".
+    static func clock(_ ts: Double) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: Date(timeIntervalSince1970: ts))
     }
 
     static func duration(_ seconds: Double) -> String {

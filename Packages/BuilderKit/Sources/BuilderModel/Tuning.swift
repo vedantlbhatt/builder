@@ -21,7 +21,7 @@ public enum Tuning {
     /// Bumping this invalidates cache.sqlite and forces a full re-derive. Any change to a
     /// constant in this file must bump it, or users keep numbers computed under the old
     /// rules with no way to notice.
-    public static let version = "2026-08-16.3-git"
+    public static let version = "2026-09-05.1-boundaries-v2"
 
     // MARK: - Sessionization
 
@@ -48,7 +48,58 @@ public enum Tuning {
     public static let tauSessionSec: Double = 900
 
     /// Bumped whenever the sessionization ALGORITHM changes, not just the threshold.
-    public static let sessionizerVersion = 1
+    ///
+    /// 2: attended/autonomous split, `human_returned` and `day_boundary` cuts, presence
+    ///    signals (docs/session-boundaries.md). The idle-gap rule itself is unchanged.
+    public static let sessionizerVersion = 2
+
+    /// Seconds without a presence signal after which the agent is on its own.
+    ///
+    /// Two clocks run inside every session: `attended` while a human is evidently present,
+    /// `autonomous` once the human has been quiet for longer than this. The agent is
+    /// working; nobody is steering it. `active = attended + autonomous`, exactly as before
+    /// — the split is what makes an overnight run describable instead of either a lie
+    /// ("you worked 9 hours") or an omission ("nothing happened").
+    ///
+    /// UNMEASURED JUDGEMENT CALL. The one remote transcript this was developed against
+    /// (30 min, n = 10 presence-to-presence intervals, p50 1m 33s, max 10m 53s) is the
+    /// wrong shape to calibrate it: it has no overnight run in it. Recipe:
+    /// `scripts/measure_boundaries.py ~/.claude/projects` prints the presence-interval
+    /// distribution and a sensitivity grid; if a run you remember walking away from is
+    /// still counted as attended, this is too high.
+    public static let tauAutonomousSec: Double = 1800
+
+    /// A presence signal after at least this much autonomy starts a NEW session.
+    ///
+    /// You kick off a long task at 23:00 and go to bed; if the agent is a loop that never
+    /// stops and you sit down at 09:00 and type, that prompt is not the ninth hour of last
+    /// night's sitting. The run is finalized at the instant of your prompt (`human_returned`)
+    /// and a new session begins with it.
+    ///
+    /// Why 2 h and not `tauAutonomousSec`: a 45-minute autonomous stretch inside an
+    /// afternoon — you asked for a refactor and went to lunch — is still your sitting when
+    /// you come back to check it. Two hours of absence is a different thing from a long
+    /// lunch. UNMEASURED JUDGEMENT CALL; the sensitivity grid in
+    /// `scripts/measure_boundaries.py` shows how many sessions this rule creates at each
+    /// candidate, and if it is creating them inside afternoons this is too low.
+    public static let tauReturnSplitSec: Double = 7200
+
+    /// The harness sentinel that begins the text of a user record written when the human
+    /// pressed Escape or "stop". A record-shape check, never a heuristic on prompt text.
+    public static let interruptPrefix = "[Request interrupted by user"
+
+    /// Minimum interval between two uploads of the same live (open/idle) session, in
+    /// seconds. A live snapshot is uploaded on any pass where its payload hash changed, at
+    /// most this often; it is replaced in place when the session finalizes. UNMEASURED
+    /// JUDGEMENT CALL: one tick of the daemon, which is the finest cadence anything
+    /// upstream changes at.
+    public static let liveUploadMinIntervalSec: Double = 60
+
+    /// For a live session in an autonomous run, a checkpoint analysis runs every this many
+    /// seconds so the phone can answer "what has it done so far" at 3 a.m. without waking
+    /// anyone. UNMEASURED JUDGEMENT CALL: matched to `tauReturnSplitSec` so a run that is
+    /// about to be cut by `human_returned` has a fresh checkpoint behind it.
+    public static let analysisCheckpointSec: Double = 7200
 
     /// Maximum credit, in seconds, that a single inter-event gap contributes to active time.
     ///
@@ -140,12 +191,11 @@ public enum Tuning {
     /// does not degrade the session's `cost_state`.
     public static let syntheticModelSentinel = "<synthetic>"
 
-    /// Sessions where more than this fraction of active time is background work are marked
-    /// `unattended`: they still count toward hours but are excluded from streaks and from
-    /// the "longest session" record, because nobody was at the keyboard.
-    ///
-    /// UNMEASURED JUDGEMENT CALL. `sessionKind: "bg"` appears on 2,508 records.
-    public static let unattendedBgFraction = 0.80
+    // `unattendedBgFraction` (0.80 over `sessionKind: "bg"`) was RETIRED, never wired up.
+    // `bg` marks background TURNS, not absent PEOPLE — 2,508 records in the reference
+    // corpus, too coarse and pointing at the wrong thing. `unattended` now means "zero
+    // presence signals" (typed or remote-human prompt, interrupt, human file edit); see
+    // `EventKind.isPresence` and docs/session-boundaries.md.
 
     // MARK: - Repo identity
 

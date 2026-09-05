@@ -5,11 +5,21 @@ import Foundation
 /// Parsers map their own vocabulary onto this and nothing downstream ever branches on the
 /// harness to decide what happened — only to decide what is *available*.
 public enum EventKind: String, Sendable, CaseIterable, Codable {
-    /// A human typed something. Claude Code: `type == "user"` with
-    /// `promptSource == "typed"` and `isMeta != true`. MEASURED: this is 1,456 records
-    /// where a naive `type == "user"` count gives 18,836 — the other ~17k are tool results
-    /// and system-injected context. Counting them as prompts inflates by ~13x.
+    /// A human typed something. Claude Code: `type == "user"` with `isMeta != true` and
+    /// EITHER `promptSource == "typed"` (local) OR `promptSource == "sdk"` with
+    /// `origin.kind == "human"` (a session driven from the Claude Code web/phone UI).
+    /// MEASURED: `typed` is 1,456 records where a naive `type == "user"` count gives
+    /// 18,836 — the other ~17k are tool results and system-injected context. MEASURED on
+    /// a remote transcript: all 9 human prompts carried `sdk`/`human` and zero carried
+    /// `typed`, so the typed-only rule counted 0 prompts and filed the sitting as
+    /// unattended. See docs/session-boundaries.md.
     case prompt
+
+    /// The human pressed Escape or "stop". Claude Code: `type == "user"` whose text
+    /// content begins `[Request interrupted by user`. Nobody presses stop from the other
+    /// room, so this is a presence signal; it is not a prompt and does not count toward
+    /// `Tuning.countedMinMeaningfulEvents`.
+    case interrupt
 
     case assistantMessage = "assistant_message"
     case thinking
@@ -51,10 +61,22 @@ public enum EventKind: String, Sendable, CaseIterable, Codable {
     /// Events that can open or extend a session. Bookkeeping cannot.
     public var isSubstantive: Bool {
         switch self {
-        case .prompt, .assistantMessage, .thinking, .toolUse, .toolResult, .humanEdit:
+        case .prompt, .interrupt, .assistantMessage, .thinking, .toolUse, .toolResult, .humanEdit:
             return true
         case .turnDuration, .compaction, .title, .noise, .unknown:
             return false
+        }
+    }
+
+    /// Evidence a human is at the keyboard. Each is a specific record shape, never a
+    /// guess: a typed or remote-human prompt, an interrupt, or a file edited outside the
+    /// agent. Slash commands and `isMeta` injections are NOT presence — a `/compact`
+    /// fired by the harness proves nothing about the person. The sessionizer reads this
+    /// to split attended time from autonomous time (docs/session-boundaries.md).
+    public var isPresence: Bool {
+        switch self {
+        case .prompt, .interrupt, .humanEdit: return true
+        default: return false
         }
     }
 

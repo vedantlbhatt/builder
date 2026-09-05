@@ -46,6 +46,10 @@ public enum StripBuilder {
     private static func classOf(_ kind: EventKind) -> StripClass {
         switch kind {
         case .prompt: return .prompting
+        // The interval after an interrupt is the human having stopped the agent and
+        // deciding what to say next — theirs, not the agent's. No mark: the mark kinds
+        // are fixed by spec/strip.v1.json.
+        case .interrupt: return .prompting
         case .humanEdit: return .human_edit
         case .assistantMessage, .thinking, .toolUse, .toolResult: return .agent
         case .turnDuration, .compaction, .title, .noise, .unknown: return .agent

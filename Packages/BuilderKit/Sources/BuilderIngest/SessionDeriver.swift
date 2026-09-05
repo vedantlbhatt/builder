@@ -44,7 +44,7 @@ public enum SessionDeriver {
             print("  sessions              \(SessionDeriver.int(sessions.count))")
             print("  counted               \(SessionDeriver.int(counted.count))   (toward hours, graph, streaks)")
             print("  notable               \(SessionDeriver.int(notable.count))   (card, record, notification)")
-            print("  unattended            \(SessionDeriver.int(unattended.count))   (no typed prompt; hours only)")
+            print("  unattended            \(SessionDeriver.int(unattended.count))   (no presence signal; hours only)")
             print("  active time           \(SessionDeriver.duration(active))")
         }
         return sessions
@@ -132,9 +132,11 @@ public enum SessionDeriver {
               tok_in, tok_out, tok_cache_read, tok_cache_w5m, tok_cache_w1h,
               abandoned_branch_tokens, tokens_reported, token_dedupe, token_scope,
               token_coverage, cost_usd, cost_state, models_json, model_state,
-              is_background, unattended, time_quality, merge_group_id, visibility
+              is_background, unattended, time_quality, merge_group_id, visibility,
+              attended_seconds, autonomous_seconds, n_presence, end_reason, run_finished
             ) VALUES (?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?,
-                      ?,?,?,?, ?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?,?,?, ?,?,?,?,?)
+                      ?,?,?,?, ?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?,?,?, ?,?,?,?,?,
+                      ?,?,?,?,?)
             """
         )
         defer { insert.finalize() }
@@ -189,6 +191,9 @@ public enum SessionDeriver {
                     .optionalInt(repoID),
                     .optionalText(title), .text(title != nil ? "harness" : "template"),
                     .bool(chore),
+                    // `state` here is the derived row's shape, not the live state: the
+                    // lifecycle table decides open/idle/final for a session still capable
+                    // of growing. A cut session (`isCut`) is final by construction.
                     .text(TimelineFidelity.full.rawValue), .text("final"),
                     .bool(s.counted), .bool(s.notable),
                     .int(s.promptCount), .text("typed_promptsource"),
@@ -210,6 +215,8 @@ public enum SessionDeriver {
                     .optionalText(modelsJSON(evs)),
                     .text(s.harness.reportsModel ? "known" : "unknown"),
                     .int(0), .bool(s.unattended), .text("ok"), .null, .text("anonymous"),
+                    .double(s.attendedSeconds), .double(s.autonomousSeconds),
+                    .int(s.presenceCount), .text(s.endReason.rawValue), .bool(s.runFinished),
                 ])
 
                 if let repoID {

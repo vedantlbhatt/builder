@@ -29,18 +29,20 @@ public struct Analysis {
     /// Personal records. Self-referential by design — the product has no leaderboard, so
     /// the only thing to beat is you.
     ///
-    /// Every record excludes `unattended` sessions. The longest session in the reference
-    /// corpus was a 5h40m autonomous run with zero typed prompts; a record for that is a
-    /// record for the machine.
+    /// Every record excludes `unattended` sessions, and "longest session" is judged on
+    /// ATTENDED seconds. The longest session in the reference corpus was a 5h40m
+    /// autonomous run with zero typed prompts; a record for that is a record for the
+    /// machine — and a kickoff prompt followed by eight autonomous hours scores its
+    /// attended minutes, not the night (docs/session-boundaries.md).
     public func records() throws -> [Record] {
         var out: [Record] = []
 
         try cache.query(
             """
-            SELECT active_seconds, day, repo_id_primary, started_at
+            SELECT attended_seconds, day, repo_id_primary, started_at
             FROM session
             WHERE notable = 1 AND unattended = 0
-            ORDER BY active_seconds DESC LIMIT 1
+            ORDER BY attended_seconds DESC LIMIT 1
             """
         ) { s in
             out.append(

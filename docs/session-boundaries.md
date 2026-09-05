@@ -71,6 +71,16 @@ reason it was written: splitting a late night manufactures a two-day streak out 
 sitting. The two rules do not conflict because autonomous time can never extend a
 streak — nobody was there.
 
+### Where `ended_at` lands, per end
+
+Active time can never exceed elapsed — the server rejects a payload where it does — so each
+end fixes `ended_at` explicitly. `idle_gap`: last record plus the capped credit for the
+boundary gap, credited to the session (unchanged from v1). `human_returned`: the same,
+credited as autonomous. `day_boundary`: exactly 04:00, with the gap credited up to the
+boundary to the old session and the remainder of the capped credit to the new one, which
+begins at 04:00. `still_running`: the last record, no trailing credit. The reference and
+the Swift agree on all four; the fixtures pin the numbers.
+
 ### No hard cap
 
 Rejected explicitly. A maximum length manufactures a boundary in the middle of real

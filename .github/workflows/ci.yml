@@ -29,6 +29,25 @@ jobs:
             exit 1
           fi
 
+  # The Python reference implementations and the fixtures they generate must agree with
+  # what is committed. If this fails, someone changed a rule in one place — the reference,
+  # the fixtures, or (via the Swift fixture tests) the engine — and not the others.
+  reference:
+    needs: contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: boundary fixtures are what the reference produces
+        run: |
+          python3 scripts/gen_boundary_fixtures.py
+          git diff --exit-code -- spec/fixtures/boundaries
+      - name: analysis package unit tests
+        run: |
+          if [ -d analysis/tests ]; then python3 -m unittest discover -s analysis/tests -t . -v; fi
+          python3 -m analysis stats spec/fixtures/boundaries/remote_sdk_prompts.jsonl > /dev/null
+
   swift:
     needs: contract
     runs-on: macos-15

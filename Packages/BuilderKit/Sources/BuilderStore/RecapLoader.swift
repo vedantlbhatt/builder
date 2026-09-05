@@ -21,10 +21,12 @@ public enum RecapLoader {
         }
 
         // The longest notable session is the record holder; used to decide whether this
-        // session is a personal best, which outranks every other headline.
+        // session is a personal best, which outranks every other headline. Judged on
+        // ATTENDED seconds, the same measure `Analysis.records()` ranks by — a kickoff
+        // prompt plus eight autonomous hours competes on its attended minutes.
         let bestSeconds =
             try cache.scalarDouble(
-                "SELECT MAX(active_seconds) FROM session WHERE notable = 1 AND unattended = 0") ?? 0
+                "SELECT MAX(attended_seconds) FROM session WHERE notable = 1 AND unattended = 0") ?? 0
 
         let sql = """
             SELECT client_session_id, harness, started_at, active_seconds, wall_seconds,
@@ -32,7 +34,7 @@ public enum RecapLoader {
                    n_files_touched, agent_lines_added, agent_lines_removed, git_commits,
                    tokens_reported, tok_out,
                    tok_in + tok_out + tok_cache_read + tok_cache_w5m + tok_cache_w1h,
-                   models_json, agent_line_bucket, attrib_confidence
+                   models_json, agent_line_bucket, attrib_confidence, attended_seconds
             FROM session
             WHERE \(sessionID != nil ? "client_session_id = ?" : "notable = 1")
             ORDER BY started_at DESC LIMIT 1
@@ -42,6 +44,7 @@ public enum RecapLoader {
         try cache.query(sql, sessionID.map { [.text($0)] } ?? []) { s in
             guard let id = s.text(0), let harness = Harness(rawValue: s.text(1) ?? "") else { return }
             let active = s.double(3) ?? 0
+            let attended = s.double(20) ?? 0
 
             var models: [String] = []
             if let json = s.text(17), let data = json.data(using: .utf8),
@@ -72,7 +75,7 @@ public enum RecapLoader {
                 attribConfidence: AttributionConfidence(rawValue: s.text(19) ?? "") ?? .none,
                 stripColumns: [],
                 stripMarks: [],
-                isPersonalRecord: active >= bestSeconds && bestSeconds > 0,
+                isPersonalRecord: attended >= bestSeconds && bestSeconds > 0,
                 recordKind: "session")
         }
 

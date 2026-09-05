@@ -47,7 +47,7 @@ enum PreviewCommand {
         var out: [(String, String)] = []
         try cache.query(
             "SELECT client_session_id FROM session WHERE notable = 1 AND unattended = 0 "
-                + "ORDER BY active_seconds DESC LIMIT 1"
+                + "ORDER BY attended_seconds DESC LIMIT 1"
         ) { s in
             if let id = s.text(0) { out.append(("longest", id)) }
         }

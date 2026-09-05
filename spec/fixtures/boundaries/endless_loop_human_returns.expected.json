@@ -11,7 +11,7 @@
  "sessions": [
   {
    "started_at": 1773194400.0,
-   "ended_at": 1773215945.0,
+   "ended_at": 1773216000.0,
    "active_seconds": 21600.0,
    "attended_seconds": 1805.0,
    "autonomous_seconds": 19795.0,
@@ -21,7 +21,7 @@
   },
   {
    "started_at": 1773216000.0,
-   "ended_at": 1773230345.0,
+   "ended_at": 1773230405.0,
    "active_seconds": 14405.0,
    "attended_seconds": 0.0,
    "autonomous_seconds": 14405.0,

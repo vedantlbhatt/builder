@@ -130,9 +130,14 @@ final class AppStore {
 
                 names = (try? IngestCoordinator.repoNames(db: state)) ?? [:]
 
-                for s in pending {
+                var queue: [(session: DetectedSession, kind: SessionAlert.Kind)] = []
+                for s in pending.sessionFinished { queue.append((session: s, kind: .sessionFinished)) }
+                for s in pending.runFinished { queue.append((session: s, kind: .runFinished)) }
+
+                for (s, kind) in queue {
                     let alert = SessionAlert(
                         session: s,
+                        kind: kind,
                         repoName: try? Self.repoName(for: s.clientSessionID, cache: cache, names: names),
                         agentLines: (try? cache.scalarInt(
                             "SELECT agent_lines_added FROM session WHERE client_session_id = ?",

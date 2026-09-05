@@ -34,6 +34,22 @@ public struct LifecycleTransition: Sendable {
     public var justFinalized: Bool { to == .final && from != .final }
 }
 
+/// What `pendingNotifications` found: two classes, because they say different things.
+/// "Session finished" congratulates a person; "Agent run finished" tells them a machine
+/// they walked away from has stopped, which is the moment to go and look.
+public struct PendingNotifications: Sendable {
+    public var sessionFinished: [DetectedSession]
+    public var runFinished: [DetectedSession]
+
+    public init(sessionFinished: [DetectedSession] = [], runFinished: [DetectedSession] = []) {
+        self.sessionFinished = sessionFinished
+        self.runFinished = runFinished
+    }
+
+    public var isEmpty: Bool { sessionFinished.isEmpty && runFinished.isEmpty }
+    public var count: Int { sessionFinished.count + runFinished.count }
+}
+
 public final class SessionLifecycle {
 
     private let db: SQLiteDB
@@ -78,7 +94,12 @@ public final class SessionLifecycle {
             for s in sessions {
                 let quiet = now - s.endedAt
                 let next: SessionState
-                if quiet < Tuning.tauIdleSegSec {
+                if s.isCut {
+                    // Ended by a boundary rule, not by silence: the human came back to a
+                    // running agent, or 04:00 passed during an autonomous run. Nothing
+                    // more can ever be added to it, so it is final the moment it exists.
+                    next = .final
+                } else if quiet < Tuning.tauIdleSegSec {
                     next = .open
                 } else if quiet < Tuning.tauSessionSec {
                     next = .idle
@@ -117,29 +138,41 @@ public final class SessionLifecycle {
     /// steps, and a crash between them must not produce either a silent drop or a repeat.
     /// A row committed before the alert is sent means at-most-once; the alert is cheap to
     /// lose and expensive to duplicate, so that is the right side to err on.
+    ///
+    /// Two classes come back. `sessionFinished` is the existing rule — `notable`, i.e. a
+    /// person was present for at least `Tuning.notableMinActiveSec` — and `runFinished`
+    /// is an unattended run that stopped on its own. Both require `endReason == .idleGap`:
+    /// it is the only end that means the work stopped. A `human_returned` end is not
+    /// announced because you are already here, and a `day_boundary` end is not announced
+    /// because the work continues (docs/session-boundaries.md).
     public func pendingNotifications(
         for sessions: [DetectedSession],
         transitions: [LifecycleTransition],
         now: Double = Date().timeIntervalSince1970
-    ) throws -> [DetectedSession] {
+    ) throws -> PendingNotifications {
         let finalized = Set(transitions.filter(\.justFinalized).map(\.clientSessionID))
-        guard !finalized.isEmpty else { return [] }
+        guard !finalized.isEmpty else { return PendingNotifications() }
 
         var alreadyTold = Set<String>()
         try db.query("SELECT client_session_id FROM notification_log") { s in
             if let id = s.text(0) { alreadyTold.insert(id) }
         }
 
-        var deliver: [DetectedSession] = []
+        var deliver = PendingNotifications()
         var suppress: [String] = []
 
         for s in sessions {
             guard finalized.contains(s.clientSessionID) else { continue }
             guard !alreadyTold.contains(s.clientSessionID) else { continue }
 
-            // A four-minute question should not interrupt anyone, and an autonomous run
-            // with nobody at the keyboard has no one to congratulate.
-            guard s.notable else { continue }
+            // Only silence means the work stopped.
+            guard s.endReason == .idleGap else { continue }
+
+            // A four-minute question should not interrupt anyone. An autonomous run with
+            // nobody at the keyboard has no one to congratulate — but it IS news that it
+            // stopped, so it goes out under the other headline.
+            let isRun = s.runFinished
+            guard s.notable || isRun else { continue }
 
             // FOUND BY RUNNING THE DAEMON. The first launch backfills the entire history,
             // so every historical session transitions to `final` at once — 71 of them on
@@ -152,7 +185,11 @@ public final class SessionLifecycle {
                 suppress.append(s.clientSessionID)
                 continue
             }
-            deliver.append(s)
+            if isRun {
+                deliver.runFinished.append(s)
+            } else {
+                deliver.sessionFinished.append(s)
+            }
         }
 
         for id in suppress { try markNotified(id, channel: "suppressed_stale") }
