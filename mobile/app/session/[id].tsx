@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -26,7 +26,12 @@ import {
 } from '../../src/data/api';
 import * as cache from '../../src/data/cache';
 import { api, SAMPLE_SESSION } from '../../src/data/client';
-import { VISIBILITIES, visibilityLabel } from '../../src/social/format';
+import {
+  findPostForSession,
+  isAlreadySharedConflict,
+  VISIBILITIES,
+  visibilityLabel,
+} from '../../src/social/format';
 import {
   formatClock,
   mediaPlan,
@@ -40,24 +45,54 @@ import { runUploads, type UploadState } from '../../src/social/upload';
 import { TimelineStrip } from '../../src/strip/TimelineStrip';
 import { classShare, decodeColumns, decodeMarks } from '../../src/strip/decode';
 import { StripClass } from '../../src/generated/strip';
-import { colors, compactNumber, duration, space } from '../../src/theme';
+import { colors, compactNumber, duration, hitSlopToReach, space } from '../../src/theme';
 
 const c = colors('dark');
+
+/**
+ * Resolve the viewer's own post for a session, or null when there is none to show.
+ *
+ * The server keeps `sessions.is_shared` in step with the post but sends no post id, and
+ * there is no lookup by session; the viewer's own posts (`GET /v1/users/{handle}`) are
+ * the closest thing, so page those. No handle yet means no page to read, and the caller
+ * falls back to the "posted" row without a Delete.
+ */
+async function lookUpOwnPost(sessionId: string, endedAt: string): Promise<FeedItem | null> {
+  const me = await api.getMe();
+  if (!me.handle) return null;
+  const handle = me.handle;
+  return findPostForSession(
+    async (cursor) => {
+      const page = await api.user(handle, cursor ?? undefined);
+      return { items: page.posts, next_before: page.next_before, next_before_id: page.next_before_id };
+    },
+    sessionId,
+    endedAt
+  );
+}
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { width } = useWindowDimensions();
+  const router = useRouter();
   const [model, setModel] = useState<CardModel | null>(null);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [sharing, setSharing] = useState(false);
   const [composing, setComposing] = useState(false);
   const [post, setPost] = useState<FeedItem | null>(null);
+  // Whether a post exists for this session, as far as the phone knows: seeded from the
+  // server's `is_shared` (true for a followers/public post; a private post leaves it
+  // down), raised by a 409 "already shared", lowered by Delete. `post` is the row itself
+  // when this mount composed it or the lookup below found it.
+  const [shared, setShared] = useState(false);
+  const [looking, setLooking] = useState(false);
   const cardRef = useRef(null);
 
   useEffect(() => {
     const show = (s: SessionDetail, code: string) => {
       setSession(s);
       setModel(toCardModel(s, code));
+      setShared(s.is_shared);
     };
     (async () => {
       if (id === 'sample') {
@@ -75,6 +110,29 @@ export default function SessionScreen() {
       }
     })();
   }, [id]);
+
+  // A session posted on a previous visit, after a restart, or from another device: the
+  // detail says `is_shared` and this mount has no post. Find it, so the row can carry
+  // its visibility and Delete rather than "Post to the feed" and a 409.
+  const endedAt = session?.ended_at;
+  useEffect(() => {
+    if (!shared || post || !id || id === 'sample' || !endedAt) return;
+    let cancelled = false;
+    setLooking(true);
+    lookUpOwnPost(id, endedAt)
+      .then((found) => {
+        if (!cancelled && found) setPost(found);
+      })
+      .catch(() => {
+        // The row still says "posted"; only the Delete is missing, and the feed has it.
+      })
+      .finally(() => {
+        if (!cancelled) setLooking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shared, post, id, endedAt]);
 
   if (!model || !session) {
     return (
@@ -138,7 +196,8 @@ export default function SessionScreen() {
               Posted · {visibilityLabel(post.visibility)}
             </Text>
             <Pressable
-              hitSlop={8}
+              hitSlop={hitSlopToReach(18)}
+              accessibilityRole="button"
               onPress={() =>
                 Alert.alert('Delete post?', 'It disappears from every feed immediately.', [
                   { text: 'Cancel', style: 'cancel' },
@@ -149,6 +208,9 @@ export default function SessionScreen() {
                       try {
                         await api.deletePost(post.id);
                         setPost(null);
+                        setShared(false);
+                        // The cached detail is what the next visit shows first.
+                        void cache.putDetail({ ...session, is_shared: false }).catch(() => undefined);
                       } catch (e) {
                         Alert.alert('Could not delete', e instanceof Error ? e.message : 'try again');
                       }
@@ -159,6 +221,24 @@ export default function SessionScreen() {
             >
               <Text style={{ color: c.danger, fontWeight: '600', fontSize: 14 }}>Delete</Text>
             </Pressable>
+          </View>
+        ) : shared ? (
+          // The post exists but this mount does not hold it (no handle to page, or it is
+          // deeper than the lookup reads). Never offer to post again: the server would
+          // answer 409. The feed is where the post — and its Delete — live.
+          <View style={[postedBox, { flexDirection: 'row', alignItems: 'center' }]}>
+            <Text style={{ color: c.text, fontSize: 14, flex: 1 }}>Posted to the feed</Text>
+            {looking ? (
+              <ActivityIndicator color={c.accent} />
+            ) : (
+              <Pressable
+                hitSlop={hitSlopToReach(18)}
+                accessibilityRole="button"
+                onPress={() => router.push('/feed')}
+              >
+                <Text style={{ color: c.accent, fontWeight: '600', fontSize: 14 }}>Open feed</Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           <Pressable
@@ -177,6 +257,17 @@ export default function SessionScreen() {
         onClose={() => setComposing(false)}
         onPosted={(p) => {
           setPost(p);
+          setShared(true);
+          setComposing(false);
+          // Mirror the server's `_set_shared`: a private post leaves the flag down.
+          void cache
+            .putDetail({ ...session, is_shared: p.visibility !== 'private' })
+            .catch(() => undefined);
+        }}
+        onAlreadyPosted={() => {
+          // A private post, or one made between the detail load and now: the server
+          // says it exists. Switch to the posted state and let the lookup find the row.
+          setShared(true);
           setComposing(false);
         }}
       />
@@ -279,12 +370,15 @@ function ComposeModal({
   hasAnalysis,
   onClose,
   onPosted,
+  onAlreadyPosted,
 }: {
   visible: boolean;
   sessionId: string;
   hasAnalysis: boolean;
   onClose: () => void;
   onPosted: (post: FeedItem) => void;
+  /** The server answered 409 "already shared": the session has a post this sheet cannot see. */
+  onAlreadyPosted: () => void;
 }) {
   const [visibility, setVisibility] = useState<Visibility>('followers');
   const [caption, setCaption] = useState('');
@@ -348,6 +442,11 @@ function ComposeModal({
       });
     } catch (e) {
       setBusy(false);
+      if (isAlreadySharedConflict(e)) {
+        Alert.alert('Already posted', 'This session is on the feed already.');
+        onAlreadyPosted();
+        return;
+      }
       Alert.alert('Could not post', e instanceof Error ? e.message : 'try again');
       return;
     }

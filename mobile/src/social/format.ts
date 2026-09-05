@@ -84,9 +84,87 @@ export function applyKudos<T extends KudosState>(item: T, state: KudosState): T 
   return { ...item, kudos_count: state.kudos_count, you_kudosed: state.you_kudosed };
 }
 
+/**
+ * Roll back a failed kudos request: the two kudos fields go back to the tap-time
+ * snapshot, and NOTHING else does. `prev` is the row as it is now, which may carry a
+ * comment_count or media that landed while the request was in flight; putting the whole
+ * snapshot back would erase that. Same shape as `applyKudos`, named for the direction.
+ */
+export function revertKudos<T extends KudosState>(prev: T, snapshot: KudosState): T {
+  return applyKudos(prev, snapshot);
+}
+
+/**
+ * Apply a kudos state to ONE row of a list, by id, touching only the two kudos fields.
+ * Unchanged when the id is absent (the post was deleted, or a refresh dropped it): a kudos
+ * answer must never resurrect a row.
+ */
+export function updateKudos<T extends KudosState & { id: string }>(
+  items: T[],
+  id: string,
+  state: KudosState
+): T[] {
+  return items.map((it) => (it.id === id ? applyKudos(it, state) : it));
+}
+
 /** Replace one item in a list by id; unchanged when the id is absent. */
 export function replaceItem<T extends { id: string }>(items: T[], next: T): T[] {
   return items.map((it) => (it.id === next.id ? next : it));
+}
+
+// ------------------------------------------------------------ own post lookup
+
+/** A page loader over the viewer's own posts, newest first (`GET /v1/users/{handle}`). */
+export type OwnPostsLoader = (cursor: Cursor | null) => Promise<FeedPage>;
+
+/** Pages the lookup will read before giving up: 4 × 30 posts. */
+export const OWN_POST_LOOKUP_MAX_PAGES = 4;
+
+/** Clock skew allowed between the Mac's `ended_at` and the server's post `created_at`. */
+export const OWN_POST_LOOKUP_SLACK_MS = 24 * 3600 * 1000;
+
+/**
+ * Find the viewer's post for a session by paging their own posts, newest first.
+ *
+ * There is no `GET /v1/posts?session_id=` and the session detail carries `is_shared` but
+ * no post id, so the post has to be found. Two stops besides "found" and "no more pages":
+ * a post is created only after its session is `final`, so a page whose oldest post
+ * predates the session's `ended_at` (minus a day of slack for the two clocks) means every
+ * remaining page is older still; and a hard page cap, because a lookup on mount must not
+ * turn into a crawl of someone's entire history.
+ */
+export async function findPostForSession(
+  load: OwnPostsLoader,
+  sessionId: string,
+  endedAt: string,
+  maxPages: number = OWN_POST_LOOKUP_MAX_PAGES
+): Promise<FeedItem | null> {
+  const endedMs = Date.parse(endedAt);
+  const floor = Number.isNaN(endedMs) ? Number.NEGATIVE_INFINITY : endedMs - OWN_POST_LOOKUP_SLACK_MS;
+  let cursor: Cursor | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    const p: FeedPage = await load(cursor);
+    const hit = p.items.find((it) => it.session.id === sessionId);
+    if (hit) return hit;
+    const last = p.items[p.items.length - 1];
+    if (last && Date.parse(last.created_at) < floor) return null;
+    cursor = nextCursor(p);
+    if (!cursor) return null;
+  }
+  return null;
+}
+
+/**
+ * The one 409 from `POST /v1/posts` that means "this already worked": the session has a
+ * post. The other 409 there ("a live session cannot be shared until it finishes") is a
+ * real refusal and is not this.
+ */
+export function isAlreadySharedConflict(e: unknown): boolean {
+  // Structural rather than `instanceof ApiError`: a value import of `../data/api` would
+  // drag expo-constants and expo-secure-store into this pure module and out of bun's reach.
+  if (typeof e !== 'object' || e === null) return false;
+  const { status, message } = e as { status?: unknown; message?: unknown };
+  return status === 409 && typeof message === 'string' && /already shared/i.test(message);
 }
 
 /** The display name when there is one, else the handle, else a placeholder. */

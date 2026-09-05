@@ -125,6 +125,33 @@ export function audioMime(uri: string): string | null {
 }
 
 /** "0:42", "1:30". Whole seconds, floored; anything unusable is "0:00". */
+/** "Couldn't play" — what the chip says, briefly, when playback fails. */
+export const AUDIO_FAILED_CAPTION = "Couldn't play";
+
+/** How long the failure caption stays before the chip reads as playable again. */
+export const AUDIO_FAILED_CAPTION_MS = 4000;
+
+/**
+ * expo-av reports a playback failure AFTER a successful load as `{ isLoaded: false,
+ * error }` — the same `isLoaded: false` shape as "not loaded yet", with the error string
+ * attached. A status handler that returns early on `!isLoaded` never sees it, so the chip
+ * would stay in its playing state with nothing playing. Structural, so bun can pin it.
+ */
+export function isPlaybackError(st: { isLoaded: boolean; error?: string }): boolean {
+  return !st.isLoaded && typeof st.error === 'string';
+}
+
+/**
+ * The chip's text. Playing or paused mid-note shows "position / total"; at rest it shows
+ * the note's length. The glyph is the STOP square while playing and the PLAY triangle
+ * otherwise — after a failure too, because the next tap is a fresh play.
+ */
+export function audioChipLabel(a: { playing: boolean; positionMs: number; totalMs: number }): string {
+  const midway = a.playing || a.positionMs > 0;
+  const shown = midway ? a.positionMs : a.totalMs;
+  return `${a.playing ? '■' : '▶'} ${formatClock(shown)}${midway ? ` / ${formatClock(a.totalMs)}` : ''}`;
+}
+
 export function formatClock(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '0:00';
   const total = Math.floor(ms / 1000);

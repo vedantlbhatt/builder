@@ -15,7 +15,7 @@ import type { Comment, FeedItem } from '../../src/data/api';
 import { api } from '../../src/data/client';
 import { PixelBadge } from '../../src/pixel/PixelBadge';
 import { PostRow } from '../../src/social/FeedList';
-import { applyKudos, authorName, relativeTime, toggleKudos } from '../../src/social/format';
+import { applyKudos, authorName, relativeTime, revertKudos, toggleKudos } from '../../src/social/format';
 import { colors, hitSlopToReach, space } from '../../src/theme';
 
 const c = colors('dark');
@@ -60,7 +60,9 @@ export default function PostScreen() {
       const state = guessed.you_kudosed ? await api.kudos(item.id) : await api.unkudos(item.id);
       setPost((p) => (p ? applyKudos(p, state) : p));
     } catch {
-      setPost(item);
+      // Only the two kudos fields go back. A comment sent while this was in flight has
+      // already moved comment_count, and the tap-time snapshot does not know that.
+      setPost((p) => (p ? revertKudos(p, item) : p));
     }
   }, []);
 

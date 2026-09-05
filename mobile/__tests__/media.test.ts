@@ -10,7 +10,9 @@ import { describe, expect, test } from 'bun:test';
 import {
   addPhotos,
   AUDIO_MIME_EXT,
+  audioChipLabel,
   audioMime,
+  isPlaybackError,
   extensionForMime,
   formatClock,
   MAX_AUDIO_MS,
@@ -221,5 +223,21 @@ describe('photo room', () => {
     const cur = [photo(1)];
     expect(addPhotos(cur, [photo(1)])).toBe(cur);
     expect(addPhotos(cur, [])).toBe(cur);
+  });
+});
+
+describe('AudioChip status handling', () => {
+  test('isPlaybackError: the post-load failure shape, and nothing that merely is not loaded', () => {
+    expect(isPlaybackError({ isLoaded: false, error: 'AVPlayerItem failed' })).toBe(true);
+    expect(isPlaybackError({ isLoaded: false })).toBe(false);
+    expect(isPlaybackError({ isLoaded: true })).toBe(false);
+  });
+
+  test('audioChipLabel: length at rest, position / total while playing or paused, glyph by playing', () => {
+    expect(audioChipLabel({ playing: false, positionMs: 0, totalMs: 42_000 })).toBe('▶ 0:42');
+    expect(audioChipLabel({ playing: true, positionMs: 5_000, totalMs: 42_000 })).toBe('■ 0:05 / 0:42');
+    expect(audioChipLabel({ playing: false, positionMs: 5_000, totalMs: 42_000 })).toBe('▶ 0:05 / 0:42');
+    // After a failure the chip is reset to position 0 and reads as playable again.
+    expect(audioChipLabel({ playing: false, positionMs: 0, totalMs: 42_000 })).toBe('▶ 0:42');
   });
 });

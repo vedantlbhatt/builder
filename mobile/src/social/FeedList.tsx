@@ -19,13 +19,12 @@ import { colors, duration, hitSlopToReach, space } from '../theme';
 import { AudioChip } from './AudioChip';
 import { PhotoGrid } from './PhotoGrid';
 import {
-  applyKudos,
   authorName,
   nextCursor,
   relativeTime,
   repoLine,
-  replaceItem,
   toggleKudos,
+  updateKudos,
 } from './format';
 
 const c = colors('dark');
@@ -97,14 +96,17 @@ export function FeedList({ load, header = null, emptyText }: Props) {
 
   const onKudos = useCallback(async (item: FeedItem) => {
     // Optimistic: flip now, and let the server's answer replace the guess. On error the
-    // row goes back to exactly what it was, not to a second toggle.
+    // kudos fields go back to exactly what they were, not to a second toggle. Every step
+    // touches ONLY the two kudos fields of whatever row is in the list now: a
+    // pull-to-refresh that lands mid-request has replaced the row, and writing the
+    // tap-time snapshot back over it would roll the refresh back.
     const guessed = toggleKudos(item);
-    setItems((prev) => (prev ? replaceItem(prev, guessed) : prev));
+    setItems((prev) => (prev ? updateKudos(prev, item.id, guessed) : prev));
     try {
       const state = guessed.you_kudosed ? await api.kudos(item.id) : await api.unkudos(item.id);
-      setItems((prev) => (prev ? replaceItem(prev, applyKudos(guessed, state)) : prev));
+      setItems((prev) => (prev ? updateKudos(prev, item.id, state) : prev));
     } catch {
-      setItems((prev) => (prev ? replaceItem(prev, item) : prev));
+      setItems((prev) => (prev ? updateKudos(prev, item.id, item) : prev));
     }
   }, []);
 
