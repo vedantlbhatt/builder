@@ -56,8 +56,7 @@ function sharedFromDetail(s: SessionDetail): boolean {
   return s.post_id !== null;
 }
 
-export default function SessionScreen() {
-  const { id, recap } = useLocalSearchParams<{ id: string; recap?: string }>();
+function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
   const { width } = useWindowDimensions();
   const router = useRouter();
   const [model, setModel] = useState<CardModel | null>(null);
@@ -263,7 +262,7 @@ export default function SessionScreen() {
                         // Forget the id too, or the loader above would fetch a deleted post.
                         setSession((cur) => (cur ? { ...cur, post_id: null, is_shared: false } : cur));
                         // The cached detail is what the next visit shows first.
-                        void cache.putDetail({ ...session, is_shared: false }).catch(() => undefined);
+                        void cache.putDetail({ ...session, post_id: null, is_shared: false }).catch(() => undefined);
                       } catch (e) {
                         Alert.alert('Could not delete', e instanceof Error ? e.message : 'try again');
                       }
@@ -680,4 +679,16 @@ function LegendItem({
       </Text>
     </View>
   );
+}
+
+/**
+ * One mount per session id. A deep link to ANOTHER session while this screen is focused
+ * makes expo-router replace the params in place (StackRouter resolves NAVIGATE to the
+ * focused route of the same name), which carried session A's post, drafts and recap
+ * latch onto session B — Delete on A's post from B's screen. Keying on the id makes it a
+ * fresh mount. Found by review; every in-app path already pushes a new screen.
+ */
+export default function SessionScreen() {
+  const { id, recap } = useLocalSearchParams<{ id: string; recap?: string }>();
+  return <SessionScreenInner key={id ?? 'none'} id={id ?? ''} recap={recap} />;
 }

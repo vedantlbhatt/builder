@@ -859,8 +859,11 @@ export class Api {
     }
     const pair = parsed as Partial<TokenPair>;
     if (!pair.access_token || !pair.refresh_token) {
-      await this.clearTokens();
-      throw new ApiError(res.status, 'malformed refresh response');
+      // A 2xx that is not the token pair — a captive portal's page, an intercepting
+      // proxy — is not an auth answer either. Keep the pair and report it as transport
+      // (status 0), like a timeout; the next sync retries. Clearing here signed people
+      // out on hotel wifi. Found by review.
+      throw new ApiError(0, 'malformed refresh response');
     }
     await this.setTokens(pair.access_token, pair.refresh_token);
   }

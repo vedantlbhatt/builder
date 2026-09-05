@@ -216,7 +216,10 @@ function LiveSprite({
   // whenever the state or tempo changes, so nothing from the old state leaks into the new.
   useEffect(() => {
     const timers = new Set<ReturnType<typeof setTimeout>>();
-    const anims: Animated.CompositeAnimation[] = [];
+    // A Set, and one-shots remove themselves on completion: the building state fires
+    // two per beat for as long as a live row is on screen — thousands an hour, all
+    // retained and all iterated at every cleanup under the old array. Found by review.
+    const anims = new Set<Animated.CompositeAnimation>();
     const after = (ms: number, fn: () => void) => {
       const id = setTimeout(() => {
         timers.delete(id);
@@ -225,8 +228,10 @@ function LiveSprite({
       timers.add(id);
     };
     const run = (anim: Animated.CompositeAnimation) => {
-      anims.push(anim);
-      anim.start();
+      anims.add(anim);
+      anim.start(({ finished }) => {
+        if (finished) anims.delete(anim);
+      });
     };
 
     // Derived frames are memoised per source frame so the layer scheduler, which compares

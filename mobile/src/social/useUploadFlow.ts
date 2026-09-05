@@ -21,6 +21,7 @@ export function useUploadFlow(onComplete: (post: FeedItem) => void) {
   const [post, setPost] = useState<FeedItem | null>(null);
   const [rows, setRows] = useState<UploadRow[]>([]);
   const [busy, setBusy] = useState(false);
+  const finishing = useRef(false);
   const saidUnconfigured = useRef(false);
   const rowsRef = useRef<UploadRow[]>([]);
   rowsRef.current = rows;
@@ -76,7 +77,11 @@ export function useUploadFlow(onComplete: (post: FeedItem) => void) {
 
   /** Done, or Done-with-failures: re-read so the caller's row carries the media urls. */
   const finish = useCallback(async () => {
-    if (!post) return;
+    // Once. After the last row lands `busy` is false while the re-read below is in
+    // flight, so the Done button is live for that window; a tap there must not call
+    // onComplete (and route) a second time. Found by review.
+    if (!post || finishing.current) return;
+    finishing.current = true;
     let final = post;
     try {
       final = await api.post(post.id);
@@ -88,6 +93,7 @@ export function useUploadFlow(onComplete: (post: FeedItem) => void) {
 
   /** Back to the form. A sheet that stays mounted between openings calls this on open. */
   const reset = useCallback(() => {
+    finishing.current = false;
     setPost(null);
     setRows([]);
     setBusy(false);

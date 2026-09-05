@@ -193,6 +193,7 @@ make analyze T=<jsonl>         digest + your own Claude Code -> SessionAnalysis
 python -m analysis probe DIR   what record shapes a foreign transcript store holds
 make capture-test              the cloud uploader against the boundary fixtures and the contract
 python -m capture sync --dry-run   what a cloud container would upload, without sending
+curl $SERVER/v1/ingest/hook.sh   the Claude Code hook: nothing installed, sessions on the phone (docs/hooks-capture.md)
 ```
 
 Design notes worth reading before touching the corresponding code: `docs/session-boundaries.md`
@@ -204,11 +205,11 @@ prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/
 
 | suite | n | protects |
 |---|---|---|
-| `swift test` | 112 | the measured ground truth, the strip fixtures, the boundary fixtures, the Codex and Gemini fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
-| `bun test` | 206 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers; the mascot's frames |
-| `pytest` | 87 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2, social, the notification horizon |
-| `unittest` (analysis/) | 69 | the Codex, Gemini, Cline and opencode loaders against their fixtures; Claude Code stats unchanged |
-| `make capture-test` | 36 | boundary parity of the cloud uploader, contract conformance (nested walk), refresh-on-401 rotation |
+| `swift test` | 131 | the measured ground truth, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
+| `bun test` | 304 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables |
+| `pytest` | 118 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture |
+| `unittest` (analysis/) | 120 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged |
+| `make capture-test` | 53 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 
 CI runs on `main`, on `claude/**` branches and on demand. The macOS job is the only Swift
