@@ -53,7 +53,12 @@ fs.mkdirSync(OUT, { recursive: true });
 const consoleErrors = [];
 const shots = [];
 
-const browser = await chromium.launch();
+// The container ships one Chromium build under PLAYWRIGHT_BROWSERS_PATH and the npm
+// playwright version need not match its revision, so point at the binary directly when
+// E2E_CHROME is set (the environment documents this as the supported escape hatch).
+const browser = await chromium.launch(
+  process.env.E2E_CHROME ? { executablePath: process.env.E2E_CHROME } : {}
+);
 const context = await browser.newContext({
   viewport: { width: 390, height: 844 },
   deviceScaleFactor: 2,
