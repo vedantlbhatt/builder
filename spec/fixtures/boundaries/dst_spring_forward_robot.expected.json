@@ -1,0 +1,33 @@
+{
+ "tz": "America/New_York",
+ "constants": {
+  "tau_session": 900.0,
+  "active_gap_cap": 120.0,
+  "tau_autonomous": 1800.0,
+  "tau_return_split": 7200.0,
+  "day_boundary_hour": 4
+ },
+ "records": 541,
+ "sessions": [
+  {
+   "started_at": 1772944200.0,
+   "ended_at": 1772956745.0,
+   "active_seconds": 12600.0,
+   "attended_seconds": 1805.0,
+   "autonomous_seconds": 10795.0,
+   "prompts": 1,
+   "presence": 1,
+   "end_reason": "day_boundary"
+  },
+  {
+   "started_at": 1772956800.0,
+   "ended_at": 1772972945.0,
+   "active_seconds": 16145.0,
+   "attended_seconds": 0.0,
+   "autonomous_seconds": 16145.0,
+   "prompts": 0,
+   "presence": 0,
+   "end_reason": "still_running"
+  }
+ ]
+}

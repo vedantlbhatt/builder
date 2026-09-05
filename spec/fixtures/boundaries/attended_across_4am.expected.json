@@ -1,0 +1,23 @@
+{
+ "tz": "America/New_York",
+ "constants": {
+  "tau_session": 900.0,
+  "active_gap_cap": 120.0,
+  "tau_autonomous": 1800.0,
+  "tau_return_split": 7200.0,
+  "day_boundary_hour": 4
+ },
+ "records": 372,
+ "sessions": [
+  {
+   "started_at": 1773118800.0,
+   "ended_at": 1773132875.0,
+   "active_seconds": 11820.0,
+   "attended_seconds": 11820.0,
+   "autonomous_seconds": 0.0,
+   "prompts": 12,
+   "presence": 12,
+   "end_reason": "still_running"
+  }
+ ]
+}
