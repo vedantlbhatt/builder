@@ -298,6 +298,9 @@ public enum Sessionizer {
             // next session begins at least the gap later, so sessions never overlap.
             var cur = Accumulator(firstIndex: 0, startedAt: firstTS, endedAt: firstTS)
             var lastPresence: Double? = firstEntry.1.kind.isPresence ? firstTS : nil
+            // When the current autonomous stretch began, for a pool that has had no
+            // presence signal at all: rule 2 measures autonomy from here in that case.
+            var runStart: Double? = firstEntry.1.kind.isPresence ? nil : firstTS
 
             for i in 1..<max(sorted.count, 1) where sorted.count > 1 {
                 let prevTS = sorted[i - 1].1.ts!
@@ -323,6 +326,7 @@ public enum Sessionizer {
                     cut(cur, endIndex: i, reason: .idleGap)
                     cur = Accumulator(firstIndex: i, startedAt: ts, endedAt: ts)
                     lastPresence = rec.kind.isPresence ? ts : nil
+                    runStart = rec.kind.isPresence ? nil : ts
                     continue
                 }
 
@@ -345,27 +349,39 @@ public enum Sessionizer {
                         : 0
                     cur.credit(after, autonomous: true)
                     // `lastPresence` carries over: the human is still absent.
-                    if rec.kind.isPresence { lastPresence = ts }
+                    if runStart == nil { runStart = prevTS }
+                    if rec.kind.isPresence {
+                        lastPresence = ts
+                        runStart = nil
+                    }
                     continue
                 }
 
                 // Rule 2: the human returned after a long autonomous run. The run is
                 // finalized at the instant of the presence signal, credited for the gap
                 // like any other end, and a new sitting begins with the signal.
+                // A run that never had a presence signal measures its autonomy from its
+                // own start, so the first human to sit down at a robot opens a new session.
+                let autonomyLen: Double? = sincePresence ?? runStart.map { prevTS - $0 }
                 if rec.kind.isPresence && autonomous,
-                   let since = sincePresence, since >= options.tauReturnSplit {
+                   let since = autonomyLen, since >= options.tauReturnSplit {
                     cur.credit(credit, autonomous: true)
                     cur.endedAt = prevTS + credit
                     cut(cur, endIndex: i, reason: .humanReturned)
                     cur = Accumulator(firstIndex: i, startedAt: ts, endedAt: ts)
                     lastPresence = ts
+                    runStart = nil
                     continue
                 }
 
                 // Ordinary continuation: credit the gap to whichever clock is running.
                 cur.credit(credit, autonomous: autonomous)
                 cur.endedAt = ts
-                if rec.kind.isPresence { lastPresence = ts }
+                if autonomous && runStart == nil { runStart = prevTS }
+                if rec.kind.isPresence {
+                    lastPresence = ts
+                    runStart = nil
+                }
             }
 
             // The last session in the pool is the live one. No trailing credit: there is

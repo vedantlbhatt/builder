@@ -107,7 +107,12 @@ public struct Analysis {
     public func longestStreak() throws -> (length: Int, start: String, end: String) {
         var days: [String] = []
         try cache.query(
-            "SELECT DISTINCT day FROM session WHERE visible = 1 AND day IS NOT NULL ORDER BY day"
+            // `unattended = 0`: an autonomous run cut at 04:00 produces a second piece with no
+            // presence signal at all, and a robot running through the night would otherwise
+            // manufacture the very two-day streak the start-date rule exists to prevent.
+            // Hours still count; streaks are for people (docs/session-boundaries.md).
+            "SELECT DISTINCT day FROM session "
+                + "WHERE visible = 1 AND unattended = 0 AND day IS NOT NULL ORDER BY day"
         ) { s in
             if let d = s.text(0) { days.append(d) }
         }

@@ -189,6 +189,15 @@ def cases() -> dict[str, Tape]:
     t.agent_burst(9 * 3600, every=60)
     out["dst_spring_forward_robot"] = t
 
+    # 9. A robot from the first record (scheduled agent), then a human sits down after 3 h.
+    #    Expect: human_returned at the first prompt even though the run never had presence.
+    t = Tape(dt.datetime(2026, 3, 10, 9, 0, tzinfo=TZ))
+    t.agent_burst(3 * 3600, every=60)
+    t.prompt("what did you do?")
+    t.advance(3)
+    t.agent_burst(120)
+    out["robot_then_human_arrives"] = t
+
     return out
 
 

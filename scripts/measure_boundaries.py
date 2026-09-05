@@ -225,13 +225,16 @@ def sessionize(
                     run_start = None
                 continue
 
-            # Rule 2: the human returned after a long autonomous run.
-            if (
-                r["presence"]
-                and autonomous
-                and since_presence is not None
-                and since_presence >= tau_return
-            ):
+            # Rule 2: the human returned after a long autonomous run. A run that never had
+            # a presence signal (a scheduled agent, a robot from the first record) measures
+            # its autonomy from its own start, so the first human to sit down at it opens a
+            # new session rather than being absorbed into the robot's.
+            autonomy_len = (
+                since_presence
+                if since_presence is not None
+                else (prev["ts"] - run_start if run_start is not None else None)
+            )
+            if r["presence"] and autonomous and autonomy_len is not None and autonomy_len >= tau_return:
                 cur["active"] += credit
                 cur["autonomous"] += credit
                 # ended_at advances by the credit, as for idle_gap: the run was credited
