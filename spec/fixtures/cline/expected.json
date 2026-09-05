@@ -25,7 +25,7 @@
   "lines_removed_agent": 2,
   "files_edited": 4,
   "files_written_via_shell": 1,
-  "files_read": 0,
+  "files_read": 1,
   "git_commits_run": 1,
   "test_runs": 2,
   "models": {

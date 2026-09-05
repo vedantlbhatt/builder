@@ -46,8 +46,18 @@ public enum SessionDigest {
     /// Tool names that mean "ran a shell command" / "edited a file", per harness. Claude
     /// Code's names first; the Codex names are documented in analysis/codex.py. Membership
     /// here is what `stats` keys commits, test runs and files-edited on.
-    public static let shellTools: Set<String> = ["Bash", "shell", "exec_command", "local_shell", "shell_command"]
-    public static let editTools: Set<String> = ["Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"]
+    /// The three tool-name sets mirror `SHELL_TOOLS` / `EDIT_TOOLS` / `READ_TOOLS` in
+    /// analysis/digest.py, harness by harness: Claude Code, Codex, Gemini CLI, Cline and
+    /// opencode. A name missing here is a silent zero in the stats for that harness.
+    public static let shellTools: Set<String> = [
+        "Bash", "shell", "exec_command", "local_shell", "shell_command",
+        "run_shell_command", "execute_command", "run_commands", "bash",
+    ]
+    public static let editTools: Set<String> = [
+        "Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch",
+        "write_file", "replace", "write_to_file", "replace_in_file", "editor", "edit", "write",
+    ]
+    public static let readTools: Set<String> = ["Read", "read_file", "read_many_files", "read"]
 
     // MARK: - Types
 
@@ -476,7 +486,7 @@ public enum SessionDigest {
         for e in tools {
             guard let p = e.path, !p.isEmpty, let t = e.tool else { continue }
             if editTools.contains(t) || (shellTools.contains(t) && e.added != nil) { files.insert(p) }
-            if t == "Read" { reads.insert(p) }
+            if readTools.contains(t) { reads.insert(p) }
         }
         st.filesEdited = files.count
         st.filesWrittenViaShell = tools.filter { shellTools.contains($0.tool ?? "") && $0.added != nil }.count

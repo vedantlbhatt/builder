@@ -4,7 +4,8 @@ reproduce.
 
     spec/fixtures/gemini/synthetic_session.jsonl          the current on-disk form
     spec/fixtures/gemini/synthetic_session_legacy.json    the same conversation, legacy form
-    spec/fixtures/gemini/synthetic_session.expected.json
+    spec/fixtures/gemini/synthetic_subagent.jsonl         a `kind: "subagent"` recording
+    spec/fixtures/gemini/synthetic_session.expected.json  stats for all three
 
 Both are SYNTHETIC, written in the shapes verified from the Gemini CLI source (see the
 docstring of analysis/gemini.py for the per-shape provenance), not captured sessions. The
@@ -14,14 +15,23 @@ JSONL exercises every branch the loader has: the metadata line; a `/help` slash 
 with `tokens`, then with `toolCalls`) — the same id, which a naive per-line token sum
 double-counts; `run_shell_command` calls including `git commit` and `pytest`, one with a
 heredoc; `write_file`, `replace` and `read_file`; one `status: "error"` tool result with
-`response.error`; the tool-response `type: "user"` record (functionResponse parts, NOT a
-prompt); a tool-call-only synthetic gemini message whose `content` holds a `thought` part
-and a `functionCall` part duplicated by its `toolCalls` record; `$set` metadata updates; a
-`$rewindTo` that removes a wrong-turn reply; and a trailing message with no `timestamp`.
+`response.error` (a failed `replace`, which must earn NO line or file credit); one
+`run_shell_command` that exited non-zero — recorded as `status: "success"` with `Exit
+Code: 2` in its output, exactly as tools/shell.ts writes it; the tool-response `type:
+"user"` record (functionResponse parts, NOT a prompt); a tool-call-only synthetic gemini
+message whose `content` holds a `thought` part and a `functionCall` part duplicated by its
+`toolCalls` record; `$set` metadata updates; a `$rewindTo` that removes a wrong-turn reply;
+and a trailing message with no `timestamp`.
 
 The legacy `.json` file is the reader's view of the same recording (rewind applied, one
 record per id) and must produce identical stats — that equality is asserted in
 analysis/tests/test_gemini.py along with the hand-counted invariants.
+
+The subagent recording is what `chatRecordingService.ts` writes under
+`chats/<parentSessionId>/<sessionId>.jsonl`: metadata with `kind: "subagent"` and
+`directories`, then the PARENT MODEL's instruction recorded as a plain `type: "user"`
+message (the same `recordMessage` path a typed prompt takes), a tool round and a reply. The
+loader must report zero prompts for it and one `prompt_agent_authored`.
 """
 
 from __future__ import annotations
@@ -37,6 +47,7 @@ from analysis import digest, gemini
 
 OUT = ROOT / "spec" / "fixtures" / "gemini"
 SESSION_ID = "5d2c1a0e-4f3b-4c2d-9e8f-7a6b5c4d3e2f"
+SUBAGENT_ID = "7c0b3e9d-2a1f-4d6e-8b5c-3f2e1d0c9b8a"
 PROJECT_HASH = "9f1c2b3a4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8"
 MODEL = "gemini-2.5-pro"
 
@@ -168,7 +179,17 @@ G1_TOOLS = dict(
             20.0,
             "",
         ),
-        call("c7", "run_shell_command", {"command": "pytest -q tests/"}, 24.0, "...\n3 passed\n"),
+        # A non-zero exit. tools/shell.ts returns no `error` for it, so the record says
+        # `success`; the exit status is a line of llmContent, wrapped by `wrapUntrusted`.
+        call(
+            "c7",
+            "run_shell_command",
+            {"command": "make lint"},
+            22.0,
+            "<untrusted_context>\nOutput: make: *** No rule to make target 'lint'.  Stop.\n"
+            "Exit Code: 2\nProcess Group PGID: 4242\n</untrusted_context>",
+        ),
+        call("c8", "run_shell_command", {"command": "pytest -q tests/"}, 24.0, "...\n3 passed\n"),
     ],
 )
 
@@ -180,7 +201,7 @@ G_SYN = gem(
         {"text": "**Committing**", "thought": True, "thoughtSignature": "sig"},
         {
             "functionCall": {
-                "id": "c8",
+                "id": "c9",
                 "name": "run_shell_command",
                 "args": {"command": "git commit -am 'Add --dry-run'"},
             }
@@ -189,7 +210,7 @@ G_SYN = gem(
     model=MODEL,
     toolCalls=[
         call(
-            "c8",
+            "c9",
             "run_shell_command",
             {"command": "git commit -am 'Add --dry-run'"},
             63.0,
@@ -217,7 +238,7 @@ def jsonl_lines() -> list[dict]:
             [
                 {
                     "functionResponse": {
-                        "id": "c7",
+                        "id": "c8",
                         "name": "run_shell_command",
                         "response": {"output": "...\n3 passed\n"},
                     }
@@ -241,6 +262,70 @@ def jsonl_lines() -> list[dict]:
     ]
 
 
+def subagent_lines() -> list[dict]:
+    """`chats/<parent>/<SUBAGENT_ID>.jsonl` — VERIFIED shape from chatRecordingService.ts
+    (`kind`, `directories` only for subagents) and geminiChat.ts `initialize(…, 'subagent')`."""
+    instruction = (
+        "Find every caller of run() under tests/ and report which ones pass --dry-run. "
+        "Do not edit anything."
+    )
+    return [
+        {
+            "sessionId": SUBAGENT_ID,
+            "projectHash": PROJECT_HASH,
+            "startTime": ts(30.0),
+            "lastUpdated": ts(30.0),
+            "kind": "subagent",
+            "directories": ["/Users/dev/proj"],
+        },
+        # The parent model's instruction, recorded exactly like a typed prompt.
+        user("a_u1", 30.5, [{"text": instruction}]),
+        gem(
+            "a_g1",
+            33.0,
+            "",
+            model=MODEL,
+            toolCalls=[
+                call(
+                    "a_c1",
+                    "grep_search",
+                    {"pattern": "run\\(", "dir_path": "tests"},
+                    34.0,
+                    "tests/test_deploy.py:7: run(['--dry-run'])\n",
+                ),
+                call(
+                    "a_c2",
+                    "read_file",
+                    {"file_path": "/Users/dev/proj/tests/test_deploy.py"},
+                    35.0,
+                    "def test_dry_run():\n    assert run(['--dry-run']) == 0\n",
+                ),
+            ],
+            tokens=tokens(3000, 12, 0, 40),
+        ),
+        user(
+            "a_u2",
+            35.5,
+            [
+                {
+                    "functionResponse": {
+                        "id": "a_c2",
+                        "name": "read_file",
+                        "response": {"output": "def test_dry_run():\n…"},
+                    }
+                }
+            ],
+        ),
+        gem(
+            "a_g2",
+            38.0,
+            "One caller: tests/test_deploy.py::test_dry_run passes --dry-run.",
+            model=MODEL,
+            tokens=tokens(3400, 25, 0, 30),
+        ),
+    ]
+
+
 def legacy_record() -> dict:
     """What `loadConversationRecord` yields from the JSONL: rewind applied, one record per
     id in first-insertion order — written as one legacy `.json` object."""
@@ -254,7 +339,7 @@ def legacy_record() -> dict:
             [
                 {
                     "functionResponse": {
-                        "id": "c7",
+                        "id": "c8",
                         "name": "run_shell_command",
                         "response": {"output": "...\n3 passed\n"},
                     }
@@ -288,9 +373,16 @@ def main() -> int:
     legacy = OUT / "synthetic_session_legacy.json"
     legacy.write_text(json.dumps(legacy_record(), indent=2, ensure_ascii=False) + "\n")
 
+    sub = OUT / "synthetic_subagent.jsonl"
+    with sub.open("w") as f:
+        for r in subagent_lines():
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
     s = gemini.scan(jsonl)
     events, derivation = gemini._derive(s)
     legacy_events = gemini.load_events(legacy)
+    ss = gemini.scan(sub)
+    sub_events, sub_derivation = gemini._derive(ss)
     expected = {
         "_generated_by": "scripts/gen_gemini_fixture.py — do not hand-edit",
         "harness": digest.detect_harness(jsonl),
@@ -302,13 +394,23 @@ def main() -> int:
         "legacy_usage": gemini.usage(legacy),
         "meta": {k: v for k, v in s.meta.items() if k != "path"},
         "diagnostics": dict(s.diagnostics, derivation=derivation),
+        "subagent": {
+            "file": sub.name,
+            "harness": digest.detect_harness(sub),
+            "events": len(sub_events),
+            "stats": digest.stats(sub_events),
+            "usage": ss.usage,
+            "meta": {k: v for k, v in ss.meta.items() if k != "path"},
+            "diagnostics": dict(ss.diagnostics, derivation=sub_derivation),
+        },
     }
     (OUT / "synthetic_session.expected.json").write_text(
         json.dumps(expected, indent=1, ensure_ascii=False) + "\n"
     )
     print(
-        f"wrote {jsonl} ({len(L)} lines), {legacy.name}, and expected stats "
-        f"({len(events)} events; legacy equal: {expected['legacy_stats_equal']})"
+        f"wrote {jsonl} ({len(L)} lines), {legacy.name}, {sub.name} ({len(sub_events)} events) "
+        f"and expected stats ({len(events)} events; legacy equal: "
+        f"{expected['legacy_stats_equal']})"
     )
     return 0
 

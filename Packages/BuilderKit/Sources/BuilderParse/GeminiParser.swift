@@ -57,7 +57,11 @@ public struct GeminiParser: HarnessParser {
 
     /// Bump when the interpretation of the same bytes changes. Sources whose stored
     /// watermark carries an older version are deleted and re-read from zero.
-    public let parserVersion = 1
+    ///
+    /// 2: a failed or cancelled edit earns no line or file credit; a shell result carrying
+    ///    `Exit Code: N` is an error; a sidecar's user messages are not prompts; `$set` rows
+    ///    (the title among them) take the last stamped clock, never `lastUpdated`.
+    public let parserVersion = 2
 
     private let tmpRoot: String
 
@@ -100,6 +104,14 @@ public struct GeminiParser: HarnessParser {
 
     /// `file_path` is VERIFIED; `absolute_path` and `path` are ASSUMED older spellings.
     static let pathArgKeys = ["file_path", "absolute_path", "path"]
+
+    /// VERIFIED tools/shell.ts: a non-zero exit pushes `Exit Code: ${exitCode}` onto the
+    /// llmContent the model receives as `response.output` and sets NO `error` — that is
+    /// reserved for spawn failures (`SHELL_EXECUTE_ERROR`) and sandbox-expansion requests —
+    /// so scheduler/tool-executor.ts (`toolResult.error === undefined`) records the call as
+    /// `success`. Anchored at line start: the text is wrapped in `<untrusted_context>` and
+    /// the line sits between `Output: …` and `Process Group PGID: …`.
+    static let shellExitCodePattern = #"(?m)^Exit Code: [1-9][0-9]*"#
 
     /// Above this many DP cells the `replace` line diff degrades to "every old line removed,
     /// every new line added" rather than allocating quadratically for a pathological edit.
@@ -182,6 +194,10 @@ public struct GeminiParser: HarnessParser {
         var cwd: String?
         /// Last `model` seen on a gemini record; tool calls inherit it.
         var model: String?
+        /// The latest clock any stamped row has carried so far. `$set` rows take it: they
+        /// are bookkeeping about the conversation as it stood, and must neither extend a
+        /// session past its last record nor float outside every session with no clock.
+        var lastTS: Double?
 
         /// Message ids whose `tokens` have already been claimed by an authoritative carrier.
         /// REPLAYED from before the watermark on a resume — the one piece of state that must
@@ -222,6 +238,9 @@ public struct GeminiParser: HarnessParser {
             var toolFromFunctionCallPart = 0
             var functionCallPartDeduped = 0
             var resultError = 0
+            var shellExitCodeError = 0
+            var toolCreditWithheld = 0
+            var promptAgentAuthored = 0
             var unknownPartShape = 0
             var messageTypeInfo = 0
             var messageTypeError = 0
@@ -337,7 +356,10 @@ public struct GeminiParser: HarnessParser {
         note("gemini_tool_status_cancelled", c.toolStatusCancelled, "cancelled tool call(s) — counted, not emitted as an interrupt: the source does not say whether it was Escape or a policy denial")
         note("gemini_tool_from_function_call_part", c.toolFromFunctionCallPart, "tool call(s) taken from a functionCall part with no toolCalls record")
         note("gemini_function_call_part_deduped", c.functionCallPartDeduped, "functionCall part(s) already covered by a toolCalls record")
-        note("gemini_result_error", c.resultError, "tool result(s) flagged as errors by status or response.error")
+        note("gemini_result_error", c.resultError, "tool result(s) flagged as errors by status, response.error or a shell Exit Code line")
+        note("gemini_shell_exit_code_error", c.shellExitCodeError, "run_shell_command result(s) recorded as success whose output carries `Exit Code: N` (tools/shell.ts sets no error for a non-zero exit)")
+        note("gemini_tool_credit_withheld", c.toolCreditWithheld, "tool call(s) that asked for a file or lines but did not succeed; no line or file credit given")
+        note("gemini_prompt_agent_authored", c.promptAgentAuthored, "sidecar user message(s) that were the parent model's instruction, not a person typing; not prompts")
         note("gemini_unknown_part_shape", c.unknownPartShape, "content part(s) with no recognised key")
         note("gemini_message_type_info", c.messageTypeInfo, "info record(s)")
         note("gemini_message_type_error", c.messageTypeError, "error record(s) (UI/API errors, not tool failures)")
@@ -400,6 +422,12 @@ public struct GeminiParser: HarnessParser {
         if r["$rewindTo"].isString { return }
         if r.id.isString {
             if r.tokens.isObject, let id = r.id.nonEmptyString { ctx.claimedTokenIDs.insert(id) }
+            // Only token-carrying message lines reach here, so the replayed clock is a
+            // lower bound on what the live pass saw; a `$set` right after the watermark
+            // falls back to its own `lastUpdated` when nothing was replayed.
+            if let ts = ISO8601.seconds(r.timestamp.string), ctx.lastTS.map({ ts > $0 }) ?? true {
+                ctx.lastTS = ts
+            }
             return
         }
         if r["$set"].isObject {
@@ -473,7 +501,6 @@ public struct GeminiParser: HarnessParser {
             // facet logic, so only genuinely new facets produce rows.
             let s = r["$set"]
             absorbDirectories(s.directories, into: ctx, count: true)
-            let ts = ISO8601.seconds(s.lastUpdated.string)
             var out: [NormalizedEvent] = []
             if let msgs = s.messages.array {
                 ctx.counters.setMessagesRebuild += 1
@@ -481,6 +508,16 @@ public struct GeminiParser: HarnessParser {
                     out.append(contentsOf: messageEvents(m, source: source, ordinal: ordinal, carrierID: "\(lineID)#m\(i)", ctx: ctx))
                 }
             }
+            // VERIFIED `updateMetadata`: a `$set` is `{$set: updates}` and nothing more.
+            // `saveSummary` writes `{$set: {summary}}` with NO `lastUpdated`, and the
+            // `lastUpdated` that `recordMessage` writes is stamped AFTER the message it
+            // follows. So the row takes the last stamped clock seen: never a later one,
+            // which would let bookkeeping extend a session (a summary saved at exit would
+            // push the session's end to the moment of saving — the fixture's final `$set`
+            // is a second past its last tool result), and never nil once a message has
+            // been seen, which would leave the title outside every session
+            // (`SessionDeriver` looks a title up among the session's own events).
+            let ts = ctx.lastTS ?? ISO8601.seconds(s.lastUpdated.string)
             if let summary = s.summary.nonEmptyString {
                 // The title the harness wrote to disk. No leaf pointer exists in this
                 // format; the deriver attaches an unanchored title to the session that
@@ -496,7 +533,12 @@ public struct GeminiParser: HarnessParser {
 
         if r.sessionId.isString, r.projectHash.isString {
             // Line 0. Its startTime is the one clock reading that precedes every message,
-            // so the metadata row carries it — as bookkeeping, which cannot open a session.
+            // and the metadata row carries it. `Sessionizer` pools every timestamped record,
+            // so this row opens the session at launch time — exactly as `CodexParser`'s
+            // `session_meta` row does. The reference never makes this line an event, but
+            // the only clock it will stamp on an unstamped message is this one, so on the
+            // fixture both start at 09:00:00; on a recording whose every message is stamped
+            // the reference starts at the first message instead, seconds later.
             // VERIFIED: `{sessionId, projectHash, startTime, lastUpdated, kind?, directories?}`.
             if let id = r.sessionId.nonEmptyString { ctx.ownSessionID = id }
             if let h = r.projectHash.nonEmptyString { ctx.projectHash = h }
@@ -533,7 +575,8 @@ public struct GeminiParser: HarnessParser {
         ordinal: Int,
         ctx: FileContext
     ) -> NormalizedEvent {
-        NormalizedEvent(
+        if let ts, ctx.lastTS.map({ ts > $0 }) ?? true { ctx.lastTS = ts }
+        return NormalizedEvent(
             eventUID: Hashing.eventUID(
                 harness: .geminiCLI, sourceID: source.sourceID, nativeEventID: nativeID),
             harness: .geminiCLI,
@@ -599,12 +642,16 @@ public struct GeminiParser: HarnessParser {
                     var e = base(.toolResult, id: "tr:\(key)", ts: ts, source: source, ordinal: ordinal, ctx: ctx)
                     e.toolID = fr.id.nonEmptyString
                     let known = ctx.toolByCallKey[key]
-                    e.toolName = known?.name ?? fr.name.nonEmptyString
+                    let toolName = known?.name ?? fr.name.nonEmptyString
+                    e.toolName = toolName
                     e.targetPath = known?.path
                     // VERIFIED `createErrorResponse`: a failed tool's response is `{error: msg}`.
-                    if fr.response.error.exists {
+                    // A shell exit status only ever arrives as output (see the toolCalls path).
+                    let exitedNonZero = Self.shellExitedNonZero(name: toolName ?? "", result: p)
+                    if fr.response.error.exists || exitedNonZero {
                         e.extra = ["is_error": "true"]
                         ctx.counters.resultError += 1
+                        if exitedNonZero { ctx.counters.shellExitCodeError += 1 }
                     }
                     out.append(e)
                 }
@@ -625,6 +672,17 @@ public struct GeminiParser: HarnessParser {
             }
             if Self.isIgnoredPrompt(text) {
                 ctx.counters.promptIgnored += 1
+                return out
+            }
+            if source.isSidecar {
+                // VERIFIED: a subagent's chat (`initialize(…, 'subagent')` in geminiChat.ts)
+                // records the PARENT MODEL's instruction through the same
+                // `recordMessage({type: 'user'})` path a typed prompt takes, and
+                // chatRecordingService.ts writes every `kind === 'subagent'` recording under
+                // `chats/<parentSessionId>/` — the shape `isSidecar` is read from. Nobody
+                // typed it: counted, never a prompt (reference: `prompt_agent_authored`).
+                ctx.counters.promptAgentAuthored += 1
+                if m.tokens.isObject { ctx.counters.tokensOnNonGemini += 1 }
                 return out
             }
             if ctx.emittedPrompt.insert(mid).inserted {
@@ -683,9 +741,35 @@ public struct GeminiParser: HarnessParser {
                 }
 
                 let path = Self.fileTools.contains(name) ? Self.filePath(c.args) : nil
+
+                // The verdict first, so that credit can follow it. `status == "error"` and
+                // `response.error` are authoritative; a shell `success` whose output says
+                // `Exit Code: N` failed too (`shellExitCodePattern`). The reference ALSO
+                // falls back to `digest._looks_like_error` on any successful output; its
+                // Swift twin is `Digest.looksLikeError` in BuilderAnalysis, which depends on
+                // this module, so that fallback is not applied here — a result the reference
+                // flags by output shape alone (a `FAILED` line and no exit status, the
+                // fixture's c4) is not an error in this parser. `GeminiParserTests` pins it.
+                let exitedNonZero = status == "success" && Self.shellExitedNonZero(name: name, result: c.result)
+                let isError = status == "error" || Self.resultHasError(c.result) || exitedNonZero
+
+                // Lines and path come from the ARGUMENTS — what the model asked for. Only a
+                // call that succeeded changed anything: a failed `replace` edited no file, a
+                // cancelled `write_file` wrote nothing. Withheld credit is counted. A call
+                // first recorded with an incomplete status would lose its credit for good
+                // (a facet is emitted once), but `recordCompletedToolCalls` only writes
+                // terminal statuses; such a line is counted by `gemini_tool_status_incomplete`.
+                let credited = status == "success" && !isError
                 if ctx.emittedCalls.insert(key).inserted {
-                    out.append(toolUse(name: name, callID: cid, key: key, args: c.args, path: path,
-                                       ts: cts, model: effectiveModel, source: source, ordinal: ordinal, ctx: ctx))
+                    var call = toolUse(name: name, callID: cid, key: key, args: c.args, path: path,
+                                       ts: cts, model: effectiveModel, source: source, ordinal: ordinal, ctx: ctx)
+                    if !credited {
+                        if call.targetPath != nil || call.linesAdded != nil { ctx.counters.toolCreditWithheld += 1 }
+                        call.targetPath = nil
+                        call.linesAdded = nil
+                        call.linesRemoved = nil
+                    }
+                    out.append(call)
                 }
 
                 // A result exists once the call completed — by status, or because a
@@ -695,10 +779,11 @@ public struct GeminiParser: HarnessParser {
                     var e = base(.toolResult, id: "tr:\(key)", ts: cts, source: source, ordinal: ordinal, ctx: ctx)
                     e.toolName = name
                     e.toolID = cid
-                    e.targetPath = path
-                    if status == "error" || Self.resultHasError(c.result) {
+                    e.targetPath = path  // the file the call was ABOUT — not a credit
+                    if isError {
                         e.extra = ["is_error": "true"]
                         ctx.counters.resultError += 1
+                        if exitedNonZero { ctx.counters.shellExitCodeError += 1 }
                     }
                     out.append(e)
                 }
@@ -896,6 +981,17 @@ public struct GeminiParser: HarnessParser {
     /// `response.error` (VERIFIED `createErrorResponse`).
     static func resultHasError(_ result: JSONNode) -> Bool {
         parts(result).contains { $0.functionResponse.response.error.exists }
+    }
+
+    /// True when a `run_shell_command` result's `response.output` carries an `Exit Code: N`
+    /// line, N ≥ 1 (see `shellExitCodePattern`). Only the shell tool writes that line; a
+    /// file whose text happens to contain it is not a failed command.
+    static func shellExitedNonZero(name: String, result: JSONNode) -> Bool {
+        guard name == shellTool else { return false }
+        return parts(result).contains { p in
+            guard let out = p.functionResponse.response.output.string else { return false }
+            return out.range(of: shellExitCodePattern, options: .regularExpression) != nil
+        }
     }
 
     /// Sorted-key JSON of a tool's args, for the name + args signature that pairs a

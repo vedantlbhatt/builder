@@ -76,6 +76,12 @@ EDIT_TOOLS = frozenset(
     }
 )
 
+# Tools that mean "read a file". FOUND BY A TEST: `files_read` keyed on Claude Code's `Read`
+# alone, so every Gemini, Cline and opencode session reported zero files read — the same
+# silent zero the shell/edit sets exist to prevent. Codex has no read tool (it reads through
+# the shell), so a Codex session's files_read is 0 by construction, not by omission.
+READ_TOOLS = frozenset({"Read", "read_file", "read_many_files", "read"})
+
 _SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -495,7 +501,7 @@ def stats(events: list[Ev]) -> dict:
         if e.path and (e.tool in EDIT_TOOLS or (e.tool in SHELL_TOOLS and e.added is not None))
     }
     shell_written = sum(1 for e in tools if e.tool in SHELL_TOOLS and e.added is not None)
-    reads = {e.path for e in tools if e.path and e.tool == "Read"}
+    reads = {e.path for e in tools if e.path and e.tool in READ_TOOLS}
     commits = sum(
         1 for e in tools if e.tool in SHELL_TOOLS and re.search(r"\bgit commit\b", e.text)
     )

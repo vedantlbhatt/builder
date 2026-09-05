@@ -3,10 +3,14 @@
 Two layers. The generated expectation catches drift; the hand-counted invariants are
 independent of the loader and are what make agreement evidence rather than tautology
 (the fixture is read by eye: 2 prompts — a `/help` and a functionResponse-only user record
-are NOT prompts — 8 tool calls, 1 `status: "error"`, +12/-2 lines across one write_file
-(5 lines), two replaces (+3/-1, +1/-1) and one heredoc (3 lines), 1 `git commit`, 2 pytest
+are NOT prompts — 9 tool calls; 3 errors — c5 `status: "error"`, c7 a `success` whose
+output carries `Exit Code: 2`, and c4 a `success` whose pytest output has a `FAILED` line
+that `digest._looks_like_error` recognises; +11/-1 lines across one write_file (5 lines),
+ONE successful replace (+3/-1) — the failed replace asked for +1/-1 and earns nothing — and
+one heredoc (3 lines); 3 files edited, not 4, for the same reason; 1 `git commit`, 2 pytest
 runs, 3 text replies after a `$rewindTo` removes a fourth, and a gemini message appended
-three times whose tokens a naive per-line sum counts three times).
+three times whose tokens a naive per-line sum counts three times. The subagent recording
+has 0 prompts: its one user message is the parent model's instruction.)
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 FIX = ROOT / "spec" / "fixtures" / "gemini"
 JSONL = FIX / "synthetic_session.jsonl"
 LEGACY = FIX / "synthetic_session_legacy.json"
+SUBAGENT = FIX / "synthetic_subagent.jsonl"
 EXPECTED = FIX / "synthetic_session.expected.json"
 CODEX = ROOT / "spec" / "fixtures" / "codex" / "synthetic_session.jsonl"
 CC_BOUNDARIES = ROOT / "spec" / "fixtures" / "boundaries"
@@ -50,6 +55,19 @@ def _msg(mid: str, typ: str, content, sec: int = 1, **kw) -> dict:
     }
 
 
+def _call(cid: str, name: str, args: dict, status: str, output=None, error=None) -> dict:
+    """A ToolCallRecord with a functionResponse result, in the shapes the CLI writes."""
+    resp = {"error": error} if error is not None else {"output": output or ""}
+    return {
+        "id": cid,
+        "name": name,
+        "args": args,
+        "result": [{"functionResponse": {"id": cid, "name": name, "response": resp}}],
+        "status": status,
+        "timestamp": "2025-01-01T00:00:02.000Z",
+    }
+
+
 class FixtureStats(unittest.TestCase):
     def test_reproduces_expected(self):
         exp = json.loads(EXPECTED.read_text())
@@ -70,14 +88,16 @@ class FixtureStats(unittest.TestCase):
         st = digest.stats(events)
         self.assertEqual(st["prompts_sent"], 2)
         self.assertEqual(st["replies_received"], 3)
-        self.assertEqual(st["tool_calls"], 8)
+        self.assertEqual(st["tool_calls"], 9)
         self.assertEqual(
-            st["tool_mix"], {"run_shell_command": 4, "replace": 2, "read_file": 1, "write_file": 1}
+            st["tool_mix"], {"run_shell_command": 5, "replace": 2, "read_file": 1, "write_file": 1}
         )
-        self.assertEqual(st["errors"], 1)
-        self.assertEqual(st["lines_added_agent"], 12)
-        self.assertEqual(st["lines_removed_agent"], 2)
-        self.assertEqual(st["files_edited"], 4)
+        self.assertEqual(st["errors"], 3)
+        # write_file 5 + replace c2 3 + heredoc 3; the failed replace c5 (+1/-1 as asked)
+        # earns nothing, and neither does its file.
+        self.assertEqual(st["lines_added_agent"], 11)
+        self.assertEqual(st["lines_removed_agent"], 1)
+        self.assertEqual(st["files_edited"], 3)
         self.assertEqual(st["files_written_via_shell"], 1)
         self.assertEqual(st["git_commits_run"], 1)
         self.assertEqual(st["test_runs"], 2)
@@ -91,13 +111,24 @@ class FixtureStats(unittest.TestCase):
         )
         self.assertEqual(prompts[1], "commit it")
         self.assertFalse(any("Pushing to main" in e.text for e in events))  # rewound
-        err = next(e for e in events if e.kind == "result_error")
-        self.assertEqual(err.tool, "replace")
-        self.assertIn("could not find", err.text)
+        errs = [e for e in events if e.kind == "result_error"]
+        # c4: `success`, caught by the shared fallback's `^FAILED` rule (line 2 of the
+        # pytest output). c5: `status: "error"`. c7: `success`, caught by `^Exit Code: 2`.
+        self.assertEqual(
+            [e.tool for e in errs], ["run_shell_command", "replace", "run_shell_command"]
+        )
+        self.assertIn("FAILED tests/test_deploy.py", errs[0].text)
+        self.assertIn("could not find", errs[1].text)
+        self.assertEqual(errs[1].path, "/Users/dev/proj/tests/test_deploy.py")
+        self.assertIn("Exit Code: 2", errs[2].text)
         w = next(e for e in events if e.tool == "write_file")
         self.assertEqual((w.path, w.added, w.removed), ("/Users/dev/proj/tests/helpers.py", 5, 0))
-        r = next(e for e in events if e.tool == "replace")
-        self.assertEqual((r.added, r.removed), (3, 1))
+        ok_r, bad_r = [e for e in events if e.kind == "tool" and e.tool == "replace"]
+        self.assertEqual((ok_r.added, ok_r.removed), (3, 1))
+        # The failed replace keeps its event and still names the file in its text, but
+        # carries no path and no lines — nothing was changed.
+        self.assertEqual((bad_r.path, bad_r.added, bad_r.removed), (None, None, None))
+        self.assertEqual(bad_r.text, "/Users/dev/proj/tests/test_deploy.py")
         h = next(e for e in events if e.tool == "run_shell_command" and e.added is not None)
         self.assertEqual((h.path, h.added), ("tests/conftest.py", 3))
 
@@ -121,12 +152,34 @@ class FixtureStats(unittest.TestCase):
         self.assertEqual(d["derivation"]["user_tool_response_records"], 1)
         self.assertEqual(d["derivation"]["prompt_ignored"], 1)
         self.assertEqual(d["derivation"]["function_call_part_deduped"], 1)
+        self.assertEqual(d["derivation"]["result_error"], 3)
+        self.assertEqual(d["derivation"]["tool_credit_withheld"], 1)
 
     def test_digest_build_dispatches(self):
         d = digest.build(JSONL)
         self.assertIn("harness: gemini", d["text"])
         self.assertEqual(d["stats"]["prompts_sent"], 2)
         self.assertIn("ERROR from replace", d["text"])
+
+    def test_subagent_fixture_has_no_prompts(self):
+        exp = json.loads(EXPECTED.read_text())["subagent"]
+        self.assertEqual(exp["file"], SUBAGENT.name)
+        events = gemini.load_events(SUBAGENT)
+        st = digest.stats(events)
+        self.assertEqual(st, exp["stats"])
+        self.assertEqual(len(events), exp["events"])
+        # The parent model's instruction is recorded like a typed prompt and is not one.
+        self.assertEqual(st["prompts_sent"], 0)
+        self.assertEqual(
+            [e.kind for e in events], ["prompt_agent_authored", "tool", "tool", "assistant"]
+        )
+        self.assertTrue(events[0].text.startswith("Find every caller of run()"))
+        self.assertEqual(gemini.meta(SUBAGENT)["kind"], "subagent")
+        d = gemini.diagnostics(SUBAGENT)["derivation"]
+        self.assertEqual(d["prompt_agent_authored"], 1)
+        self.assertNotIn("prompt", d)
+        self.assertEqual(digest.detect_harness(SUBAGENT), "gemini")
+        self.assertNotIn("PROMPT:", digest.build(SUBAGENT)["text"])
 
 
 class Detection(unittest.TestCase):
@@ -325,6 +378,167 @@ class Robustness(unittest.TestCase):
             self.assertEqual(digest.stats(events)["wall_seconds"], 5)
         finally:
             p.unlink()
+
+    def test_failed_or_unfinished_edits_earn_no_credit(self):
+        p = _write(
+            [
+                META,
+                _msg(
+                    "g1",
+                    "gemini",
+                    "",
+                    1,
+                    toolCalls=[
+                        # status error: the string was not found, nothing changed
+                        _call(
+                            "c1",
+                            "replace",
+                            {"file_path": "/w/a.py", "old_string": "x\n", "new_string": "y\nz\n"},
+                            "error",
+                            error="could not find the string to replace",
+                        ),
+                        # cancelled before it ran: the file was never written
+                        _call(
+                            "c2",
+                            "write_file",
+                            {"file_path": "/w/new.py", "content": "one\ntwo\n"},
+                            "cancelled",
+                        ),
+                        # status success but response.error: still nothing
+                        _call(
+                            "c3",
+                            "write_file",
+                            {"file_path": "/w/b.py", "content": "one\n"},
+                            "success",
+                            error="EACCES",
+                        ),
+                        # the one that happened
+                        _call(
+                            "c4",
+                            "write_file",
+                            {"file_path": "/w/c.py", "content": "one\ntwo\nthree\n"},
+                            "success",
+                            output="Successfully created and wrote to new file",
+                        ),
+                        # a failed shell heredoc is not a written file either
+                        _call(
+                            "c5",
+                            "run_shell_command",
+                            {"command": "cat > /w/d.txt <<'EOF'\na\nb\nEOF"},
+                            "error",
+                            error="spawn /bin/sh EACCES",
+                        ),
+                    ],
+                ),
+            ]
+        )
+        try:
+            events = gemini.load_events(p)
+            st = digest.stats(events)
+            self.assertEqual(st["tool_calls"], 5)
+            self.assertEqual(st["errors"], 3)
+            self.assertEqual((st["lines_added_agent"], st["lines_removed_agent"]), (3, 0))
+            self.assertEqual(st["files_edited"], 1)
+            self.assertEqual(st["files_written_via_shell"], 0)
+            tools = [e for e in events if e.kind == "tool"]
+            self.assertEqual(
+                [(e.path, e.added) for e in tools],
+                [(None, None), (None, None), (None, None), ("/w/c.py", 3), (None, None)],
+            )
+            # The error events still say which file the call was about.
+            errs = [e for e in events if e.kind == "result_error"]
+            self.assertEqual([e.path for e in errs], ["/w/a.py", "/w/b.py", "/w/d.txt"])
+            d = gemini.diagnostics(p)["derivation"]
+            self.assertEqual(d["tool_credit_withheld"], 4)
+            self.assertEqual(d["tool_status_cancelled"], 1)
+        finally:
+            p.unlink()
+
+    def test_shell_exit_code_is_an_error_despite_status_success(self):
+        # VERIFIED tools/shell.ts: a non-zero exit sets no `error`, so the record says
+        # `success`; llmContent carries `Exit Code: N` (wrapped in <untrusted_context>).
+        exit_2 = (
+            "<untrusted_context>\nOutput: make: *** No rule to make target 'lint'.  Stop.\n"
+            "Exit Code: 2\nProcess Group PGID: 4242\n</untrusted_context>"
+        )
+        # The shared fallback does NOT know this spelling (it matches `Exit code N`, no
+        # colon) — which is why the shell path needs its own rule.
+        self.assertFalse(digest._looks_like_error(exit_2))
+        self.assertTrue(
+            gemini._result_error(
+                _call("x", "run_shell_command", {}, "success", exit_2)["result"],
+                "success",
+                "run_shell_command",
+            )[0]
+        )
+        p = _write(
+            [
+                META,
+                _msg(
+                    "g1",
+                    "gemini",
+                    "",
+                    1,
+                    toolCalls=[
+                        _call(
+                            "c1", "run_shell_command", {"command": "make lint"}, "success", exit_2
+                        ),
+                        # exit 0 never writes the line; a literal `Exit Code: 0` is not an error
+                        _call(
+                            "c2",
+                            "run_shell_command",
+                            {"command": "true"},
+                            "success",
+                            "Output: (empty)\nExit Code: 0\nProcess Group PGID: 1",
+                        ),
+                        # the same text in a FILE is not a shell exit
+                        _call(
+                            "c3",
+                            "read_file",
+                            {"file_path": "/w/notes.md"},
+                            "success",
+                            "Exit Code: 1 means the linter found something\n",
+                        ),
+                        # the fallback the Claude Code loader uses catches a pytest failure
+                        _call(
+                            "c4",
+                            "run_shell_command",
+                            {"command": "pytest -q"},
+                            "success",
+                            "F.\nFAILED tests/test_x.py::test_y - AssertionError\n1 failed\n",
+                        ),
+                    ],
+                ),
+            ]
+        )
+        try:
+            events = gemini.load_events(p)
+            errs = [e for e in events if e.kind == "result_error"]
+            self.assertEqual([e.tool_id for e in errs], ["c1", "c4"])
+            self.assertIn("Exit Code: 2", errs[0].text)
+            self.assertEqual(digest.stats(events)["errors"], 2)
+            self.assertEqual(digest.stats(events)["files_read"], 1)
+        finally:
+            p.unlink()
+
+    def test_same_user_message_is_a_prompt_in_main_and_not_in_subagent(self):
+        msg = _msg("u1", "user", [{"text": "Find every caller of run() and report back."}], 1)
+        main = _write([META, msg])
+        sub = _write([dict(META, kind="subagent", directories=["/w"]), msg])
+        try:
+            self.assertEqual([e.kind for e in gemini.load_events(main)], ["prompt"])
+            self.assertEqual([e.kind for e in gemini.load_events(sub)], ["prompt_agent_authored"])
+            self.assertEqual(digest.stats(gemini.load_events(sub))["prompts_sent"], 0)
+            # Slash commands and injections are ignored in a subagent too, not relabelled.
+            sub2 = _write([dict(META, kind="subagent"), _msg("u1", "user", "/help", 1)])
+            try:
+                self.assertEqual(gemini.load_events(sub2), [])
+                self.assertEqual(gemini.diagnostics(sub2)["derivation"], {"prompt_ignored": 1})
+            finally:
+                sub2.unlink()
+        finally:
+            main.unlink()
+            sub.unlink()
 
     def test_error_detected_from_response_error_without_status(self):
         p = _write(

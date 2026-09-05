@@ -13,7 +13,7 @@ import Testing
 /// `~/.gemini/tmp`, parsed from a fresh watermark — and must agree with the reference on
 /// every count that maps onto a normalized event.
 ///
-/// Two counts deliberately do NOT map, and the tests below pin the exact difference rather
+/// Three counts deliberately do NOT map, and the tests below pin the exact difference rather
 /// than looking away:
 ///
 /// - The reference replays the whole file and honours `$rewindTo`, so the rewound gemini
@@ -24,6 +24,12 @@ import Testing
 /// - The reference credits a `cat > file <<EOF` heredoc with a file and its lines
 ///   (`digest._bash_file_effect`). Like `CodexParser`, this parser claims no file effect for
 ///   a shell command; the one heredoc in the fixture is the whole difference.
+/// - The reference falls back to `digest._looks_like_error` on every successful tool
+///   output. Its Swift twin lives in `BuilderAnalysis.Digest`, which depends on this module,
+///   so the parser applies only the rules it can verify from the recording itself: `status`,
+///   `response.error`, and the shell tool's `Exit Code: N` line. The fixture's c4 — a pytest
+///   run whose output has a `FAILED` line and no exit status — is an error there and not
+///   here; errors here equal the reference MINUS that one call.
 ///
 /// Everything here is measured against the FIXTURE, not a real corpus. The counts a real
 /// corpus produces through the `gemini_*` diagnostics are the next measurement.
@@ -106,10 +112,18 @@ struct GeminiParserTests {
             }
         }
 
+        /// The `kind: "subagent"` recording the generator writes next to the session.
+        struct Subagent: Decodable {
+            let file: String
+            let stats: Stats
+            let diagnostics: Diagnostics
+        }
+
         let stats: Stats
         let usage: Usage
         let meta: Meta
         let diagnostics: Diagnostics
+        let subagent: Subagent
     }
 
     /// Walk up from this file to the repo root, exactly as `CodexParserTests` does.
@@ -345,9 +359,13 @@ struct GeminiParserTests {
         #expect(r.watermark.lineCount == exp.diagnostics.lines)
         #expect(r.watermark.byteOffset == fixtureBytes)
         #expect(r.fidelity == .full)
-        // Per line: 1 1 1 1 1 1 | 15 (7 calls + 7 results + carrier) | 1 1 2 1 2 1 | 3 (call,
-        // result, carrier) | 2 1 — every line leaves at least one row.
-        #expect(events.count == 36)
+        // Per line, every line leaving at least one row: metadata 1 | `/help` 1 | prompt 1 |
+        // `$set` 1 | g1 text 1 | g1 + tokens: carrier 1 | g1 + toolCalls: 8 calls + 8 results
+        // + carrier = 17 | `$set` 1 | u2 (c8's response, already carried) 1 | g2 text +
+        // carrier 2 | prompt 1 | g_wrong text + carrier 2 | `$rewindTo` 1 | g3 call + result
+        // + carrier 3 | g4 text + carrier 2 | `$set` summary → title 1.
+        // 6 + 17 + 8 + 3 + 3 = 37.
+        #expect(events.count == 37)
 
         #expect(Self.count(r, .prompt) == exp.stats.promptsSent)
         #expect(Self.count(r, .toolUse) == exp.stats.toolCalls)
@@ -364,14 +382,23 @@ struct GeminiParserTests {
         for e in events where e.kind == .toolUse { mix[e.toolName ?? "?", default: 0] += 1 }
         #expect(mix == exp.stats.toolMix)
 
-        // One result per call, each naming its call; exactly one is an error (c5, status
-        // "error" with response.error). The user-recorded copy of c7's response is deduped.
+        // One result per call, each naming its call. The user-recorded copy of c8's
+        // response is deduped. Errors: c5 (status "error", response.error) and c7 (status
+        // "success", `Exit Code: 2` in its output). The reference counts a third, c4, whose
+        // pytest output has a `FAILED` line and no exit status — caught there only by the
+        // `digest._looks_like_error` fallback this module cannot reach (see the suite note).
         let results = events.filter { $0.kind == .toolResult }
         #expect(results.count == exp.stats.toolCalls)
         #expect(results.allSatisfy { $0.toolID != nil && $0.toolName != nil })
-        #expect(results.filter(Self.isError).count == exp.stats.errors)
-        #expect(results.first(where: Self.isError)?.toolID == "c5")
-        #expect(Self.diagnostic(r, "gemini_result_error")?.detail.hasPrefix("1 ") == true)
+        #expect(results.filter(Self.isError).map(\.toolID) == ["c5", "c7"])
+        #expect(results.filter(Self.isError).count == exp.stats.errors - 1)
+        #expect(exp.stats.errors == 3)
+        // The failed replace's RESULT still names the file it was about; the credit is
+        // what is withheld, on the call.
+        #expect(results.first { $0.toolID == "c5" }?.targetPath == "/Users/dev/proj/tests/test_deploy.py")
+        #expect(Self.diagnostic(r, "gemini_result_error")?.detail.hasPrefix("2 ") == true)
+        #expect(Self.diagnostic(r, "gemini_shell_exit_code_error")?.detail.hasPrefix("1 ") == true)
+        #expect(Self.diagnostic(r, "gemini_tool_credit_withheld")?.detail.hasPrefix("1 ") == true)
         #expect(Self.diagnostic(r, "gemini_user_tool_response_records")?.detail.hasPrefix("1 ") == true)
         #expect(Self.diagnostic(r, "gemini_user_tool_response_deduped")?.detail.hasPrefix("1 ") == true)
         // g3's functionCall part duplicates its toolCalls record.
@@ -386,21 +413,25 @@ struct GeminiParserTests {
         #expect(Self.diagnostic(r, "gemini_message_no_timestamp")?.detail.hasPrefix("1 ") == true)
         #expect(events.filter { $0.kind == .assistantMessage && $0.ts == nil }.count == 1)
 
-        // Line credit. write_file: 5 terminated lines. replace c2: `set -e` → 3 lines (+3/-1);
-        // c5: one line for one (+1/-1). The reference's total also credits the `cat > …
-        // <<EOF` heredoc with 3 lines and a fourth file; a shell command claims nothing here.
+        // Line credit. write_file: 5 terminated lines. replace c2: `set -e` → 3 lines (+3/-1).
+        // replace c5 asked for one line for one (+1/-1) and FAILED, so it earns nothing and
+        // names no file — the reference agrees (+11/-1, 3 files, not +12/-2, 4). The
+        // reference's total also credits the `cat > … <<EOF` heredoc with 3 lines and a
+        // third file; a shell command claims nothing here, so lines here are 5 + 3 = 8.
         let byTool = events.filter { $0.kind == .toolUse }  // file order
         let write = byTool.first { $0.toolName == "write_file" }
         #expect(write?.targetPath == "/Users/dev/proj/tests/helpers.py")
         #expect(write?.linesAdded == 5 && write?.linesRemoved == 0)
         let replaces = byTool.filter { $0.toolName == "replace" }
-        #expect(replaces.map(\.linesAdded) == [3, 1])
-        #expect(replaces.map(\.linesRemoved) == [1, 1])
+        #expect(replaces.map(\.linesAdded) == [3, nil])
+        #expect(replaces.map(\.linesRemoved) == [1, nil])
+        #expect(replaces.map(\.targetPath) == ["/Users/dev/proj/scripts/deploy.sh", nil])
         let lines = TokenAccountant.agentLines(events)
-        #expect(lines.added == 9)
+        #expect(lines.added == 8)
         #expect(lines.removed == exp.stats.linesRemovedAgent)
         #expect(exp.stats.linesAddedAgent - lines.added == 3)
         let edited = Set(byTool.filter { $0.toolName == "write_file" || $0.toolName == "replace" }.compactMap(\.targetPath))
+        #expect(edited.count == 2)
         #expect(edited.count == exp.stats.filesEdited - exp.stats.filesWrittenViaShell)
         #expect(byTool.filter { $0.toolName == "run_shell_command" }.allSatisfy { $0.targetPath == nil && $0.linesAdded == nil })
         // read_file names its file but scores no lines.
@@ -471,8 +502,9 @@ struct GeminiParserTests {
         #expect(r.events.allSatisfy { $0.cwd == nil })
         #expect(Self.diagnostic(r, "gemini_cwd_from_directories") == nil)
 
+        // 4 assistant texts (g1, g2, g_wrong, g4) + 9 tool calls.
         let agent = r.events.filter { $0.kind == .assistantMessage || $0.kind == .toolUse }
-        #expect(agent.count == 12)
+        #expect(agent.count == 13)
         #expect(agent.allSatisfy { $0.model == exp.meta.model && $0.role == "assistant" })
         #expect(r.events.filter { $0.kind == .prompt }.allSatisfy { $0.role == "user" })
 
@@ -499,12 +531,17 @@ struct GeminiParserTests {
         // Two prompts and nothing else: tool calls and token carriers are not presence.
         #expect(s.presenceCount == exp.stats.promptsSent)
         #expect(s.endReason == .stillRunning)
-        // The reference spans 63 s because it stamps the untimestamped g4 with the session
-        // start; here the span runs from the first prompt (09:00:02) to the last tool result
-        // (09:01:03), since bookkeeping cannot open a session.
-        #expect(s.wallSeconds <= Double(exp.stats.wallSeconds) + 0.5)
-        #expect(s.wallSeconds >= Double(exp.stats.wallSeconds) - 2.5)
+        // 63 s, the reference's figure, from the metadata row's startTime (09:00:00 — the
+        // Sessionizer pools every timestamped record, as it does for Codex's `session_meta`)
+        // to c9's result at 09:01:03. The reference gets the same start by stamping the
+        // untimestamped g4 with startTime. The final `$set` (summary, lastUpdated 09:01:04)
+        // does NOT extend the clock: a `$set` row takes the last stamped clock seen, so a
+        // summary saved after the last message cannot push a session's end past it.
+        #expect(abs(s.wallSeconds - Double(exp.stats.wallSeconds)) < 0.001)
+        #expect(exp.stats.wallSeconds == 63)
         #expect(s.activeSeconds <= s.wallSeconds + 0.001)
+        // The title row is inside the session (it is what SessionDeriver names the card by).
+        #expect(s.eventIndices.contains { r.events[$0].kind == .title })
     }
 
     // MARK: - Watermarks
@@ -556,8 +593,8 @@ struct GeminiParserTests {
         // `INSERT OR IGNORE` on event_uid suppresses, and the only duplicate in the union.
         let all = first.events + second.events
         #expect(all.filter { $0.kind == .prompt }.count == 2)
-        #expect(all.filter { $0.kind == .toolUse }.count == 8)
-        #expect(all.filter { $0.kind == .toolResult }.count == 8)
+        #expect(all.filter { $0.kind == .toolUse }.count == 9)
+        #expect(all.filter { $0.kind == .toolResult }.count == 9)
         #expect(all.filter { $0.kind == .assistantMessage }.count == 5)
         #expect(Set(all.map(\.eventUID)).count == all.count - 1)
         let g1Text = all.filter { $0.nativeEventID == "g1#text" }
@@ -588,7 +625,8 @@ struct GeminiParserTests {
         #expect(first.watermark.lineCount == lines.count - 1)
         #expect(first.watermark.byteOffset == tree.size - lines[lines.count - 1].utf8.count)
         #expect(Self.count(first, .title) == 0)
-        #expect(first.events.count == 35)
+        // 37 rows for the whole fixture (see `reproducesTheReferenceCounts`), minus the title.
+        #expect(first.events.count == 36)
 
         // The writer finishes the line. Whether the next read resumes or restarts (the file
         // is smaller than the head hash window, so the hash moves), the title is seen once.
@@ -677,12 +715,15 @@ struct GeminiParserTests {
 
         let c9 = byOrdinal[1]
         #expect(c9.toolID == "c9" && c9.toolName == "replace" && Self.isError(c9))
+        // c9 failed: the call names no file and scores no lines (it asked for +2/-1).
         let c9Call = byOrdinal[2]
-        #expect(c9Call.toolID == "c9" && c9Call.targetPath == "/p/a.py")
-        #expect(c9Call.linesAdded == 2 && c9Call.linesRemoved == 1)
+        #expect(c9Call.toolID == "c9" && c9Call.targetPath == nil)
+        #expect(c9Call.linesAdded == nil && c9Call.linesRemoved == nil)
         #expect(c9Call.ts == ISO8601.seconds("2025-11-04T09:00:10.500Z"))
 
-        #expect(byOrdinal[4].toolName == "write_file" && byOrdinal[4].linesAdded == 2 && byOrdinal[4].targetPath == "/p/new.txt")
+        // c11 was cancelled: two lines asked for, none written, no file.
+        #expect(byOrdinal[4].toolName == "write_file" && byOrdinal[4].linesAdded == nil && byOrdinal[4].targetPath == nil)
+        #expect(Self.diagnostic(r, "gemini_tool_credit_withheld")?.detail.hasPrefix("2 ") == true)
         #expect(byOrdinal[6].toolID == "c10" && byOrdinal[6].toolName == "run_shell_command" && !Self.isError(byOrdinal[6]))
         #expect(byOrdinal[6].ts == ISO8601.seconds("2025-11-04T09:00:14.000Z"))
         #expect(byOrdinal[7].toolName == "read_file" && byOrdinal[7].targetPath == "/p/b.py" && byOrdinal[7].toolID == nil)
@@ -699,6 +740,30 @@ struct GeminiParserTests {
         #expect(Self.diagnostic(r, "gemini_unknown_part_shape")?.detail.hasPrefix("1 ") == true)
         #expect(Self.diagnostic(r, "gemini_message_rewrite")?.detail.hasPrefix("1 ") == true)
         #expect(Self.diagnostic(r, "gemini_user_tool_response_records")?.detail.hasPrefix("1 ") == true)
+    }
+
+    /// VERIFIED tools/shell.ts: a non-zero exit sets no `error`, so tool-executor records the
+    /// call as `success`; the exit status is an `Exit Code: N` line in the output.
+    @Test func shellExitCodeIsAnErrorDespiteSuccess() throws {
+        let exit2 = #"<untrusted_context>\nOutput: make: *** No rule to make target 'lint'.  Stop.\nExit Code: 2\nProcess Group PGID: 4242\n</untrusted_context>"#
+        let r = try Self.parse(lines: [
+            Self.meta,
+            // c20's response recorded FIRST as a user message: flagged on that path too.
+            #"{"id": "u1", "timestamp": "2025-11-04T09:00:09.000Z", "type": "user", "content": [{"functionResponse": {"id": "c20", "name": "run_shell_command", "response": {"output": "\#(exit2)"}}}]}"#,
+            Self.gemini("g1", "2025-11-04T09:00:10.000Z", "", extra: #", "toolCalls": [{"id": "c20", "name": "run_shell_command", "args": {"command": "make lint"}, "result": [{"functionResponse": {"id": "c20", "name": "run_shell_command", "response": {"output": "\#(exit2)"}}}], "status": "success", "timestamp": "2025-11-04T09:00:09.000Z"}, {"id": "c21", "name": "run_shell_command", "args": {"command": "make lint"}, "result": [{"functionResponse": {"id": "c21", "name": "run_shell_command", "response": {"output": "\#(exit2)"}}}], "status": "success", "timestamp": "2025-11-04T09:00:11.000Z"}, {"id": "c22", "name": "run_shell_command", "args": {"command": "true"}, "result": [{"functionResponse": {"id": "c22", "name": "run_shell_command", "response": {"output": "Output: (empty)\nExit Code: 0\nProcess Group PGID: 1"}}}], "status": "success", "timestamp": "2025-11-04T09:00:12.000Z"}, {"id": "c23", "name": "read_file", "args": {"file_path": "/p/notes.md"}, "result": [{"functionResponse": {"id": "c23", "name": "read_file", "response": {"output": "Exit Code: 1 means the linter found something\n"}}}], "status": "success", "timestamp": "2025-11-04T09:00:13.000Z"}, {"id": "c24", "name": "run_shell_command", "args": {"command": "pytest -q"}, "result": [{"functionResponse": {"id": "c24", "name": "run_shell_command", "response": {"output": "F.\nFAILED tests/test_x.py::test_y - AssertionError\n1 failed\n"}}}], "status": "success", "timestamp": "2025-11-04T09:00:14.000Z"}]"#),
+        ])
+        let results = r.events.filter { $0.kind == .toolResult }
+        #expect(results.map(\.toolID) == ["c20", "c21", "c22", "c23", "c24"])
+        // c20 via the user path, c21 via the record. A literal `Exit Code: 0` is never
+        // written by the CLI and is not an error; the same words inside a FILE are not a
+        // shell exit; and c24 — the reference's `_looks_like_error` case — is pinned as NOT
+        // an error here (see the suite note).
+        #expect(results.map(Self.isError) == [true, true, false, false, false])
+        #expect(Self.diagnostic(r, "gemini_result_error")?.detail.hasPrefix("2 ") == true)
+        #expect(Self.diagnostic(r, "gemini_shell_exit_code_error")?.detail.hasPrefix("2 ") == true)
+        // A shell command still claims no file or lines, failed or not.
+        #expect(r.events.filter { $0.kind == .toolUse }.allSatisfy { $0.linesAdded == nil })
+        #expect(Self.diagnostic(r, "gemini_tool_credit_withheld") == nil)
     }
 
     @Test func unknownShapesAreRecordedNotDropped() throws {
@@ -749,6 +814,8 @@ struct GeminiParserTests {
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let sub = [
             #"{"sessionId": "sub-1", "projectHash": "abc123", "startTime": "2025-11-04T09:00:30.000Z", "lastUpdated": "2025-11-04T09:00:30.000Z", "kind": "subagent", "directories": ["/Users/dev/proj"]}"#,
+            // The parent model's instruction, recorded exactly like a typed prompt.
+            Self.user("su0", "2025-11-04T09:00:30.500Z", "Find every caller of run() and report back."),
             Self.user("su1", "2025-11-04T09:00:31.000Z", "<hook_context>task</hook_context>"),
             Self.gemini("sg1", "2025-11-04T09:00:35.000Z", "Looked it up.", tokens: (500, 20, 100, 0)),
         ]
@@ -767,7 +834,10 @@ struct GeminiParserTests {
         #expect(r.events.allSatisfy { $0.nativeSessionID == parent && $0.isSidechain && $0.agentID == "sub-1" })
         #expect(r.events.allSatisfy { $0.cwd == "/Users/dev/proj" })
         #expect(Self.diagnostic(r, "gemini_cwd_from_directories")?.detail.hasPrefix("1 ") == true)
+        // Nobody typed in a sidecar: the instruction is counted, the injection ignored.
         #expect(Self.count(r, .prompt) == 0)
+        #expect(Self.diagnostic(r, "gemini_prompt_agent_authored")?.detail.hasPrefix("1 ") == true)
+        #expect(Self.diagnostic(r, "gemini_prompt_ignored")?.detail.hasPrefix("1 ") == true)
         #expect(Self.count(r, .assistantMessage) == 1)
 
         // Its usage is claimed like any other (so a naive reader could sum it) and skipped
@@ -783,6 +853,43 @@ struct GeminiParserTests {
             from: root.events + r.events, options: Sessionizer.Options(pooling: .nativeSession, calendar: cal))
         #expect(sessions.count == 1)
         #expect(sessions.first?.promptCount == 2)
+    }
+
+    /// The generator's `kind: "subagent"` recording, placed where the CLI writes one.
+    @Test func subagentFixtureHasNoPrompts() throws {
+        let exp = try Self.expected()
+        guard let dir = Self.fixtureDirectory else { throw NSError(domain: "GeminiParserTests", code: 1) }
+        let data = try Data(contentsOf: dir.appendingPathComponent(exp.subagent.file))
+
+        let tree = try Tree.make()
+        defer { tree.remove() }
+        try tree.write(try Self.fixtureData())
+        let parent = exp.meta.sessionId
+        let subDir = tree.root + "/" + Tree.project + "/chats/" + parent
+        try FileManager.default.createDirectory(atPath: subDir, withIntermediateDirectories: true)
+        try data.write(to: URL(fileURLWithPath: subDir + "/" + exp.subagent.file))
+
+        guard let side = try tree.parser.discover().first(where: \.isSidecar) else {
+            Issue.record("subagent fixture not discovered")
+            return
+        }
+        let r = try tree.parser.parseAll(source: side)
+
+        #expect(r.watermark.lineCount == exp.subagent.diagnostics.lines)
+        #expect(Self.count(r, .prompt) == exp.subagent.stats.promptsSent)
+        #expect(exp.subagent.stats.promptsSent == 0)
+        #expect(Self.diagnostic(r, "gemini_prompt_agent_authored")?.detail.hasPrefix("1 ") == true)
+        #expect(Self.count(r, .toolUse) == exp.subagent.stats.toolCalls)
+        var mix: [String: Int] = [:]
+        for e in r.events where e.kind == .toolUse { mix[e.toolName ?? "?", default: 0] += 1 }
+        #expect(mix == exp.subagent.stats.toolMix)
+        #expect(Self.count(r, .assistantMessage) == exp.subagent.stats.repliesReceived)
+        #expect(Self.count(r, .toolResult) == exp.subagent.stats.toolCalls)
+        #expect(r.events.filter { $0.kind == .toolResult }.allSatisfy { !Self.isError($0) })
+        #expect(r.events.allSatisfy { $0.nativeSessionID == parent && $0.isSidechain })
+        #expect(r.events.allSatisfy { $0.cwd == "/Users/dev/proj" })
+        #expect(r.events.filter(\.usageAuthoritative).count == 2)
+        #expect(!r.events.contains { $0.kind.isPresence })
     }
 
     @Test func lineCreditHelpersMatchTheReference() {
@@ -809,7 +916,7 @@ struct GeminiParserTests {
         #expect(Harness.geminiCLI.reportsModel)
         #expect(Harness.geminiCLI.displayName == "Gemini CLI")
         #expect(GeminiParser().harness == .geminiCLI)
-        #expect(GeminiParser().parserVersion == 1)
+        #expect(GeminiParser().parserVersion == 2)
 
         // Cline: contract and enum only, no parser in this build.
         #expect(Harness.cline.rawValue == "cline")

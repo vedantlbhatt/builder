@@ -2,9 +2,9 @@
  "_generated_by": "scripts/gen_gemini_fixture.py — do not hand-edit",
  "harness": "gemini",
  "legacy_harness": "gemini",
- "events": 14,
+ "events": 17,
  "stats": {
-  "events": 14,
+  "events": 17,
   "wall_seconds": 63,
   "prompts_sent": 2,
   "replies_received": 3,
@@ -14,19 +14,19 @@
   "prompt_words_avg": 6.0,
   "prompt_words_median": 10,
   "prompt_words_max": 10,
-  "tool_calls": 8,
+  "tool_calls": 9,
   "tool_mix": {
-   "run_shell_command": 4,
+   "run_shell_command": 5,
    "replace": 2,
    "read_file": 1,
    "write_file": 1
   },
-  "errors": 1,
-  "lines_added_agent": 12,
-  "lines_removed_agent": 2,
-  "files_edited": 4,
+  "errors": 3,
+  "lines_added_agent": 11,
+  "lines_removed_agent": 1,
+  "files_edited": 3,
   "files_written_via_shell": 1,
-  "files_read": 0,
+  "files_read": 1,
   "git_commits_run": 1,
   "test_runs": 2,
   "models": {
@@ -123,9 +123,109 @@
    "prompt": 2,
    "prompt_from_display_content": 1,
    "prompt_ignored": 1,
-   "result_error": 1,
-   "tool_from_record": 8,
+   "result_error": 3,
+   "tool_credit_withheld": 1,
+   "tool_from_record": 9,
    "user_tool_response_records": 1
+  }
+ },
+ "subagent": {
+  "file": "synthetic_subagent.jsonl",
+  "harness": "gemini",
+  "events": 4,
+  "stats": {
+   "events": 4,
+   "wall_seconds": 8,
+   "prompts_sent": 0,
+   "replies_received": 1,
+   "interrupts": 0,
+   "human_edits": 0,
+   "compactions": 0,
+   "prompt_words_avg": 0,
+   "prompt_words_median": 0,
+   "prompt_words_max": 0,
+   "tool_calls": 2,
+   "tool_mix": {
+    "grep_search": 1,
+    "read_file": 1
+   },
+   "errors": 0,
+   "lines_added_agent": 0,
+   "lines_removed_agent": 0,
+   "files_edited": 0,
+   "files_written_via_shell": 0,
+   "files_read": 1,
+   "git_commits_run": 0,
+   "test_runs": 0,
+   "models": {
+    "gemini-2.5-pro": 1
+   },
+   "longest_silence_seconds": 4
+  },
+  "usage": {
+   "gemini_messages": 2,
+   "gemini_messages_with_tokens": 2,
+   "naive_records_with_tokens": 2,
+   "naive_sum_all_records": {
+    "input": 6400,
+    "output": 37,
+    "cached": 0,
+    "thoughts": 70,
+    "tool": 0,
+    "total": 6507
+   },
+   "deduped_by_message_id": {
+    "input": 6400,
+    "output": 37,
+    "cached": 0,
+    "thoughts": 70,
+    "tool": 0,
+    "total": 6507
+   },
+   "naive_equals_deduped": true
+  },
+  "meta": {
+   "harness": "gemini",
+   "session_id": "7c0b3e9d-2a1f-4d6e-8b5c-3f2e1d0c9b8a",
+   "project_hash": "9f1c2b3a4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8",
+   "started_at": "2025-11-04T09:00:30.000Z",
+   "last_updated": "2025-11-04T09:00:30.000Z",
+   "kind": "subagent",
+   "summary": null,
+   "directories": [
+    "/Users/dev/proj"
+   ],
+   "model": "gemini-2.5-pro",
+   "models_seen": {
+    "gemini-2.5-pro": 2
+   }
+  },
+  "diagnostics": {
+   "container": "jsonl",
+   "lines": 5,
+   "records": 5,
+   "malformed_lines": 0,
+   "partial_trailing_line": false,
+   "record_kinds": {
+    "message": 4,
+    "metadata": 1
+   },
+   "messages": 4,
+   "no_timestamp": 0,
+   "bad_timestamp": 0,
+   "types": {
+    "user": 2,
+    "gemini": 2
+   },
+   "unknown_types": {},
+   "first_ts": "2025-11-04T09:00:30.000Z",
+   "last_ts": "2025-11-04T09:00:30.000Z",
+   "derivation": {
+    "assistant": 1,
+    "prompt_agent_authored": 1,
+    "tool_from_record": 2,
+    "user_tool_response_records": 1
+   }
   }
  }
 }

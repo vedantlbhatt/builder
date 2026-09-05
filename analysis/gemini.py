@@ -64,6 +64,29 @@ VERIFIED shapes and where they come from
   message's `content` can be the full parts array INCLUDING `functionCall` parts for calls
   that `toolCalls[]` already records — so `toolCalls[]` is authoritative and a
   `functionCall` part is only used when no record with the same id (or name+args) exists.
+* A tool call that FAILED earns no credit. `_tool_event` reads lines and the file path
+  from the call's ARGUMENTS, which describe what the model asked for, not what happened;
+  so a `replace` whose `status` is `error` ("could not find the string to replace") must
+  not add to lines or files edited. Credit is given only when `status == "success"` and
+  the result carries no `response.error`; a cancelled / incomplete / failed call keeps its
+  tool event and its error, with `added`/`removed`/`path` cleared and
+  `tool_credit_withheld` counted.
+* A shell command that exited NON-ZERO is recorded as `status: "success"`. tools/shell.ts
+  sets `error` only for a spawn failure (`result.error`, `SHELL_EXECUTE_ERROR`) or a
+  sandbox-expansion request; the exit status reaches the model as an `Exit Code: N` line
+  inside `llmContent` (`Output: …\nExit Code: N\nProcess Group PGID: …`, wrapped in
+  `<untrusted_context>` by `wrapUntrusted`), which `createFunctionResponsePart` delivers
+  as `response.output`. scheduler/tool-executor.ts maps `toolResult.error === undefined`
+  to `CoreToolCallStatus.Success`, so `status` alone calls every failed test run a
+  success. `_result_error` therefore treats `(?m)^Exit Code: [1-9][0-9]*` in a shell
+  result as an error and otherwise falls back to `digest._looks_like_error`, the same
+  fallback the Claude Code loader applies to `tool_result` blocks.
+* A subagent recording (`kind: "subagent"`, written to `chats/<parentSessionId>/<id>.jsonl`
+  — chatRecordingService.ts, the `this.kind === 'subagent'` branches) records the PARENT
+  MODEL's instruction through the same `recordMessage({type: 'user'})` path in
+  geminiChat.ts `sendMessageStream` that records a person typing. Nobody typed it: it is
+  emitted as `prompt_agent_authored`, which `digest.stats` does not count as a prompt,
+  and counted under the same name.
 * Tool names and argument keys — tools/definitions/base-declarations.ts:
   `run_shell_command {command, description?, dir_path?, is_background?}` (tools/shell.ts
   `ShellToolParams`), `write_file {file_path, content}`, `replace {file_path, old_string,
@@ -93,6 +116,7 @@ import dataclasses
 import difflib
 import json
 import pathlib
+import re
 from collections import Counter
 
 from . import digest as dg
@@ -130,6 +154,10 @@ _PART_META_KEYS = frozenset({"thought", "thoughtSignature"})
 IGNORED_PROMPT_PREFIXES = ("/", "?", "<session_context>", "<hook_context>")
 
 TOKEN_KEYS = ("input", "output", "cached", "thoughts", "tool", "total")
+
+# VERIFIED: tools/shell.ts pushes `Exit Code: ${result.exitCode}` onto llmContent for a
+# non-zero exit and still returns no `error`, so the ToolCallRecord says `success`.
+_SHELL_EXIT_CODE = re.compile(r"(?m)^Exit Code: [1-9]\d*")
 
 
 # ----------------------------------------------------------------------------- scan
@@ -398,6 +426,9 @@ def _line_delta(old: str, new: str) -> tuple[int, int]:
 
 
 def _tool_event(ts: float, name: str, call_id, args, model: str | None) -> dg.Ev:
+    """The tool event for one call, with `path` / `added` / `removed` read from the call's
+    ARGUMENTS — what the model asked for. `_derive` withholds that credit when the call
+    did not succeed."""
     args = args if isinstance(args, dict) else {}
     ev = dg.Ev(0, ts, "tool", "", tool=name, tool_id=call_id, model=model)
     if name == SHELL_TOOL:
@@ -433,8 +464,14 @@ def _tool_event(ts: float, name: str, call_id, args, model: str | None) -> dg.Ev
     return ev
 
 
-def _result_error(result, status) -> tuple[bool, str]:
-    """(is_error, text) from a ToolCallRecord's `status` and `result` parts."""
+def _result_error(result, status, name: str | None = None) -> tuple[bool, str]:
+    """(is_error, text) from a ToolCallRecord's `status`, `result` parts and tool name.
+
+    `status == "error"` and `response.error` are authoritative. A `success` is then
+    re-examined, because the shell tool reports a non-zero exit as `Exit Code: N` in its
+    output and no error at all (VERIFIED, tools/shell.ts); anything else that the shared
+    `digest._looks_like_error` fallback recognises is an error too — the same rule the
+    Claude Code loader applies to every `tool_result` block."""
     text = ""
     err = status == "error"
     for p in _parts(result):
@@ -448,6 +485,9 @@ def _result_error(result, status) -> tuple[bool, str]:
                 text = text or resp["output"]
         elif isinstance(p.get("text"), str):
             text = text or p["text"]
+    if not err and status == "success" and text:
+        exited_non_zero = name == SHELL_TOOL and bool(_SHELL_EXIT_CODE.search(text))
+        err = exited_non_zero or dg._looks_like_error(text)
     return err, text
 
 
@@ -463,6 +503,9 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
     ever counts one on a real corpus, that count is the finding."""
     counters: Counter = Counter()
     start_ts = dg._ts(s.meta.get("started_at")) if s.meta.get("started_at") else None
+    # VERIFIED: a subagent's first user message is the parent model's instruction, recorded
+    # through the same path as a typed prompt. Nobody typed it.
+    agent_authored = s.meta.get("kind") == "subagent"
     out: list[dg.Ev] = []
     order: list[tuple[float, int]] = []  # (ts, emission index) — the sort key
 
@@ -504,8 +547,9 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
                 counters["prompt_ignored"] += 1
                 continue
             if _in_window(ts):
-                counters["prompt"] += 1
-                _emit(dg.Ev(0, ts, "prompt", dg.mask(dg._trunc(text, dg.PROMPT_MAX))))
+                kind = "prompt_agent_authored" if agent_authored else "prompt"
+                counters[kind] += 1
+                _emit(dg.Ev(0, ts, kind, dg.mask(dg._trunc(text, dg.PROMPT_MAX))))
 
         elif t == "gemini":
             model = msg.get("model") if isinstance(msg.get("model"), str) else None
@@ -543,8 +587,17 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
                 if not _in_window(cts):
                     continue
                 counters["tool_from_record"] += 1
-                _emit(_tool_event(cts, name, cid, c.get("args"), model))
-                err, rtext = _result_error(c.get("result"), status)
+                # The verdict comes BEFORE the tool event so that credit follows it: a
+                # failed `replace` changed nothing, a cancelled `write_file` wrote nothing.
+                err, rtext = _result_error(c.get("result"), status, name)
+                ev = _tool_event(cts, name, cid, c.get("args"), model)
+                asked_path = ev.path
+                if status != "success" or err:
+                    if ev.path or ev.added is not None:
+                        counters["tool_credit_withheld"] += 1
+                    ev.path = None
+                    ev.added = ev.removed = None
+                _emit(ev)
                 if err:
                     counters["result_error"] += 1
                     _emit(
@@ -554,7 +607,7 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
                             "result_error",
                             dg.mask(dg._trunc(rtext or "(error)", dg.ERROR_MAX)),
                             tool=name,
-                            path=out[-1].path,
+                            path=asked_path,
                             ok=False,
                             tool_id=cid,
                         )

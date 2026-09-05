@@ -28,7 +28,7 @@
    "lines_removed_agent": 1,
    "files_edited": 4,
    "files_written_via_shell": 1,
-   "files_read": 0,
+   "files_read": 1,
    "git_commits_run": 2,
    "test_runs": 2,
    "models": {
@@ -207,7 +207,7 @@
    "lines_removed_agent": 0,
    "files_edited": 0,
    "files_written_via_shell": 0,
-   "files_read": 0,
+   "files_read": 1,
    "git_commits_run": 0,
    "test_runs": 0,
    "models": {
@@ -363,7 +363,7 @@
    "lines_removed_agent": 1,
    "files_edited": 4,
    "files_written_via_shell": 1,
-   "files_read": 0,
+   "files_read": 1,
    "git_commits_run": 2,
    "test_runs": 2,
    "models": {
@@ -537,7 +537,7 @@
    "lines_removed_agent": 1,
    "files_edited": 4,
    "files_written_via_shell": 1,
-   "files_read": 0,
+   "files_read": 1,
    "git_commits_run": 2,
    "test_runs": 2,
    "models": {
