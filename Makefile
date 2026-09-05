@@ -11,13 +11,14 @@ help:
 	@echo "watch      run the daemon: watch, sessionize, notify on completion"
 	@echo "doctor     diagnostics, per-source row counts, records, rollups"
 
-# The three specs are the only hand-edited definitions of the wire payload, the strip
-# format and the palette. Everything downstream is generated into Swift, TypeScript and
-# Python so the same numbers cannot drift across three languages.
+# The four specs are the only hand-edited definitions of the wire payload, the strip
+# format, the palette and the session analysis. Everything downstream is generated into
+# Swift, TypeScript and Python so the same numbers cannot drift across three languages.
 gen:
 	@python3 scripts/gen_contract.py
 	@python3 scripts/gen_strip.py
 	@python3 scripts/gen_tokens.py
+	@python3 scripts/gen_analysis.py
 	@python3 scripts/gen_fixtures.py
 
 # Fastest gate in CI, so it runs first. If this fails, someone hand-edited a generated
@@ -27,6 +28,7 @@ check-gen: gen
 		Packages/BuilderKit/Sources/BuilderModel/Generated \
 		Packages/BuilderKit/Sources/BuilderSync/Generated \
 		mobile/src/generated server/builder/contract.py server/builder/strip.py \
+		server/builder/analysis_spec.py analysis \
 		server/builder/static/upload-fields.json PRIVACY.md spec/fixtures \
 		|| (echo ""; echo "FAIL: generated files are stale or hand-edited. Run 'make gen' and commit."; exit 1)
 	@echo "generated files match their specs"

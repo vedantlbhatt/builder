@@ -1,0 +1,114 @@
+{
+  "_comment": [
+    "THE ONLY definition of a session analysis. scripts/gen_analysis.py emits, all committed:",
+    "  Packages/BuilderKit/Sources/BuilderModel/Generated/AnalysisSpec.swift   (Codable wire struct + enums)",
+    "  mobile/src/generated/analysis.ts                                        (TypeScript types + enums)",
+    "  server/builder/analysis_spec.py                                         (Pydantic, extra='forbid')",
+    "  analysis/schema.json                                                    (the JSON Schema handed to `claude -p --json-schema`)",
+    "",
+    "WHAT THIS IS. A model-written reading of one session: what got built, how the person",
+    "built it, and how they steered the agent. It is produced ON THE USER'S MACHINE by the",
+    "user's own Claude Code (`claude -p`) from a digest of their transcript, and stored",
+    "locally. It is uploaded only when `analysis_upload` is enabled (default: on for your",
+    "own private view), it is private to the account under RLS, and it leaves the account",
+    "only when the session is explicitly shared.",
+    "",
+    "THE HONESTY RULE. Every string field is bounded, every score carries a one-line",
+    "rationale, and `confidence` is required. A field the model cannot ground in the",
+    "digest is left null/empty, never guessed. Deterministic stats (lines, prompts, tools,",
+    "tokens) are NOT in here: they come from the engine and cannot be hallucinated.",
+    "",
+    "Prior art acknowledged: YC's Paxel scores five dimensions (steering, execution,",
+    "engineering, product instinct, planning) and names archetypes. The dimension names are",
+    "kept so the numbers mean something to people who have seen a Paxel report; the",
+    "scoring is per SESSION here, and a profile is an aggregate of sessions, never a single",
+    "run. Unlike Paxel nothing here is sent to a third party for summarisation."
+  ],
+  "version": 1,
+  "max_lengths": { "headline": 90, "summary": 700, "short": 140, "medium": 300, "excerpt": 160 },
+  "enums": {
+    "outcome": ["shipped", "progressed", "explored", "blocked", "abandoned", "maintenance"],
+    "feature_status": ["done", "partial", "started", "reverted"],
+    "planning": ["none", "light", "explicit_plan", "plan_mode"],
+    "iteration": ["linear", "iterative", "pivoted", "thrashing"],
+    "steering": ["hands_off", "guided", "tight_loop", "micromanaged"],
+    "verification": ["none", "manual_check", "ran_tests", "tests_added"],
+    "scope_control": ["held", "expanded", "narrowed"],
+    "archetype": ["architect", "velocity_machine", "quality_guardian", "night_owl", "explorer", "firefighter"],
+    "friction_kind": ["misunderstanding", "tool_failure", "env_issue", "model_error", "scope_creep", "human_error", "waiting"],
+    "tone": ["neutral", "terse", "polite", "frustrated", "mixed"],
+    "work_kind": ["feature", "bugfix", "refactor", "infra", "docs", "test", "research", "ops"],
+    "dimension": ["steering", "execution", "engineering", "product_instinct", "planning"]
+  },
+  "fields": [
+    { "name": "analysis_version", "type": "int", "doc": "== spec version. A retuned prompt is a recompute, not a migration." },
+    { "name": "model", "type": "string", "doc": "model id that wrote this, as reported by claude -p" },
+    { "name": "generated_at", "type": "datetime" },
+    { "name": "digest_hash", "type": "sha256hex", "doc": "hash of the digest that was analysed; lets sync skip an unchanged analysis" },
+    { "name": "digest_coverage", "type": "double", "doc": "fraction of the session's events that fit in the digest (1.0 = nothing sampled out)" },
+
+    { "name": "headline", "type": "string", "max": "headline", "doc": "one line: what this session was. Past tense, no trailing period." },
+    { "name": "summary", "type": "string", "max": "summary", "doc": "2-4 sentences: what got done, what did not, how it ended" },
+    { "name": "outcome", "type": "enum", "values": "outcome" },
+
+    { "name": "features", "type": "list", "item": "Feature", "max_items": 8, "doc": "the high-level things that were built or changed" },
+    { "name": "work_mix", "type": "map", "key": "work_kind", "value": "double", "doc": "shares summing to ~1.0 across work kinds present" },
+
+    { "name": "build_style", "type": "object", "item": "BuildStyle" },
+    { "name": "dimensions", "type": "list", "item": "DimensionScore", "max_items": 5, "doc": "exactly one entry per dimension" },
+    { "name": "archetype", "type": "enum", "values": "archetype", "nullable": true, "doc": "null when the session is too short to say" },
+
+    { "name": "decision_patterns", "type": "list", "item": "DecisionPattern", "max_items": 5, "doc": "signature moves in how the person directed the agent, each grounded in a prompt" },
+    { "name": "pivots", "type": "list", "item": "Pivot", "max_items": 5 },
+    { "name": "friction", "type": "list", "item": "Friction", "max_items": 6 },
+    { "name": "prompting", "type": "object", "item": "Prompting" },
+    { "name": "growth_edge", "type": "list", "item": "string", "max": "medium", "max_items": 3, "doc": "specific things to try next, grounded in THIS session" },
+    { "name": "tags", "type": "list", "item": "string", "max": "short", "max_items": 8, "doc": "lowercase, kebab-case" },
+    { "name": "confidence", "type": "double", "doc": "0-1: how well the digest supported these conclusions" },
+    { "name": "contains_sensitive", "type": "bool", "doc": "the model noticed secrets/PII in the digest; the UI warns before sharing" }
+  ],
+  "objects": {
+    "Feature": [
+      { "name": "name", "type": "string", "max": "short" },
+      { "name": "status", "type": "enum", "values": "feature_status" },
+      { "name": "detail", "type": "string", "max": "medium", "nullable": true },
+      { "name": "evidence", "type": "list", "item": "int", "max_items": 6, "doc": "digest event ordinals that support this" }
+    ],
+    "BuildStyle": [
+      { "name": "planning", "type": "enum", "values": "planning" },
+      { "name": "iteration", "type": "enum", "values": "iteration" },
+      { "name": "steering", "type": "enum", "values": "steering" },
+      { "name": "verification", "type": "enum", "values": "verification" },
+      { "name": "scope_control", "type": "enum", "values": "scope_control" },
+      { "name": "architecture_note", "type": "string", "max": "medium", "nullable": true, "doc": "how they structured the work, if visible" }
+    ],
+    "DimensionScore": [
+      { "name": "dimension", "type": "enum", "values": "dimension" },
+      { "name": "score", "type": "int", "doc": "0-100" },
+      { "name": "rationale", "type": "string", "max": "short" }
+    ],
+    "DecisionPattern": [
+      { "name": "pattern", "type": "string", "max": "short" },
+      { "name": "prompt_excerpt", "type": "string", "max": "excerpt", "doc": "verbatim from a prompt, trimmed" },
+      { "name": "effect", "type": "string", "max": "short", "nullable": true }
+    ],
+    "Pivot": [
+      { "name": "at_minute", "type": "int" },
+      { "name": "from_goal", "type": "string", "max": "short" },
+      { "name": "to_goal", "type": "string", "max": "short" },
+      { "name": "trigger", "type": "string", "max": "short", "nullable": true }
+    ],
+    "Friction": [
+      { "name": "kind", "type": "enum", "values": "friction_kind" },
+      { "name": "description", "type": "string", "max": "short" },
+      { "name": "cost_minutes", "type": "int", "nullable": true }
+    ],
+    "Prompting": [
+      { "name": "tone", "type": "enum", "values": "tone" },
+      { "name": "specificity", "type": "int", "doc": "0-100: how precisely prompts specified what was wanted" },
+      { "name": "correction_share", "type": "double", "doc": "fraction of prompts that corrected or redirected the agent" },
+      { "name": "question_share", "type": "double", "doc": "fraction of prompts that asked rather than directed" },
+      { "name": "note", "type": "string", "max": "medium", "nullable": true }
+    ]
+  }
+}
