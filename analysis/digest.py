@@ -42,8 +42,12 @@ DEFAULT_BUDGET = 60_000  # characters; ~15k tokens
 # names come first; the Codex names are documented in analysis/codex.py. Membership here
 # is what `stats` keys commits, test runs and files-edited on, so a harness whose shell
 # tool is missing from this set reports zero commits on a session that ran twenty.
-SHELL_TOOLS = frozenset({"Bash", "shell", "exec_command", "local_shell", "shell_command"})
-EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
+SHELL_TOOLS = frozenset(
+    {"Bash", "shell", "exec_command", "local_shell", "shell_command", "run_shell_command"}
+)
+EDIT_TOOLS = frozenset(
+    {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch", "write_file", "replace"}
+)
 
 _SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
@@ -174,16 +178,37 @@ def _tool_line(b: dict) -> tuple[str, str | None, str]:
     return name, None, _trunc(json.dumps(inp, separators=(",", ":"))[:200], 100) if inp else ""
 
 
+def _is_gemini_record(r: dict) -> bool:
+    # Gemini's metadata line carries `sessionId` + `projectHash` and never `uuid` /
+    # `parentUuid`; a Claude Code record carries `sessionId` too, so order matters.
+    return (
+        isinstance(r.get("sessionId"), str)
+        and isinstance(r.get("projectHash"), str)
+        and "uuid" not in r
+        and "parentUuid" not in r
+    )
+
+
 def detect_harness(path: pathlib.Path) -> str:
-    """ "claude_code" or "codex", from the first complete non-empty line.
+    """ "claude_code", "codex" or "gemini", from the first complete non-empty line.
 
     A Codex rollout's first record is `{"type": "session_meta", "payload": …}` (the
-    recorder writes it before anything else); a Claude Code transcript's records carry
+    recorder writes it before anything else); a Gemini CLI recording's first line is
+    `{"sessionId", "projectHash", "startTime", …}` (or, for a legacy `.json` file, the
+    whole conversation as one object); a Claude Code transcript's records carry
     `sessionId` / `parentUuid` / `uuid`. Anything unrecognised is treated as Claude Code,
     which is the loader with the measured ground truth behind it.
     """
+    path = pathlib.Path(path)
     try:
-        with pathlib.Path(path).open("rb") as f:
+        if path.suffix == ".json":
+            try:
+                whole = json.loads(path.read_bytes())
+            except json.JSONDecodeError:
+                whole = None
+            if isinstance(whole, dict) and _is_gemini_record(whole):
+                return "gemini"
+        with path.open("rb") as f:
             for line in f:
                 if not line.endswith(b"\n"):
                     break
@@ -195,6 +220,8 @@ def detect_harness(path: pathlib.Path) -> str:
                     return "claude_code"
                 if not isinstance(r, dict):
                     return "claude_code"
+                if _is_gemini_record(r):
+                    return "gemini"
                 if "sessionId" in r or "parentUuid" in r or "uuid" in r:
                     return "claude_code"
                 if r.get("type") == "session_meta" or (
@@ -211,10 +238,15 @@ def load_events(
     path: pathlib.Path, start: float | None = None, end: float | None = None
 ) -> list[Ev]:
     """Read one transcript into digest events, dispatching on the harness that wrote it."""
-    if detect_harness(path) == "codex":
+    harness = detect_harness(path)
+    if harness == "codex":
         from . import codex
 
         return codex.load_events(path, start, end)
+    if harness == "gemini":
+        from . import gemini
+
+        return gemini.load_events(path, start, end)
     return load_claude_code_events(path, start, end)
 
 
@@ -602,6 +634,10 @@ def build(
         from . import codex
 
         events = codex.load_events(path, start, end)
+    elif harness == "gemini":
+        from . import gemini
+
+        events = gemini.load_events(path, start, end)
     else:
         events = load_claude_code_events(path, start, end)
     text, coverage = render(events, meta, budget)

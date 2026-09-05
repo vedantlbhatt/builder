@@ -21,9 +21,15 @@ def _walk(root: pathlib.Path) -> list[pathlib.Path]:
     if root.is_file():
         return [root]
     # Codex keeps `sessions/YYYY/MM/DD/rollout-*.jsonl`; Claude Code keeps
-    # `projects/<slug>/<uuid>.jsonl` plus subagent sidecars. A recursive glob covers both;
-    # the probe reports per file, so sidecars are visible rather than silently merged.
-    return sorted(p for p in root.rglob("*.jsonl") if p.is_file())
+    # `projects/<slug>/<uuid>.jsonl` plus subagent sidecars; Gemini CLI keeps
+    # `tmp/<project>/chats/session-*.jsonl` (subagents one level deeper) and, from older
+    # releases, whole-conversation `chats/*.json`. A recursive glob covers all three; the
+    # probe reports per file, so sidecars are visible rather than silently merged. `.json`
+    # is taken ONLY under a `chats/` directory: the same tree holds `checkpoints/*.json`
+    # and `logs.json`, which are not conversations.
+    files = [p for p in root.rglob("*.jsonl") if p.is_file()]
+    files += [p for p in root.rglob("*.json") if p.is_file() and "chats" in p.parts]
+    return sorted(set(files))
 
 
 def _claude_code_summary(path: pathlib.Path) -> dict:
@@ -90,6 +96,14 @@ def probe_file(path: pathlib.Path) -> dict:
         out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
         out["meta"] = s.meta
         out["usage"] = s.usage
+    elif harness == "gemini":
+        from . import gemini
+
+        s = gemini.scan(path)
+        events, derivation = gemini._derive(s)
+        out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
+        out["meta"] = s.meta
+        out["usage"] = s.usage
     else:
         out["diagnostics"] = _claude_code_summary(path)
         events = dg.load_claude_code_events(path)
@@ -97,7 +111,31 @@ def probe_file(path: pathlib.Path) -> dict:
     return out
 
 
+def _fmt_gemini_usage(u: dict) -> str:
+    naive, dedup = u["naive_sum_all_records"], u["deduped_by_message_id"]
+    lines = [
+        (
+            f"  gemini messages: {u['gemini_messages']} (with tokens: "
+            f"{u['gemini_messages_with_tokens']}); record lines carrying tokens: "
+            f"{u['naive_records_with_tokens']}"
+        ),
+        (
+            f"  naive sum over every record:   total {naive['total']:,}  in {naive['input']:,} "
+            f"(cached {naive['cached']:,})  out {naive['output']:,} (thoughts {naive['thoughts']:,})"
+        ),
+        (
+            f"  deduped by message id:         total {dedup['total']:,}  in {dedup['input']:,} "
+            f"(cached {dedup['cached']:,})  out {dedup['output']:,} (thoughts {dedup['thoughts']:,})"
+        ),
+        "  naive == deduped: "
+        + ("yes" if u["naive_equals_deduped"] else "NO — do not sum record lines"),
+    ]
+    return "\n".join(lines)
+
+
 def _fmt_usage(u: dict) -> str:
+    if "deduped_by_message_id" in u:
+        return _fmt_gemini_usage(u)
     naive = u["naive_sum_last_token_usage"]
     final = u["final_total_token_usage"]
     lines = [
@@ -143,14 +181,28 @@ def format_probe(d: dict) -> str:
     if meta:
         bits = [
             f"{k}={meta[k]}"
-            for k in ("cli_version", "history_mode", "model", "cwd", "git_branch", "source")
+            for k in (
+                "cli_version",
+                "history_mode",
+                "model",
+                "cwd",
+                "git_branch",
+                "source",
+                "kind",
+                "session_id",
+            )
             if meta.get(k)
         ]
         lines.append("  meta: " + "  ".join(bits))
     lines.append(
         f"  lines: {g['lines']}  records: {g['records']}  malformed: {g['malformed_lines']}  "
         f"partial trailing line: {'yes' if g['partial_trailing_line'] else 'no'}"
+        + (f"  container: {g['container']}" if g.get("container") else "")
     )
+    if g.get("record_kinds"):
+        lines.append(
+            "  record kinds: " + ", ".join(f"{k} {v}" for k, v in g["record_kinds"].items())
+        )
     lines.append(
         f"  no timestamp: {g['no_timestamp']}  bad timestamp: {g.get('bad_timestamp', 0)}  "
         f"first: {g['first_ts']}  last: {g['last_ts']}"

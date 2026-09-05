@@ -1,0 +1,131 @@
+{
+ "_generated_by": "scripts/gen_gemini_fixture.py — do not hand-edit",
+ "harness": "gemini",
+ "legacy_harness": "gemini",
+ "events": 14,
+ "stats": {
+  "events": 14,
+  "wall_seconds": 63,
+  "prompts_sent": 2,
+  "replies_received": 3,
+  "interrupts": 0,
+  "human_edits": 0,
+  "compactions": 0,
+  "prompt_words_avg": 6.0,
+  "prompt_words_median": 10,
+  "prompt_words_max": 10,
+  "tool_calls": 8,
+  "tool_mix": {
+   "run_shell_command": 4,
+   "replace": 2,
+   "read_file": 1,
+   "write_file": 1
+  },
+  "errors": 1,
+  "lines_added_agent": 12,
+  "lines_removed_agent": 2,
+  "files_edited": 4,
+  "files_written_via_shell": 1,
+  "files_read": 0,
+  "git_commits_run": 1,
+  "test_runs": 2,
+  "models": {
+   "gemini-2.5-pro": 3
+  },
+  "longest_silence_seconds": 33
+ },
+ "legacy_stats_equal": true,
+ "usage": {
+  "gemini_messages": 4,
+  "gemini_messages_with_tokens": 4,
+  "naive_records_with_tokens": 6,
+  "naive_sum_all_records": {
+   "input": 74500,
+   "output": 152,
+   "cached": 32000,
+   "thoughts": 390,
+   "tool": 0,
+   "total": 75042
+  },
+  "deduped_by_message_id": {
+   "input": 51500,
+   "output": 102,
+   "cached": 24000,
+   "thoughts": 260,
+   "tool": 0,
+   "total": 51862
+  },
+  "naive_equals_deduped": false
+ },
+ "legacy_usage": {
+  "gemini_messages": 4,
+  "gemini_messages_with_tokens": 4,
+  "naive_records_with_tokens": 4,
+  "naive_sum_all_records": {
+   "input": 51500,
+   "output": 102,
+   "cached": 24000,
+   "thoughts": 260,
+   "tool": 0,
+   "total": 51862
+  },
+  "deduped_by_message_id": {
+   "input": 51500,
+   "output": 102,
+   "cached": 24000,
+   "thoughts": 260,
+   "tool": 0,
+   "total": 51862
+  },
+  "naive_equals_deduped": true
+ },
+ "meta": {
+  "harness": "gemini",
+  "session_id": "5d2c1a0e-4f3b-4c2d-9e8f-7a6b5c4d3e2f",
+  "project_hash": "9f1c2b3a4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8",
+  "started_at": "2025-11-04T09:00:00.000Z",
+  "last_updated": "2025-11-04T09:01:04.000Z",
+  "kind": "main",
+  "summary": "Added a --dry-run flag to deploy.sh",
+  "directories": null,
+  "model": "gemini-2.5-pro",
+  "models_seen": {
+   "gemini-2.5-pro": 4
+  }
+ },
+ "diagnostics": {
+  "container": "jsonl",
+  "lines": 16,
+  "records": 16,
+  "malformed_lines": 0,
+  "partial_trailing_line": false,
+  "record_kinds": {
+   "message": 11,
+   "set": 3,
+   "message_rewrite": 2,
+   "metadata": 1,
+   "rewind": 1
+  },
+  "messages": 8,
+  "no_timestamp": 1,
+  "bad_timestamp": 0,
+  "types": {
+   "user": 4,
+   "gemini": 4
+  },
+  "unknown_types": {},
+  "first_ts": "2025-11-04T09:00:00.000Z",
+  "last_ts": "2025-11-04T09:01:04.000Z",
+  "derivation": {
+   "assistant": 3,
+   "function_call_part_deduped": 1,
+   "message_no_timestamp": 1,
+   "prompt": 2,
+   "prompt_from_display_content": 1,
+   "prompt_ignored": 1,
+   "result_error": 1,
+   "tool_from_record": 8,
+   "user_tool_response_records": 1
+  }
+ }
+}
