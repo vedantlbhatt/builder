@@ -4,7 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 import type { SessionDetail } from '../data/api';
 import { PixelSprite } from '../pixel/PixelSprite';
 import { colors, space } from '../theme';
-import { livePresenceLine, liveStatusLine, spriteForLive } from './format';
+import { livePresenceLine, liveStatusLine, spriteForLive, tempoForLive } from './format';
 
 /**
  * The block at the top of Sessions and Profile while the Mac is still working.
@@ -45,8 +45,9 @@ export function LiveSessions({
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
             {/* Bit hammers while someone is at the keyboard and sleeps once the agent has
-                been alone past tauAutonomousSec — the same rule as the presence line. */}
-            <PixelSprite state={spriteForLive(s)} size={32} fps={4} />
+                been alone past tauAutonomousSec — the same rule as the presence line — and
+                works quicker the fresher the row's last record is. */}
+            <PixelSprite state={spriteForLive(s)} size={32} tempo={tempoForLive(s)} />
             <View style={{ flex: 1 }}>
               <Text style={{ color: c.text, fontWeight: '600', fontSize: 15 }} numberOfLines={1}>
                 {s.repo_name ?? 'private repo'}

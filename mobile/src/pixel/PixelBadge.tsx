@@ -10,7 +10,7 @@ import type { SpriteState } from './sprites';
  *
  *   <PixelBadge state="thinking" text="Reading your session…" />
  *
- * Deliberately small: a 48pt sprite at 4 fps beside dim text. Anything larger becomes
+ * Deliberately small: a 48pt sprite beside dim text. Anything larger becomes
  * the subject of the screen instead of a companion to it. An optional `title` puts one
  * bold line above the caption for the banners that already had a heading; the sprite
  * stays the same size either way.
@@ -23,6 +23,7 @@ export function PixelBadge({
   size = 48,
   fps,
   paused = false,
+  tempo,
   style,
 }: {
   state: SpriteState;
@@ -30,8 +31,11 @@ export function PixelBadge({
   title?: string;
   scheme?: Scheme;
   size?: number;
+  /** Compatibility only; see `PixelSprite`. */
   fps?: number;
   paused?: boolean;
+  /** 0.5–2, see `PixelSprite`. */
+  tempo?: number;
   style?: StyleProp<ViewStyle>;
 }) {
   const c = colors(scheme);
@@ -41,7 +45,7 @@ export function PixelBadge({
       accessibilityRole="text"
       accessibilityLabel={title ? `${title}. ${text}` : text}
     >
-      <PixelSprite state={state} size={size} scheme={scheme} fps={fps} paused={paused} />
+      <PixelSprite state={state} size={size} scheme={scheme} fps={fps} paused={paused} tempo={tempo} />
       <View style={{ flex: 1 }}>
         {title ? (
           <Text style={{ color: c.text, fontWeight: '600', fontSize: 15, marginBottom: 4 }}>

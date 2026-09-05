@@ -7,7 +7,17 @@ import { describe, expect, test } from 'bun:test';
 
 import { celebrationFor } from '../src/analysis/format';
 import type { BuilderProfile } from '../src/data/api';
-import { AUTONOMOUS_NOTE_SECONDS, livePresenceLine, spriteForLive } from '../src/live/format';
+import {
+  AUTONOMOUS_NOTE_SECONDS,
+  TEMPO_FRESH,
+  TEMPO_FRESH_SECONDS,
+  TEMPO_STALE,
+  TEMPO_STALE_SECONDS,
+  livePresenceLine,
+  spriteForLive,
+  tempoForLive,
+} from '../src/live/format';
+import { clampTempo } from '../src/pixel/motion';
 import { SPRITE_STATES } from '../src/pixel/sprites';
 import {
   BUILDER_PROFILE_PENDING,
@@ -43,6 +53,31 @@ describe('spriteForLive', () => {
   test('only returns declared sprite states', () => {
     expect(SPRITE_STATES).toContain(spriteForLive({}));
     expect(SPRITE_STATES).toContain(spriteForLive({ autonomous_seconds: 99_999 }));
+  });
+});
+
+describe('tempoForLive', () => {
+  const now = Date.parse('2026-09-05T12:00:00Z');
+  const at = (secondsAgo: number) => ({ ended_at: new Date(now - secondsAgo * 1000).toISOString() });
+
+  test('fresh rows run quick, quiet rows run slow, the middle is normal', () => {
+    expect(tempoForLive(at(0), now)).toBe(TEMPO_FRESH);
+    expect(tempoForLive(at(TEMPO_FRESH_SECONDS), now)).toBe(TEMPO_FRESH);
+    expect(tempoForLive(at(TEMPO_FRESH_SECONDS + 1), now)).toBe(1);
+    expect(tempoForLive(at(TEMPO_STALE_SECONDS), now)).toBe(1);
+    expect(tempoForLive(at(TEMPO_STALE_SECONDS + 1), now)).toBe(TEMPO_STALE);
+    expect(tempoForLive(at(86_400), now)).toBe(TEMPO_STALE);
+  });
+
+  test('an unparseable timestamp is normal speed, not a NaN the sprite has to survive', () => {
+    expect(tempoForLive({ ended_at: 'not a date' }, now)).toBe(1);
+  });
+
+  test('every value it returns is already inside the sprite\'s clamp', () => {
+    for (const secs of [0, 200, 5000]) {
+      const t = tempoForLive(at(secs), now);
+      expect(clampTempo(t)).toBe(t);
+    }
   });
 });
 

@@ -28,3 +28,25 @@ export function livePresenceLine(s: SessionDetail): string {
 export function spriteForLive(s: Pick<SessionDetail, 'autonomous_seconds'>): 'building' | 'sleeping' {
   return (s.autonomous_seconds ?? 0) > AUTONOMOUS_NOTE_SECONDS ? 'sleeping' : 'building';
 }
+
+/** A live row whose last record is this fresh is being worked right now. */
+export const TEMPO_FRESH_SECONDS = 120;
+/** Past this the Mac has gone quiet; Bit slows down rather than pretending otherwise. */
+export const TEMPO_STALE_SECONDS = 900;
+export const TEMPO_FRESH = 1.4;
+export const TEMPO_STALE = 0.7;
+
+/**
+ * How fast Bit works beside a live row. A live row's `ended_at` is the last record the Mac
+ * had seen (server: `_live_rows`), so its age is the one honest measure of "recent
+ * activity" the phone has: fresh → quicker, quiet → slower, unparseable → normal. Three
+ * steps, not a curve, so two rows a few seconds apart do not visibly run at different speeds.
+ */
+export function tempoForLive(s: Pick<SessionDetail, 'ended_at'>, nowMs: number = Date.now()): number {
+  const last = Date.parse(s.ended_at);
+  if (!Number.isFinite(last)) return 1;
+  const ageSeconds = (nowMs - last) / 1000;
+  if (ageSeconds <= TEMPO_FRESH_SECONDS) return TEMPO_FRESH;
+  if (ageSeconds <= TEMPO_STALE_SECONDS) return 1;
+  return TEMPO_STALE;
+}
