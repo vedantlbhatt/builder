@@ -39,6 +39,13 @@ def _row_to_session(r) -> dict:
         "unattended": r.unattended,
         "timeline_fidelity": r.timeline_fidelity,
         "is_shared": r.is_shared,
+        # The VIEWER'S OWN post for this session, or null. Every query feeding this mapper
+        # LEFT JOINs posts on `p.session_id = s.id AND p.user_id = <viewer>`, so a stranger
+        # reading a shared session through `sessions_public` gets null even for a public
+        # post they could otherwise see: the phone uses this key to offer "edit / unshare",
+        # and a post it may only look at is reached from the feed, which already carries
+        # its id. `posts.session_id` is UNIQUE, so the join can never multiply rows.
+        "post_id": str(r.post_id) if r.post_id else None,
     }
 
 
@@ -53,8 +60,10 @@ def _live_rows(db, user_id: str) -> list[dict]:
     rows = db.execute(
         text(
             """
-            SELECT s.*, r.public_name
-            FROM sessions s LEFT JOIN repos r ON r.id = s.repo_id
+            SELECT s.*, r.public_name, p.id AS post_id
+            FROM sessions s
+            LEFT JOIN repos r ON r.id = s.repo_id
+            LEFT JOIN posts p ON p.session_id = s.id AND p.user_id = CAST(:u AS uuid)
             WHERE s.user_id = :u AND s.state = 'live'
             ORDER BY s.updated_at DESC LIMIT :limit
             """
@@ -85,26 +94,28 @@ def list_sessions(
     if state not in ENUM_VALUES["state"]:
         raise HTTPException(422, f"state must be one of {ENUM_VALUES['state']}")
 
-    clauses = ["user_id = :u"]
+    clauses = ["s.user_id = :u"]
     params: dict = {"u": str(device.user_id), "limit": limit, "state": state}
     if include_live:
-        clauses.append("(state = CAST(:state AS sess_state) OR state = 'live')")
+        clauses.append("(s.state = CAST(:state AS sess_state) OR s.state = 'live')")
     else:
-        clauses.append("state = CAST(:state AS sess_state)")
+        clauses.append("s.state = CAST(:state AS sess_state)")
     if notable_only:
-        clauses.append("notable")
+        clauses.append("s.notable")
     if before:
-        clauses.append("started_at < :before")
+        clauses.append("s.started_at < :before")
         params["before"] = before
 
     with db_session(viewer_id=str(device.user_id)) as db:
         rows = db.execute(
             text(
                 f"""
-                SELECT s.*, r.public_name
-                FROM sessions s LEFT JOIN repos r ON r.id = s.repo_id
+                SELECT s.*, r.public_name, p.id AS post_id
+                FROM sessions s
+                LEFT JOIN repos r ON r.id = s.repo_id
+                LEFT JOIN posts p ON p.session_id = s.id AND p.user_id = CAST(:u AS uuid)
                 WHERE {" AND ".join(clauses)}
-                ORDER BY started_at DESC LIMIT :limit
+                ORDER BY s.started_at DESC LIMIT :limit
                 """
             ),
             params,
@@ -128,16 +139,24 @@ def live_sessions(device: CurrentDevice = Depends(current_device)):
 
 @router.get("/sessions/{session_id}")
 def get_session(session_id: str, device: CurrentDevice = Depends(current_device)):
-    with db_session(viewer_id=str(device.user_id)) as db:
+    uid = str(device.user_id)
+    with db_session(viewer_id=uid) as db:
+        # The posts join is filtered to the VIEWER's post, not the session owner's. RLS on
+        # `posts` would already hide a private post from a stranger, but relying on it
+        # would hand a follower or a public reader the id of someone else's post under a
+        # key the phone treats as "mine"; the explicit predicate makes the meaning of the
+        # field independent of how the policies happen to be written.
         row = db.execute(
             text(
                 """
-                SELECT s.*, r.public_name
-                FROM sessions s LEFT JOIN repos r ON r.id = s.repo_id
+                SELECT s.*, r.public_name, p.id AS post_id
+                FROM sessions s
+                LEFT JOIN repos r ON r.id = s.repo_id
+                LEFT JOIN posts p ON p.session_id = s.id AND p.user_id = CAST(:u AS uuid)
                 WHERE s.id = :id
                 """
             ),
-            {"id": session_id},
+            {"id": session_id, "u": uid},
         ).first()
         if row is None:
             raise HTTPException(404, "not found")

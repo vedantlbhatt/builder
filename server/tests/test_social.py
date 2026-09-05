@@ -171,6 +171,83 @@ def test_share_own_final_session_then_unshare(client, created_users):
     assert client.get(f"/v1/sessions/{sid}", headers=h).json()["is_shared"] is False
 
 
+def _detail_post_id(client, headers, session_id: str):
+    r = client.get(f"/v1/sessions/{session_id}", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "post_id" in body, "null, never absent"
+    return body["post_id"]
+
+
+def test_session_detail_carries_only_the_viewers_own_post_id(client, created_users):
+    """`post_id` on a session is the VIEWER's post, not the session's.
+
+    The negative half has to reach the join. A stranger cannot read an unshared session
+    at all, so asserting null on one would pass with the join missing entirely; the
+    session here is shared through a followers-only post, which every viewer can read via
+    `sessions_public` while only an accepted follower can read the post. The victim's post
+    is proven to exist first, as the victim; then the stranger is upgraded to a follower
+    who demonstrably CAN read the post, and still gets null — which is what separates
+    "the predicate filtered it" from "RLS happened to hide it".
+    """
+    uid_a, h_a = _person(client, created_users, "alice", public=False)
+    uid_b, h_b = _person(client, created_users, "bob")
+    alice, bob = _handle_of(uid_a), _handle_of(uid_b)
+    sid = _session(client, h_a, uid_a)
+
+    # Before any post: the key is present and null on the detail and on the list.
+    assert _detail_post_id(client, h_a, sid) is None
+    listed = client.get("/v1/sessions", headers=h_a).json()["sessions"]
+    assert [(x["id"], x["post_id"]) for x in listed] == [(sid, None)]
+
+    post = _post(client, h_a, sid, "followers")
+
+    # The post exists, as the victim sees it: through the route and in the table.
+    assert client.get(f"/v1/posts/{post['id']}", headers=h_a).status_code == 200
+    with owner_engine().connect() as c:
+        row = c.execute(
+            text("SELECT user_id, visibility FROM posts WHERE id = CAST(:p AS uuid)"),
+            {"p": post["id"]},
+        ).one()
+    assert (str(row.user_id), row.visibility) == (uid_a, "followers")
+    assert _shared(sid) == (True, True)
+
+    # Owner: the id, on the detail and on the list.
+    assert _detail_post_id(client, h_a, sid) == post["id"]
+    listed = client.get("/v1/sessions", headers=h_a).json()["sessions"]
+    assert [(x["id"], x["post_id"]) for x in listed] == [(sid, post["id"])]
+
+    # Stranger: the session is readable (200, so the join ran), the post is not, null.
+    assert client.get(f"/v1/posts/{post['id']}", headers=h_b).status_code == 404
+    assert _detail_post_id(client, h_b, sid) is None
+
+    # Accepted follower: the post IS readable to Bob now, and the session still says null,
+    # because the field means "your post", not "a post you may see".
+    assert client.post(f"/v1/follows/{alice}", headers=h_b).json()["state"] == "pending"
+    assert client.post(f"/v1/follows/{bob}:accept", headers=h_a).json()["state"] == "accepted"
+    assert client.get(f"/v1/posts/{post['id']}", headers=h_b).status_code == 200
+    assert _detail_post_id(client, h_b, sid) is None
+
+    # Same for a public post: anyone can read it, nobody but the author gets it here.
+    r = client.patch(f"/v1/posts/{post['id']}", json={"visibility": "public"}, headers=h_a)
+    assert r.status_code == 200, r.text
+    assert client.get(f"/v1/posts/{post['id']}", headers=h_b).status_code == 200
+    assert _detail_post_id(client, h_b, sid) is None
+    assert _detail_post_id(client, h_a, sid) == post["id"]
+
+    # A private post: the session drops out of `sessions_public`, so the stranger gets
+    # 404 rather than a null, and the owner keeps the id through the owner policies.
+    r = client.patch(f"/v1/posts/{post['id']}", json={"visibility": "private"}, headers=h_a)
+    assert r.status_code == 200, r.text
+    assert _shared(sid) == (False, False)
+    assert client.get(f"/v1/sessions/{sid}", headers=h_b).status_code == 404
+    assert _detail_post_id(client, h_a, sid) == post["id"]
+
+    # Un-sharing takes it back to null, not to a dangling id.
+    assert client.delete(f"/v1/posts/{post['id']}", headers=h_a).status_code == 204
+    assert _detail_post_id(client, h_a, sid) is None
+
+
 def test_a_live_session_cannot_be_shared(client, created_users):
     uid, h = _person(client, created_users, "alice")
     live = _live(datetime(2026, 8, 15, 16, 0, tzinfo=UTC), 20)
