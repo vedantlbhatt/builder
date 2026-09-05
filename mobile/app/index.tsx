@@ -97,6 +97,11 @@ export default function SessionsScreen() {
       }
     >
       <View style={{ flexDirection: 'row', gap: space.sm, marginBottom: space.md }}>
+        <Link href="/feed" asChild>
+          <Pressable style={pill}>
+            <Text style={{ color: c.text }}>Feed</Text>
+          </Pressable>
+        </Link>
         <Link href="/profile" asChild>
           <Pressable style={pill}>
             <Text style={{ color: c.text }}>Profile</Text>

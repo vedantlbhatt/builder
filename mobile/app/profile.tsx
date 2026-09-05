@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 
 import * as cache from '../src/data/cache';
 import { api } from '../src/data/client';
@@ -51,6 +51,24 @@ export default function ProfileScreen() {
       contentContainerStyle={{ padding: space.md, paddingBottom: space.xxl }}
     >
       <LiveSessions sessions={profile.live ?? []} onPress={(id) => router.push(`/session/${id}`)} />
+
+      <Pressable
+        onPress={() => router.push('/factions')}
+        style={({ pressed }) => [
+          {
+            backgroundColor: c.card,
+            borderRadius: 12,
+            padding: space.md,
+            marginBottom: space.md,
+            flexDirection: 'row',
+            alignItems: 'center',
+          },
+          pressed && { opacity: 0.7 },
+        ]}
+      >
+        <Text style={{ color: c.text, fontSize: 15, fontWeight: '600', flex: 1 }}>Factions</Text>
+        <Text style={{ color: c.textDim, fontSize: 13 }}>weekly board ›</Text>
+      </Pressable>
 
       <Card>
         <Text style={{ color: c.text, fontSize: 30, fontWeight: '700' }}>

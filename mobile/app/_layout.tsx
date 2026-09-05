@@ -48,6 +48,10 @@ export default function RootLayout() {
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         <Stack.Screen name="pair" options={{ title: 'Connect your Mac' }} />
         <Stack.Screen name="session/[id]" options={{ title: '' }} />
+        <Stack.Screen name="feed" options={{ title: 'Feed' }} />
+        <Stack.Screen name="post/[id]" options={{ title: 'Post' }} />
+        <Stack.Screen name="factions" options={{ title: 'Factions' }} />
+        <Stack.Screen name="u/[handle]" options={{ title: '' }} />
       </Stack>
     </>
   );

@@ -124,6 +124,165 @@ export interface Profile {
   live?: SessionDetail[];
 }
 
+// ------------------------------------------------------------------ social
+// Read shapes mirror `server/builder/routes/social.py` field for field. A feed item is
+// self-contained (one request renders the screen); the cursor pair `next_before` /
+// `next_before_id` is null on the last page.
+
+export type Visibility = 'private' | 'followers' | 'public';
+
+export interface Author {
+  handle: string | null;
+  display_name: string | null;
+}
+
+export interface PostMedia {
+  id: string;
+  kind: 'photo' | 'audio';
+  object_key: string;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  position: number;
+  url: string | null;
+}
+
+/**
+ * Headline + summary only, unless the author set `share_analysis`, in which case the
+ * whole `SessionAnalysis` document is present. Read the two named fields; treat the rest
+ * as optional.
+ */
+export interface FeedAnalysis extends Partial<Omit<SessionAnalysis, 'headline' | 'summary'>> {
+  headline?: string | null;
+  summary?: string | null;
+}
+
+export interface FeedItem {
+  id: string;
+  author: Author;
+  caption: string | null;
+  visibility: Visibility;
+  share_analysis: boolean;
+  created_at: string;
+  updated_at: string;
+  session: SessionDetail;
+  strip: SessionStrip | null;
+  analysis: FeedAnalysis | null;
+  photos: PostMedia[];
+  audio: PostMedia | null;
+  kudos_count: number;
+  comment_count: number;
+  you_kudosed: boolean;
+}
+
+export interface FeedPage {
+  items: FeedItem[];
+  next_before: string | null;
+  next_before_id: string | null;
+}
+
+export interface PostCreate {
+  session_id: string;
+  caption?: string | null;
+  visibility: Visibility;
+  share_analysis?: boolean;
+}
+
+export interface PostPatch {
+  caption?: string | null;
+  visibility?: Visibility;
+  share_analysis?: boolean;
+}
+
+export interface KudosState {
+  kudos_count: number;
+  you_kudosed: boolean;
+}
+
+export interface Comment {
+  id: string;
+  post_id: string;
+  author: Author;
+  body: string;
+  created_at: string;
+}
+
+export type FollowState = 'accepted' | 'pending' | null;
+
+export interface UserPage {
+  profile: {
+    handle: string;
+    display_name: string | null;
+    profile_public: boolean;
+    created_at: string;
+    is_you: boolean;
+    /** 'accepted', 'pending', or null. Null for yourself as well. */
+    follow_state: FollowState;
+  };
+  posts: FeedItem[];
+  next_before: string | null;
+  next_before_id: string | null;
+}
+
+export interface Faction {
+  slug: string;
+  name: string;
+  open: boolean;
+  tz: string;
+  role?: 'admin' | 'member' | null;
+  /** Admins only; the server withholds it from members. */
+  join_code?: string;
+}
+
+export interface FactionBoardMember extends Author {
+  role: 'admin' | 'member';
+  share_hours: boolean;
+  you: boolean;
+  attended_seconds: number;
+  sessions: number;
+  longest_attended_seconds: number;
+}
+
+export interface FactionBoard {
+  faction: Faction;
+  /** ISO week, e.g. "2026-W33". */
+  week: string;
+  week_start: string;
+  week_end: string;
+  /** Ranked by attended hours, the server's order. Opted-out members carry zeros. */
+  members: FactionBoardMember[];
+}
+
+export interface PresignRequest {
+  kind: 'photo' | 'audio';
+  content_type: string;
+  bytes: number;
+}
+
+export interface Presign {
+  upload_url: string;
+  object_key: string;
+  method: 'PUT';
+  headers: Record<string, string>;
+  expires_in: number;
+}
+
+export interface MediaAttach {
+  object_key: string;
+  kind?: 'photo' | 'audio';
+  width?: number;
+  height?: number;
+  duration_ms?: number;
+}
+
+export const PRESIGN_UNCONFIGURED_MESSAGE = "Photo upload isn't configured on this server yet.";
+
+/** Keyset cursor for the feed and the user page. Both fields come from the previous page. */
+export interface Cursor {
+  before?: string | null;
+  beforeId?: string | null;
+}
+
 export interface TokenPair {
   access_token: string;
   refresh_token: string;
@@ -301,10 +460,151 @@ export class Api {
     });
   }
 
+  // ----------------------------------------------------------------- social
+
+  private cursorQuery(cursor: Cursor | undefined, extra: Record<string, string> = {}): string {
+    const q = new URLSearchParams(extra);
+    if (cursor?.before) {
+      q.set('before', cursor.before);
+      // The id is the tiebreaker; sending it without a timestamp is meaningless and the
+      // server ignores it, so it rides only alongside `before`.
+      if (cursor.beforeId) q.set('before_id', cursor.beforeId);
+    }
+    const qs = q.toString();
+    return qs ? `?${qs}` : '';
+  }
+
+  /** People you follow, members of your factions, and you. Newest first, ≤ 30 per page. */
+  feed(cursor?: Cursor): Promise<FeedPage> {
+    return this.request('GET', `/v1/feed${this.cursorQuery(cursor)}`);
+  }
+
+  /** Same shape as `feed`, scoped to one faction. 403 until you join it. */
+  factionFeed(slug: string, cursor?: Cursor): Promise<FeedPage> {
+    return this.request(
+      'GET',
+      `/v1/feed/faction/${encodeURIComponent(slug)}${this.cursorQuery(cursor)}`
+    );
+  }
+
+  post(id: string): Promise<FeedItem> {
+    return this.request('GET', `/v1/posts/${encodeURIComponent(id)}`);
+  }
+
+  /** Share a session. The session must be the caller's and `final`. Returns the feed item. */
+  createPost(body: PostCreate): Promise<FeedItem> {
+    return this.request('POST', '/v1/posts', { body });
+  }
+
+  updatePost(id: string, body: PostPatch): Promise<FeedItem> {
+    return this.request('PATCH', `/v1/posts/${encodeURIComponent(id)}`, { body });
+  }
+
+  deletePost(id: string): Promise<void> {
+    return this.request('DELETE', `/v1/posts/${encodeURIComponent(id)}`);
+  }
+
+  kudos(postId: string): Promise<KudosState> {
+    return this.request('POST', `/v1/posts/${encodeURIComponent(postId)}/kudos`);
+  }
+
+  unkudos(postId: string): Promise<KudosState> {
+    return this.request('DELETE', `/v1/posts/${encodeURIComponent(postId)}/kudos`);
+  }
+
+  /** Flat, oldest first, not paginated. */
+  comments(postId: string): Promise<{ comments: Comment[] }> {
+    return this.request('GET', `/v1/posts/${encodeURIComponent(postId)}/comments`);
+  }
+
+  addComment(postId: string, body: string): Promise<Comment & { comment_count: number }> {
+    return this.request('POST', `/v1/posts/${encodeURIComponent(postId)}/comments`, {
+      body: { body },
+    });
+  }
+
+  deleteComment(commentId: string): Promise<void> {
+    return this.request('DELETE', `/v1/comments/${encodeURIComponent(commentId)}`);
+  }
+
+  /** Immediate for a public profile (`accepted`), a request otherwise (`pending`). */
+  follow(handle: string): Promise<{ handle: string; state: FollowState }> {
+    return this.request('POST', `/v1/follows/${encodeURIComponent(handle)}`);
+  }
+
+  unfollow(handle: string): Promise<void> {
+    return this.request('DELETE', `/v1/follows/${encodeURIComponent(handle)}`);
+  }
+
+  /** The caller is the followee; `handle` is who asked. */
+  acceptFollow(handle: string): Promise<{ handle: string; state: 'accepted' }> {
+    return this.request('POST', `/v1/follows/${encodeURIComponent(handle)}:accept`);
+  }
+
+  /** Profile plus the posts the CALLER may see, keyset paginated like the feed. */
+  user(handle: string, cursor?: Cursor): Promise<UserPage> {
+    return this.request(
+      'GET',
+      `/v1/users/${encodeURIComponent(handle)}${this.cursorQuery(cursor)}`
+    );
+  }
+
+  /** The creator is the first admin; the response carries `join_code`. */
+  createFaction(body: { name: string; slug?: string; open?: boolean; tz?: string }): Promise<Faction> {
+    return this.request('POST', '/v1/factions', { body });
+  }
+
+  /** By code (`XXXX-XXXX`), or by slug when the faction is open. */
+  joinFaction(code: string): Promise<Faction> {
+    return this.request('POST', '/v1/factions:join', { body: { code } });
+  }
+
+  joinOpenFaction(slug: string): Promise<Faction> {
+    return this.request('POST', '/v1/factions:join', { body: { slug } });
+  }
+
+  /** `week` is an ISO week like `2026-W33`; omitted means the current one. */
+  factionBoard(slug: string, week?: string): Promise<FactionBoard> {
+    const qs = week ? `?week=${encodeURIComponent(week)}` : '';
+    return this.request('GET', `/v1/factions/${encodeURIComponent(slug)}/board${qs}`);
+  }
+
+  setFactionShareHours(
+    slug: string,
+    shareHours: boolean
+  ): Promise<{ slug: string; share_hours: boolean }> {
+    return this.request('PATCH', `/v1/factions/${encodeURIComponent(slug)}/members/me`, {
+      body: { share_hours: shareHours },
+    });
+  }
+
+  /**
+   * A presigned PUT the phone uploads to directly. The server answers 503 when object
+   * storage is not configured; that is a deployment fact, not a bug, so it surfaces as a
+   * plain sentence rather than the server's list of env vars.
+   */
+  async presignMedia(postId: string, body: PresignRequest): Promise<Presign> {
+    try {
+      return await this.request('POST', `/v1/posts/${encodeURIComponent(postId)}/media:presign`, {
+        body,
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 503) {
+        throw new ApiError(503, PRESIGN_UNCONFIGURED_MESSAGE);
+      }
+      throw e;
+    }
+  }
+
+  /** After the PUT succeeded: record the object on the post. */
+  attachMedia(postId: string, body: MediaAttach): Promise<PostMedia> {
+    return this.request('POST', `/v1/posts/${encodeURIComponent(postId)}/media`, { body });
+  }
+
   // -------------------------------------------------------------- transport
 
   private async request<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
     path: string,
     opts: { body?: unknown; auth?: boolean } = {}
   ): Promise<T> {

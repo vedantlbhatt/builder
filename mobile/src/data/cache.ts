@@ -300,13 +300,20 @@ export async function putProfile(p: Profile): Promise<void> {
 
 // ---------------------------------------------------------------------------- kv
 
-async function setKv(k: string, v: string): Promise<void> {
+export async function setKv(k: string, v: string): Promise<void> {
   await guarded('setKv', undefined, async (d) => {
     await d.runAsync(
       'INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v',
       k,
       v
     );
+  });
+}
+
+export async function getKv(k: string): Promise<string | null> {
+  return guarded('getKv', null, async (d) => {
+    const row = await d.getFirstAsync<{ v: string }>('SELECT v FROM kv WHERE k = ?', k);
+    return row?.v ?? null;
   });
 }
 
