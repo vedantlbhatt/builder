@@ -1,0 +1,47 @@
+{
+  "files_in_context": [
+    {
+      "path": "scripts/deploy.sh",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1730711406000,
+      "cline_edit_date": 1730711409000,
+      "user_edit_date": null
+    },
+    {
+      "path": "tests/helpers.py",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": null,
+      "cline_edit_date": 1730711412000,
+      "user_edit_date": null
+    },
+    {
+      "path": "tests/test_deploy.py",
+      "record_state": "stale",
+      "record_source": "user_edited",
+      "cline_read_date": null,
+      "cline_edit_date": 1730711418000,
+      "user_edit_date": 1730711440000
+    }
+  ],
+  "model_usage": [
+    {
+      "ts": 1730711400000,
+      "model_id": "claude-sonnet-4-5",
+      "model_provider_id": "anthropic",
+      "mode": "act"
+    }
+  ],
+  "environment_history": [
+    {
+      "ts": 1730711400000,
+      "os_name": "darwin",
+      "os_version": "24.6.0",
+      "os_arch": "arm64",
+      "host_name": "vscode",
+      "host_version": "1.104.0",
+      "cline_version": "3.36.0"
+    }
+  ]
+}

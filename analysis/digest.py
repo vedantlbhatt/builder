@@ -39,14 +39,37 @@ ERROR_MAX = 240
 DEFAULT_BUDGET = 60_000  # characters; ~15k tokens
 
 # Tool names that mean "ran a shell command" / "edited a file" per harness. Claude Code's
-# names come first; the Codex names are documented in analysis/codex.py. Membership here
-# is what `stats` keys commits, test runs and files-edited on, so a harness whose shell
-# tool is missing from this set reports zero commits on a session that ran twenty.
+# names come first; the Codex names are documented in analysis/codex.py, the Gemini names
+# in analysis/gemini.py, the Cline names (`execute_command` / `write_to_file` /
+# `replace_in_file`, plus the SDK-era `run_commands` / `editor`) in analysis/cline.py.
+# Membership here is what `stats` keys commits, test runs and files-edited on, so a
+# harness whose shell tool is missing from this set reports zero commits on a session
+# that ran twenty.
 SHELL_TOOLS = frozenset(
-    {"Bash", "shell", "exec_command", "local_shell", "shell_command", "run_shell_command"}
+    {
+        "Bash",
+        "shell",
+        "exec_command",
+        "local_shell",
+        "shell_command",
+        "run_shell_command",
+        "execute_command",
+        "run_commands",
+    }
 )
 EDIT_TOOLS = frozenset(
-    {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch", "write_file", "replace"}
+    {
+        "Edit",
+        "Write",
+        "MultiEdit",
+        "NotebookEdit",
+        "apply_patch",
+        "write_file",
+        "replace",
+        "write_to_file",
+        "replace_in_file",
+        "editor",
+    }
 )
 
 _SECRET_PATTERNS = [
@@ -189,17 +212,34 @@ def _is_gemini_record(r: dict) -> bool:
     )
 
 
+_CLINE_FILES = frozenset({"ui_messages.json", "api_conversation_history.json"})
+
+
+def _is_cline_task(path: pathlib.Path) -> bool:
+    # A Cline task is a DIRECTORY holding `ui_messages.json` (and usually
+    # `api_conversation_history.json`); either file names the task too. Decided on the
+    # path shape, not the content: the ui file is a bare JSON array of `{ts, type, say}`
+    # rows with nothing that names the harness (analysis/cline.py).
+    if path.is_dir():
+        return any((path / n).is_file() for n in _CLINE_FILES)
+    return path.name in _CLINE_FILES
+
+
 def detect_harness(path: pathlib.Path) -> str:
-    """ "claude_code", "codex" or "gemini", from the first complete non-empty line.
+    """ "claude_code", "codex", "gemini" or "cline", from the first complete non-empty line.
 
     A Codex rollout's first record is `{"type": "session_meta", "payload": …}` (the
     recorder writes it before anything else); a Gemini CLI recording's first line is
     `{"sessionId", "projectHash", "startTime", …}` (or, for a legacy `.json` file, the
     whole conversation as one object); a Claude Code transcript's records carry
-    `sessionId` / `parentUuid` / `uuid`. Anything unrecognised is treated as Claude Code,
-    which is the loader with the measured ground truth behind it.
+    `sessionId` / `parentUuid` / `uuid`; a Cline task is a directory (or a
+    `ui_messages.json` / `api_conversation_history.json` inside one). Anything
+    unrecognised is treated as Claude Code, which is the loader with the measured ground
+    truth behind it.
     """
     path = pathlib.Path(path)
+    if _is_cline_task(path):
+        return "cline"
     try:
         if path.suffix == ".json":
             try:
@@ -247,6 +287,10 @@ def load_events(
         from . import gemini
 
         return gemini.load_events(path, start, end)
+    if harness == "cline":
+        from . import cline
+
+        return cline.load_events(path, start, end)
     return load_claude_code_events(path, start, end)
 
 
@@ -638,6 +682,10 @@ def build(
         from . import gemini
 
         events = gemini.load_events(path, start, end)
+    elif harness == "cline":
+        from . import cline
+
+        events = cline.load_events(path, start, end)
     else:
         events = load_claude_code_events(path, start, end)
     text, coverage = render(events, meta, budget)

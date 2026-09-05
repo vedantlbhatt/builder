@@ -29,7 +29,14 @@ def _walk(root: pathlib.Path) -> list[pathlib.Path]:
     # and `logs.json`, which are not conversations.
     files = [p for p in root.rglob("*.jsonl") if p.is_file()]
     files += [p for p in root.rglob("*.json") if p.is_file() and "chats" in p.parts]
-    return sorted(set(files))
+    # Cline keeps one DIRECTORY per task: `tasks/<taskId>/ui_messages.json` next to
+    # `api_conversation_history.json`. The probe reports per task directory (the loader
+    # reads every file in it), so the root may be `~/.cline/data`, its `tasks/`, or one task.
+    if root.is_dir() and dg._is_cline_task(root):
+        return [root]
+    task_dirs = {p.parent for p in root.rglob("ui_messages.json") if p.is_file()}
+    task_dirs |= {p.parent for p in root.rglob("api_conversation_history.json") if p.is_file()}
+    return sorted(set(files) | task_dirs)
 
 
 def _claude_code_summary(path: pathlib.Path) -> dict:
@@ -104,6 +111,16 @@ def probe_file(path: pathlib.Path) -> dict:
         out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
         out["meta"] = s.meta
         out["usage"] = s.usage
+    elif harness == "cline":
+        from . import cline
+
+        s = cline.scan(path)
+        _, files = cline.resolve(path)
+        out["bytes"] = sum(p.stat().st_size for k, p in files.items() if p and k != "index")
+        events, derivation = cline._derive(s)
+        out["diagnostics"] = dict(s.diagnostics, derivation=derivation)
+        out["meta"] = s.meta
+        out["usage"] = s.usage
     else:
         out["diagnostics"] = _claude_code_summary(path)
         events = dg.load_claude_code_events(path)
@@ -133,9 +150,46 @@ def _fmt_gemini_usage(u: dict) -> str:
     return "\n".join(lines)
 
 
+def _fmt_cline_usage(u: dict) -> str:
+    def _row(label: str, t: dict) -> str:
+        return (
+            f"  {label:<31}in {t['tokensIn'] or 0:,} (cache w {t['cacheWrites'] or 0:,} / "
+            f"r {t['cacheReads'] or 0:,})  out {t['tokensOut'] or 0:,}  cost ${t['cost'] or 0}"
+        )
+
+    lines = [
+        (
+            f"  api_req_started rows: {u['api_requests']} (with tokens: "
+            f"{u['api_requests_with_tokens']}); api_req_finished rows: "
+            f"{u['ui_api_req_finished_rows']}; deleted/subagent rows: "
+            f"{u['ui_deleted_and_subagent_rows']}"
+            + (
+                f"; cancelled: {', '.join(f'{k} {v}' for k, v in u['api_requests_cancelled'].items())}"
+                if u["api_requests_cancelled"]
+                else ""
+            )
+        ),
+        _row("sum over api_req_started:", u["ui_api_req_started_sum"]),
+        _row("getApiMetrics (with deleted):", u["ui_get_api_metrics"]),
+    ]
+    if u["ui_api_req_finished_rows"]:
+        lines.append(_row("api_req_finished rows apart:", u["ui_api_req_finished_sum"]))
+    if u["index_totals"]:
+        lines.append(_row("taskHistory.json index:", u["index_totals"]))
+        lines.append(
+            "  ui == index: "
+            + ("yes" if u["ui_equals_index"] else "NO — the two stores disagree; report both")
+        )
+    else:
+        lines.append("  taskHistory.json index:        (not found for this task)")
+    return "\n".join(lines)
+
+
 def _fmt_usage(u: dict) -> str:
     if "deduped_by_message_id" in u:
         return _fmt_gemini_usage(u)
+    if "ui_api_req_started_sum" in u:
+        return _fmt_cline_usage(u)
     naive = u["naive_sum_last_token_usage"]
     final = u["final_total_token_usage"]
     lines = [

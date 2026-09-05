@@ -1,0 +1,164 @@
+{
+ "_generated_by": "scripts/gen_cline_fixture.py — do not hand-edit",
+ "harness": "cline",
+ "events": 17,
+ "stats": {
+  "events": 17,
+  "wall_seconds": 64,
+  "prompts_sent": 2,
+  "replies_received": 3,
+  "interrupts": 1,
+  "human_edits": 1,
+  "compactions": 0,
+  "prompt_words_avg": 6.5,
+  "prompt_words_median": 11,
+  "prompt_words_max": 11,
+  "tool_calls": 8,
+  "tool_mix": {
+   "execute_command": 4,
+   "replace_in_file": 2,
+   "read_file": 1,
+   "write_to_file": 1
+  },
+  "errors": 2,
+  "lines_added_agent": 12,
+  "lines_removed_agent": 2,
+  "files_edited": 4,
+  "files_written_via_shell": 1,
+  "files_read": 0,
+  "git_commits_run": 1,
+  "test_runs": 2,
+  "models": {
+   "claude-sonnet-4-5": 3
+  },
+  "longest_silence_seconds": 20
+ },
+ "usage": {
+  "api_requests": 5,
+  "api_requests_with_tokens": 4,
+  "api_requests_cancelled": {
+   "user_cancelled": 1
+  },
+  "ui_api_req_started_sum": {
+   "tokensIn": 50500,
+   "tokensOut": 142,
+   "cacheWrites": 0,
+   "cacheReads": 24000,
+   "cost": 0.165
+  },
+  "ui_api_req_finished_rows": 0,
+  "ui_api_req_finished_sum": {
+   "tokensIn": 0,
+   "tokensOut": 0,
+   "cacheWrites": 0,
+   "cacheReads": 0,
+   "cost": 0
+  },
+  "ui_deleted_and_subagent_rows": 0,
+  "ui_get_api_metrics": {
+   "tokensIn": 50500,
+   "tokensOut": 142,
+   "cacheWrites": 0,
+   "cacheReads": 24000,
+   "cost": 0.165
+  },
+  "index_totals": {
+   "tokensIn": 65000,
+   "tokensOut": 162,
+   "cacheWrites": 0,
+   "cacheReads": 32000,
+   "cost": 0.17
+  },
+  "ui_equals_index": false
+ },
+ "meta": {
+  "harness": "cline",
+  "session_id": "1730711400000",
+  "task_id": "1730711400000",
+  "started_at": "2024-11-04T09:10:00Z",
+  "started_at_source": "task_dir_name",
+  "model": "claude-sonnet-4-5",
+  "models_seen": {
+   "claude-sonnet-4-5": 1
+  },
+  "provider": "anthropic",
+  "cwd": "/Users/dev/proj",
+  "cli_version": "3.36.0",
+  "task": "Add a --dry-run flag to scripts/deploy.sh and keep the tests green",
+  "is_legacy": true
+ },
+ "diagnostics": {
+  "container": "task_dir",
+  "files_present": [
+   "api",
+   "index",
+   "meta",
+   "ui"
+  ],
+  "lines": 24,
+  "records": 44,
+  "malformed_lines": 0,
+  "malformed_files": [],
+  "partial_trailing_line": false,
+  "index_items": 1,
+  "index_has_this_task": true,
+  "ui_rows_not_objects": 0,
+  "api_rows_not_objects": 0,
+  "ui_messages": 24,
+  "ui_partial_rows": 0,
+  "api_messages": 20,
+  "api_roles": {
+   "user": 10,
+   "assistant": 10
+  },
+  "api_block_types": {
+   "tool_use": 10,
+   "tool_result": 9,
+   "text": 5
+  },
+  "api_string_content": 0,
+  "unknown_block_types": {},
+  "task_metadata_files_in_context": 3,
+  "ts_epoch_ms": 24,
+  "ts_counter_not_clock": 0,
+  "no_timestamp": 0,
+  "bad_timestamp": 0,
+  "base_ts_source": "task_dir_name",
+  "first_ts": "2024-11-04T09:10:00Z",
+  "last_ts": "2024-11-04T09:11:04.500000Z",
+  "types": {
+   "say:api_req_started": 5,
+   "say:tool": 4,
+   "say:command": 4,
+   "say:completion_result": 2,
+   "ask:completion_result": 2,
+   "say:user_feedback": 2,
+   "say:task": 1,
+   "say:text": 1,
+   "ask:tool": 1,
+   "ask:resume_task": 1,
+   "say:checkpoint_created": 1
+  },
+  "unknown_types": {},
+  "derivation": {
+   "api_tool_blocks_unpaired_completion": 2,
+   "api_tool_result_error": 1,
+   "assistant": 3,
+   "command_from_say": 4,
+   "command_output_error": 1,
+   "edit_credit_search_replace": 2,
+   "envelope_environment_details": 2,
+   "human_edit": 1,
+   "interrupt_user_cancelled": 1,
+   "prompt": 2,
+   "prompt_empty_after_strip": 1,
+   "skipped_ask_completion_result": 2,
+   "skipped_ask_resume_task": 1,
+   "skipped_say_checkpoint_created": 1,
+   "tool_ask_then_say_deduped": 1,
+   "tool_from_ask": 1,
+   "tool_from_say": 3,
+   "ui_tool_paired_with_api_block": 8
+  }
+ }
+}

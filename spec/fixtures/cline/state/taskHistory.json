@@ -1,0 +1,18 @@
+[
+  {
+    "id": "1730711400000",
+    "ulid": "01JBWQ8K1M2N3P4Q5R6S7T8V9W",
+    "ts": 1730711400000,
+    "task": "Add a --dry-run flag to scripts/deploy.sh and keep the tests green",
+    "tokensIn": 65000,
+    "tokensOut": 162,
+    "cacheWrites": 0,
+    "cacheReads": 32000,
+    "totalCost": 0.17,
+    "size": 48213,
+    "cwdOnTaskInitialization": "/Users/dev/proj",
+    "modelId": "claude-sonnet-4-5",
+    "apiProvider": "anthropic",
+    "isLegacy": true
+  }
+]
