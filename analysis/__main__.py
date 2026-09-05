@@ -26,7 +26,17 @@ def main() -> int:
         if name == "run":
             p.add_argument("--out")
             p.add_argument("--model", default=None)
+    pr = sub.add_parser("probe", help="read-only shape report over a file or directory")
+    pr.add_argument("path", help="a *.jsonl file or a directory (Codex: ~/.codex/sessions)")
+    pr.add_argument("--json", action="store_true")
     a = ap.parse_args()
+
+    if a.cmd == "probe":
+        from . import probe as pb
+
+        pb.run(pathlib.Path(a.path).expanduser(), as_json=a.json)
+        return 0
+
     path = pathlib.Path(a.transcript).expanduser()
     meta = {"repo": a.repo} if a.repo else {}
 

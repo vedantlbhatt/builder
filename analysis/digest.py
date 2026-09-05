@@ -38,6 +38,13 @@ COMMAND_MAX = 160
 ERROR_MAX = 240
 DEFAULT_BUDGET = 60_000  # characters; ~15k tokens
 
+# Tool names that mean "ran a shell command" / "edited a file" per harness. Claude Code's
+# names come first; the Codex names are documented in analysis/codex.py. Membership here
+# is what `stats` keys commits, test runs and files-edited on, so a harness whose shell
+# tool is missing from this set reports zero commits on a session that ran twenty.
+SHELL_TOOLS = frozenset({"Bash", "shell", "exec_command", "local_shell", "shell_command"})
+EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
+
 _SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -167,10 +174,54 @@ def _tool_line(b: dict) -> tuple[str, str | None, str]:
     return name, None, _trunc(json.dumps(inp, separators=(",", ":"))[:200], 100) if inp else ""
 
 
+def detect_harness(path: pathlib.Path) -> str:
+    """ "claude_code" or "codex", from the first complete non-empty line.
+
+    A Codex rollout's first record is `{"type": "session_meta", "payload": …}` (the
+    recorder writes it before anything else); a Claude Code transcript's records carry
+    `sessionId` / `parentUuid` / `uuid`. Anything unrecognised is treated as Claude Code,
+    which is the loader with the measured ground truth behind it.
+    """
+    try:
+        with pathlib.Path(path).open("rb") as f:
+            for line in f:
+                if not line.endswith(b"\n"):
+                    break
+                if not line.strip():
+                    continue
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    return "claude_code"
+                if not isinstance(r, dict):
+                    return "claude_code"
+                if "sessionId" in r or "parentUuid" in r or "uuid" in r:
+                    return "claude_code"
+                if r.get("type") == "session_meta" or (
+                    "payload" in r and "timestamp" in r and isinstance(r.get("type"), str)
+                ):
+                    return "codex"
+                return "claude_code"
+    except OSError:
+        pass
+    return "claude_code"
+
+
 def load_events(
     path: pathlib.Path, start: float | None = None, end: float | None = None
 ) -> list[Ev]:
-    """Read one transcript into digest events, in time order, within [start, end]."""
+    """Read one transcript into digest events, dispatching on the harness that wrote it."""
+    if detect_harness(path) == "codex":
+        from . import codex
+
+        return codex.load_events(path, start, end)
+    return load_claude_code_events(path, start, end)
+
+
+def load_claude_code_events(
+    path: pathlib.Path, start: float | None = None, end: float | None = None
+) -> list[Ev]:
+    """Read one Claude Code transcript into digest events, in time order, within [start, end]."""
     raw: list[tuple[float, int, dict]] = []
     with path.open("rb") as f:
         for i, line in enumerate(f):
@@ -340,19 +391,17 @@ def stats(events: list[Ev]) -> dict:
     files = {
         e.path
         for e in tools
-        if e.path
-        and (
-            e.tool in ("Edit", "Write", "MultiEdit", "NotebookEdit")
-            or (e.tool == "Bash" and e.added is not None)
-        )
+        if e.path and (e.tool in EDIT_TOOLS or (e.tool in SHELL_TOOLS and e.added is not None))
     }
-    shell_written = sum(1 for e in tools if e.tool == "Bash" and e.added is not None)
+    shell_written = sum(1 for e in tools if e.tool in SHELL_TOOLS and e.added is not None)
     reads = {e.path for e in tools if e.path and e.tool == "Read"}
-    commits = sum(1 for e in tools if e.tool == "Bash" and re.search(r"\bgit commit\b", e.text))
+    commits = sum(
+        1 for e in tools if e.tool in SHELL_TOOLS and re.search(r"\bgit commit\b", e.text)
+    )
     tests = sum(
         1
         for e in tools
-        if e.tool == "Bash"
+        if e.tool in SHELL_TOOLS
         and re.search(
             r"\b(pytest|bun test|npm test|swift test|jest|cargo test|go test|make test)\b", e.text
         )
@@ -411,7 +460,7 @@ def _render_event(e: Ev, t0: float, tight: bool) -> str:
         return f"[{e.n}] {t} ASSISTANT: {json.dumps(txt, ensure_ascii=False)}"
     if e.kind == "tool":
         delta = f" +{e.added}/-{e.removed}" if e.added is not None else ""
-        body = e.text if e.tool == "Bash" else (e.path or e.text)
+        body = e.text if e.tool in SHELL_TOOLS else (e.path or e.text)
         return f"[{e.n}] {t} {e.tool}{delta}: {body}".rstrip(": ")
     if e.kind == "result_error":
         return f"[{e.n}] {t} ERROR from {e.tool}: {json.dumps(e.text, ensure_ascii=False)}"
@@ -441,7 +490,7 @@ def _collapse_tool_runs(events: list[Ev], t0: float, min_run: int = 4) -> list[s
                 for x in run
                 if x.added is not None and x.path
             ][:6]
-            cmds = [x.text.split(" ⏎ ")[0][:40] for x in run if x.tool == "Bash"][:4]
+            cmds = [x.text.split(" ⏎ ")[0][:40] for x in run if x.tool in SHELL_TOOLS][:4]
             span = (run[-1].ts - run[0].ts) / 60
             parts = [f"{k}×{v}" for k, v in mix.most_common()]
             detail = ""
@@ -546,8 +595,16 @@ def build(
     meta: dict | None = None,
     budget: int = DEFAULT_BUDGET,
 ) -> dict:
-    events = load_events(path, start, end)
-    text, coverage = render(events, meta or {}, budget)
+    harness = detect_harness(path)
+    meta = dict(meta or {})
+    meta.setdefault("harness", harness)
+    if harness == "codex":
+        from . import codex
+
+        events = codex.load_events(path, start, end)
+    else:
+        events = load_claude_code_events(path, start, end)
+    text, coverage = render(events, meta, budget)
     return {
         "text": text,
         "coverage": coverage,
