@@ -54,10 +54,14 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     }
 
     /// Whether this harness's parser is wired up in the current build.
+    ///
+    /// Codex: `CodexParser` reads `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. Its
+    /// rules are ported from `analysis/codex.py` and verified against the synthetic
+    /// fixture only — not yet against a real corpus.
     public var isImplemented: Bool {
         switch self {
-        case .claudeCode, .cursorIDE: return true
-        case .cursorAgent, .codex: return false
+        case .claudeCode, .cursorIDE, .codex: return true
+        case .cursorAgent: return false
         }
     }
 }
