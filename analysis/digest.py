@@ -383,7 +383,7 @@ def stats(events: list[Ev]) -> dict:
         "test_runs": tests,
         "models": dict(models.most_common()),
         "longest_silence_seconds": round(
-            max((b.ts - a.ts for a, b in zip(events, events[1:])), default=0)
+            max((b.ts - a.ts for a, b in itertools.pairwise(events)), default=0)
         ),
     }
 

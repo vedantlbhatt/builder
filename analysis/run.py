@@ -81,6 +81,7 @@ def call_claude(
             timeout=TIMEOUT_S,
             env=env,
             stdin=subprocess.DEVNULL,
+            check=False,
         )
     except subprocess.TimeoutExpired as e:
         raise AnalysisError(f"claude -p timed out after {TIMEOUT_S}s") from e
