@@ -1,0 +1,243 @@
+{
+ "_generated_by": "scripts/gen_real_fixture_expected.py — do not hand-edit",
+ "_source": "real/.aider.chat.history.md",
+ "harness": "aider",
+ "sessions": {
+  "20260905-174227": {
+   "events": 2,
+   "stats": {
+    "events": 2,
+    "wall_seconds": 0,
+    "prompts_sent": 1,
+    "replies_received": 0,
+    "interrupts": 0,
+    "human_edits": 0,
+    "compactions": 0,
+    "prompt_words_avg": 2.0,
+    "prompt_words_median": 2,
+    "prompt_words_max": 2,
+    "tool_calls": 0,
+    "tool_mix": {},
+    "errors": 1,
+    "lines_added_agent": 0,
+    "lines_removed_agent": 0,
+    "files_edited": 0,
+    "files_written_via_shell": 0,
+    "files_read": 0,
+    "git_commits_run": 0,
+    "test_runs": 0,
+    "models": {},
+    "longest_silence_seconds": 0
+   },
+   "usage": {
+    "messages": 0,
+    "messages_with_cost": 0,
+    "tokens_as_printed": null,
+    "approximate": true,
+    "sum_message_cost": null,
+    "last_session_cost": null,
+    "session_cost_matches_sum": null
+   },
+   "meta": {
+    "harness": "aider",
+    "session_id": "20260905-174227",
+    "session_ordinal": 1,
+    "sessions_in_file": 2,
+    "session_selected_by": "path",
+    "started_at": "2026-09-05 17:42:27",
+    "started_at_zone": "local, as written (Aider stamps no zone)",
+    "input_history_present": true,
+    "cli_version": "0.86.2",
+    "model": "claude-3-5-haiku-20241022",
+    "model_source": "announcement",
+    "launch_model": "claude-3-5-haiku-20241022",
+    "launch_flags": [
+     "--model",
+     "--yes",
+     "--message",
+     "--no-git",
+     "--no-check-update",
+     "--no-show-model-warnings"
+    ],
+    "edit_format": "diff",
+    "models_seen": {
+     "claude-3-5-haiku-20241022": 1
+    },
+    "weak_model": null,
+    "editor_model": null,
+    "git_repo": "none",
+    "files_in_chat": 0
+   },
+   "diagnostics": {
+    "container": "aider_chat_history",
+    "files_present": [
+     "chat",
+     "input"
+    ],
+    "lines": 16,
+    "records": 12,
+    "malformed_lines": 0,
+    "partial_trailing_line": false,
+    "looks_like_prompt_no_suffix": 0,
+    "looks_like_tool_no_suffix": 0,
+    "tool_blocks_multiline": 0,
+    "input_history": {
+     "present": true,
+     "entries": 2,
+     "entries_in_window": 1,
+     "double_written_entries": 2,
+     "malformed_lines": 0,
+     "bad_timestamp": 0,
+     "partial_trailing_line": false
+    },
+    "bad_timestamp": 0,
+    "sessions_in_file": 2,
+    "preamble_lines": 1,
+    "line_kinds": {
+     "prompt": 1,
+     "tool": 11,
+     "text": 3
+    },
+    "types": {
+     "tool": 11,
+     "prompt": 1
+    },
+    "first_ts": "2026-09-05 17:42:27",
+    "no_timestamp": 1,
+    "last_ts": "2026-09-05 17:42:30.356444",
+    "unknown_types": {},
+    "api_error_classes": {
+     "BadRequestError": 1
+    }
+   },
+   "derivation": {
+    "announcement": 3,
+    "announcement_command_line": 1,
+    "announcement_model": 1,
+    "confirm_answer": 2,
+    "error_api_request": 1,
+    "error_detail_line": 2,
+    "prompt": 1,
+    "prompt_stamped": 1,
+    "url_line": 1
+   }
+  },
+  "20260905-174355": {
+   "events": 2,
+   "stats": {
+    "events": 2,
+    "wall_seconds": 0,
+    "prompts_sent": 1,
+    "replies_received": 0,
+    "interrupts": 0,
+    "human_edits": 0,
+    "compactions": 0,
+    "prompt_words_avg": 2.0,
+    "prompt_words_median": 2,
+    "prompt_words_max": 2,
+    "tool_calls": 0,
+    "tool_mix": {},
+    "errors": 1,
+    "lines_added_agent": 0,
+    "lines_removed_agent": 0,
+    "files_edited": 0,
+    "files_written_via_shell": 0,
+    "files_read": 0,
+    "git_commits_run": 0,
+    "test_runs": 0,
+    "models": {},
+    "longest_silence_seconds": 0
+   },
+   "usage": {
+    "messages": 0,
+    "messages_with_cost": 0,
+    "tokens_as_printed": null,
+    "approximate": true,
+    "sum_message_cost": null,
+    "last_session_cost": null,
+    "session_cost_matches_sum": null
+   },
+   "meta": {
+    "harness": "aider",
+    "session_id": "20260905-174355",
+    "session_ordinal": 2,
+    "sessions_in_file": 2,
+    "session_selected_by": "path",
+    "started_at": "2026-09-05 17:43:55",
+    "started_at_zone": "local, as written (Aider stamps no zone)",
+    "input_history_present": true,
+    "cli_version": "0.86.2",
+    "model": "anthropic/claude-3-5-haiku-20241022",
+    "model_source": "announcement",
+    "launch_model": "anthropic/claude-3-5-haiku-20241022",
+    "launch_flags": [
+     "--model",
+     "--yes",
+     "--message",
+     "--no-git",
+     "--no-check-update",
+     "--no-show-model-warnings"
+    ],
+    "edit_format": "diff",
+    "models_seen": {
+     "anthropic/claude-3-5-haiku-20241022": 1
+    },
+    "weak_model": null,
+    "editor_model": null,
+    "git_repo": "none",
+    "files_in_chat": 0
+   },
+   "diagnostics": {
+    "container": "aider_chat_history",
+    "files_present": [
+     "chat",
+     "input"
+    ],
+    "lines": 11,
+    "records": 8,
+    "malformed_lines": 0,
+    "partial_trailing_line": false,
+    "looks_like_prompt_no_suffix": 0,
+    "looks_like_tool_no_suffix": 0,
+    "tool_blocks_multiline": 0,
+    "input_history": {
+     "present": true,
+     "entries": 2,
+     "entries_in_window": 1,
+     "double_written_entries": 2,
+     "malformed_lines": 0,
+     "bad_timestamp": 0,
+     "partial_trailing_line": false
+    },
+    "bad_timestamp": 0,
+    "sessions_in_file": 2,
+    "preamble_lines": 1,
+    "line_kinds": {
+     "prompt": 1,
+     "tool": 7,
+     "text": 2
+    },
+    "types": {
+     "tool": 7,
+     "prompt": 1
+    },
+    "first_ts": "2026-09-05 17:43:55",
+    "no_timestamp": 1,
+    "last_ts": "2026-09-05 17:43:57.904712",
+    "unknown_types": {},
+    "api_error_classes": {
+     "AuthenticationError": 1
+    }
+   },
+   "derivation": {
+    "announcement": 3,
+    "announcement_command_line": 1,
+    "announcement_model": 1,
+    "api_error_description_folded": 1,
+    "error_api_request": 1,
+    "prompt": 1,
+    "prompt_stamped": 1
+   }
+  }
+ }
+}

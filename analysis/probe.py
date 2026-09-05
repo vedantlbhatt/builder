@@ -304,16 +304,22 @@ def _fmt_aider_usage(u: dict) -> str:
         (
             f"  Tokens lines: {u['messages']} (with cost: {u['messages_with_cost']}); figures "
             f"are AS PRINTED — Aider rounds to 0.1k / 1k, so these are approximate"
-        ),
-        (
+        )
+    ]
+    if t is None:
+        # no `Tokens:` line at all — Aider writes one only after a completion, so a session
+        # whose every request failed has no usage; printing zeros here would be a number
+        lines.append("  sum as printed:                (none — no Tokens line; absent, not zero)")
+    else:
+        lines.append(
             f"  sum as printed:                sent {t['sent']:,} (cache write {t['cache_write']:,}"
             f" / hit {t['cache_hit']:,})  received {t['received']:,}"
-        ),
-        (
-            f"  cost: sum of message costs ${u['sum_message_cost']}  last session total "
-            f"{'$' + str(u['last_session_cost']) if u['last_session_cost'] is not None else '(none)'}"
-        ),
-    ]
+        )
+    cost = f"${u['sum_message_cost']}" if u["sum_message_cost"] is not None else "(none)"
+    lines.append(
+        f"  cost: sum of message costs {cost}  last session total "
+        f"{'$' + str(u['last_session_cost']) if u['last_session_cost'] is not None else '(none)'}"
+    )
     if u["session_cost_matches_sum"] is not None:
         lines.append(
             "  session total == sum: "
@@ -420,6 +426,10 @@ def format_probe(d: dict) -> str:
         lines.append(
             "  assistant errors: "
             + ", ".join(f"{k} {v}" for k, v in g["assistant_error_names"].items())
+        )
+    if g.get("api_error_classes"):
+        lines.append(
+            "  api errors: " + ", ".join(f"{k} {v}" for k, v in g["api_error_classes"].items())
         )
     if g.get("payload_types"):
         lines.append(

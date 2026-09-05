@@ -18,6 +18,8 @@ The fixture is read by eye — three sessions in ONE `.aider.chat.history.md`:
   runs, 1 interrupt (the `^C` followed by a partial reply) and one `^C ^C` quit that is
   not, wall 285 s.
 * `20241112-231500`: `/help` and its listing — zero events.
+
+`RealRuns` holds the loader to the files aider 0.86.2 actually wrote (spec/fixtures/aider/real).
 """
 
 from __future__ import annotations
@@ -37,6 +39,9 @@ CHAT = FIX / aider.CHAT_FILE
 INPUT = FIX / aider.INPUT_FILE
 EXPECTED = FIX / "expected.json"
 S1, S2, S3 = "20241112-091000", "20241112-142000", "20241112-231500"
+REAL = FIX / "real"
+REAL_CHAT = REAL / aider.CHAT_FILE
+R1, R2 = "20260905-174227", "20260905-174355"
 CLINE_TASK = ROOT / "spec" / "fixtures" / "cline" / "tasks" / "1730711400000"
 GEMINI = ROOT / "spec" / "fixtures" / "gemini"
 CODEX = ROOT / "spec" / "fixtures" / "codex" / "synthetic_session.jsonl"
@@ -275,6 +280,135 @@ class Robustness(unittest.TestCase):
         self.assertTrue(d["partial_trailing_line"])
         self.assertTrue(d["input_history"]["partial_trailing_line"])
         self.assertEqual(d["input_history"]["entries"], 1)
+
+    def test_double_write_is_one_stamp_and_a_repeat_a_second_later_is_not(self):
+        # io.py:740-743 stores `--message` and Aider's own `/run …` entries TWICE, µs apart;
+        # REAL `# 2026-09-05 17:42:30.356444` / `.356490`, both `+say hi`
+        chat = (
+            H("2024-11-12 09:10:00")
+            + U("say hi")
+            + A("hello")
+            + T("Tokens: 1.0k sent, 5 received.")
+        )
+        inputs = IN("2024-11-12 09:10:30.356444", "say hi") + IN(
+            "2024-11-12 09:10:30.356490", "say hi"
+        )
+        repo = self._repo(chat, inputs)
+        p = next(e for e in aider.load_events(repo) if e.kind == "prompt")
+        self.assertEqual(p.ts, _t("2024-11-12 09:10:30", "356444"))  # the FIRST stamp
+        d = aider.diagnostics(repo)
+        ih = d["input_history"]
+        self.assertEqual(
+            (ih["entries"], ih["double_written_entries"], ih["entries_in_window"]), (1, 1, 1)
+        )
+        self.assertEqual(d["derivation"]["prompt_stamped"], 1)
+        self.assertNotIn("prompt_without_input_stamp", d["derivation"])
+        # the same text one second or more apart is two inputs (a re-run `Running …`)
+        inputs = IN("2024-11-12 09:10:30", "/run pytest") + IN("2024-11-12 09:10:31", "/run pytest")
+        ih = aider.diagnostics(self._repo(chat, inputs))["input_history"]
+        self.assertEqual((ih["entries"], ih["double_written_entries"]), (2, 0))
+
+    def test_command_line_is_an_announcement_and_the_model_of_last_resort(self):
+        # main.py:749-751 logs `" ".join(sys.argv)` as the session's first `> ` line
+        cmd = "/opt/venv/bin/aider --model gpt-4o --yes --message fix the tests tests/test_x.py --no-git"
+        repo = self._repo(
+            H("2024-11-12 09:10:00")
+            + T(cmd, "Aider v0.86.2", "Git repo: none")  # no `Model:` line
+            + U("fix the tests")
+            + A("done")
+        )
+        events = aider.load_events(repo)
+        m = aider.meta(repo)
+        self.assertEqual(
+            (m["model"], m["model_source"], m["launch_model"]), ("gpt-4o", "command_line", "gpt-4o")
+        )
+        self.assertEqual(m["launch_flags"], ["--model", "--yes", "--message", "--no-git"])
+        self.assertEqual([e.model for e in events if e.kind == "assistant"], ["gpt-4o"])
+        self.assertEqual(digest.stats(events)["errors"], 0)
+        d = aider.diagnostics(repo)
+        self.assertEqual(d["derivation"]["announcement_command_line"], 1)
+        self.assertEqual(d["unknown_types"], {})
+        # values never leave the line: not the message text, not the file path
+        kept = json.dumps({k: v for k, v in m.items() if k != "path"})
+        self.assertNotIn("test_x.py", kept)
+        self.assertNotIn("fix the tests", kept)
+        # a `Model:` line wins over the command line; `python -m aider` is recognised too
+        repo = self._repo(
+            H("2024-11-12 09:10:00")
+            + T(
+                "/usr/lib/python3/aider/__main__.py --model=gpt-4o",
+                "Model: claude-3-5-sonnet-20241022 with diff edit format",
+            )
+            + U("hi")
+            + A("hello")
+        )
+        m = aider.meta(repo)
+        self.assertEqual(
+            (m["model"], m["model_source"], m["launch_model"]),
+            ("claude-3-5-sonnet-20241022", "announcement", "gpt-4o"),
+        )
+        self.assertEqual(
+            [e.model for e in aider.load_events(repo) if e.kind == "assistant"],
+            ["claude-3-5-sonnet-20241022"],
+        )
+
+    def test_raw_litellm_line_is_the_error_and_its_description_is_folded(self):
+        # base_coder.py:1479-1486 (each retry) and :944-961 (the last attempt): the raw
+        # `litellm.<Class>: …` line first, then aider/exceptions.py's description when the
+        # class has one — one failure, one event
+        raw = 'litellm.RateLimitError: AnthropicException - {"type":"rate_limit_error"}'
+        desc = "The API provider has rate limited you. Try again later or check your quotas."
+        chat = (
+            H("2024-11-12 09:10:00")
+            + U("a")
+            + T(raw, desc, "Retrying in 0.2 seconds...", raw, desc, "Retrying in 0.5 seconds...")
+            + T(
+                "litellm.NotFoundError: OpenAIException - model `gpt-5` does not exist",
+                "https://platform.openai.com/docs/models",
+                "Open URL for more info? (Y)es/(N)o/(D)on't ask again [Yes]: n",
+            )
+            + U("b")
+            + A("ok")
+            + T("Tokens: 1.0k sent, 5 received.")
+        )
+        repo = self._repo(chat)
+        errs = [e for e in aider.load_events(repo) if e.kind == "result_error"]
+        self.assertEqual([e.tool for e in errs], ["api_request"] * 3)
+        self.assertEqual(
+            [e.text.split(":")[0] for e in errs],
+            ["litellm.RateLimitError", "litellm.RateLimitError", "litellm.NotFoundError"],
+        )
+        d = aider.diagnostics(repo)
+        der = d["derivation"]
+        self.assertEqual(
+            (der["error_api_request"], der["api_error_description_folded"], der["api_retry"]),
+            (3, 2, 2),
+        )
+        self.assertEqual(der["error_detail_line"], 1)  # the URL subject inside the NotFound body
+        self.assertEqual(der["confirm_answer"], 1)
+        self.assertEqual(d["api_error_classes"], {"RateLimitError": 2, "NotFoundError": 1})
+        self.assertEqual(d["unknown_types"], {})
+        # a description with no raw line before it is still an error (older transcripts)
+        repo = self._repo(H("2024-11-12 09:10:00") + U("a") + T(desc))
+        self.assertEqual(digest.stats(aider.load_events(repo))["errors"], 1)
+
+    def test_absent_tokens_are_none_not_zero(self):
+        repo = self._repo(
+            H("2024-11-12 09:10:00") + U("a") + T("litellm.APIConnectionError: connection refused")
+        )
+        u = aider.usage(repo)
+        self.assertEqual(u["messages"], 0)
+        self.assertIsNone(u["tokens_as_printed"])
+        self.assertIsNone(u["sum_message_cost"])
+        self.assertIsNone(u["last_session_cost"])
+        self.assertEqual(digest.stats(aider.load_events(repo))["errors"], 1)
+        # a Tokens line without a Cost clause: tokens present, cost absent
+        repo = self._repo(
+            H("2024-11-12 09:10:00") + U("a") + A("x") + T("Tokens: 900 sent, 50 received.")
+        )
+        u = aider.usage(repo)
+        self.assertEqual((u["messages"], u["tokens_as_printed"]["sent"]), (1, 900))
+        self.assertIsNone(u["sum_message_cost"])
 
     def test_consecutive_duplicate_prompt_has_one_stamp(self):
         # prompt_toolkit skips an entry identical to the previous one (buffer.py:1365)
@@ -524,7 +658,7 @@ class Detection(unittest.TestCase):
         shutil.rmtree(self.tmp)
 
     def test_aider_paths_detect_as_aider(self):
-        for p in (FIX, CHAT, INPUT, CHAT / S1, CHAT / "nonexistent-id"):
+        for p in (FIX, CHAT, INPUT, CHAT / S1, CHAT / "nonexistent-id", REAL, REAL_CHAT / R1):
             self.assertEqual(digest.detect_harness(p), "aider", p)
         renamed = self.tmp / "notes.md"  # `--chat-history-file` under another name: by content
         shutil.copy(CHAT, renamed)
@@ -569,7 +703,9 @@ class Detection(unittest.TestCase):
         from analysis import probe
 
         want = [CHAT / S1, CHAT / S2, CHAT / S3]
-        self.assertEqual(probe._walk(FIX), want)
+        real = [REAL_CHAT / R1, REAL_CHAT / R2]
+        self.assertEqual(probe._walk(FIX), sorted(want + real))  # a directory of repos: both
+        self.assertEqual(probe._walk(REAL), real)
         self.assertEqual(probe._walk(CHAT), want)
         self.assertEqual(probe._walk(INPUT), want)
         self.assertEqual(probe._walk(CHAT / S2), [CHAT / S2])
@@ -582,6 +718,144 @@ class Detection(unittest.TestCase):
         self.assertIn("UNKNOWN: none", text)
         self.assertIn("UNKNOWN: pytest -q 1", probe.format_probe(probe.probe_file(CHAT / S1)))
         self.assertIn("events: 0", probe.format_probe(probe.probe_file(CHAT / S3)))
+
+
+class RealRuns(unittest.TestCase):
+    """The files the REAL aider 0.86.2 wrote for two `--message "say hi"` runs with an
+    invalid key (VERIFIED ON DISK in analysis/aider.py; spec/fixtures/aider/real, argv[0]
+    scrubbed to `/home/user/aider-venv/bin/aider`). Read by eye — one chat file, 27 lines,
+    two sessions:
+
+    * `20260905-174227` (`--model claude-3-5-haiku-20241022`): the command line, four
+      announcements, the release-notes URL and its confirm, `#### say hi`, then
+      `litellm.BadRequestError: LLM Provider NOT provided. …` — refused by litellm BEFORE
+      any request, and no aider/exceptions.py description follows it — its second line
+      `Pass model as E.g. …`, the URL `offer_url` pulled out of it, and that confirm.
+    * `20260905-174355` (`--model anthropic/claude-3-5-haiku-20241022`): the command line,
+      four announcements, `#### say hi`, `litellm.AuthenticationError: AnthropicException -
+      b'{…"invalid x-api-key"…}'` and its description `The API provider is not able to
+      authenticate you. Check your API key.`
+    * `.aider.input.history`: FOUR stamped `say hi` entries for TWO inputs — each written
+      twice by `add_to_input_history`, 46 µs and 82 µs apart.
+
+    One person, one prompt per run, one failed request per run, no reply, no Tokens line."""
+
+    def test_reproduces_expected(self):
+        exp = json.loads((REAL / "expected.json").read_text())
+        self.assertEqual(exp["harness"], "aider")
+        self.assertEqual(list(exp["sessions"]), [R1, R2])
+        self.assertEqual([s.id for s in aider.list_sessions(REAL)], [R1, R2])
+        for sid, e in exp["sessions"].items():
+            p = REAL_CHAT / sid
+            events = aider.load_events(p)
+            self.assertEqual(len(events), e["events"], sid)
+            self.assertEqual(digest.stats(events), e["stats"], sid)
+            self.assertEqual(aider.usage(p), e["usage"], sid)
+            self.assertEqual({k: v for k, v in aider.meta(p).items() if k != "path"}, e["meta"])
+            self.assertEqual(
+                aider.diagnostics(p), dict(e["diagnostics"], derivation=e["derivation"]), sid
+            )
+
+    def test_one_prompt_one_error_no_tokens_per_run(self):
+        for sid, cls, body in (
+            (R1, "BadRequestError", "LLM Provider NOT provided."),
+            (R2, "AuthenticationError", "AnthropicException - b'"),
+        ):
+            events = aider.load_events(REAL_CHAT / sid)
+            st = digest.stats(events)
+            self.assertEqual([e.kind for e in events], ["prompt", "result_error"], sid)
+            self.assertEqual(
+                (st["prompts_sent"], st["errors"], st["replies_received"], st["tool_calls"]),
+                (1, 1, 0, 0),
+                sid,
+            )
+            self.assertEqual(events[0].text, "say hi")
+            err = events[1]
+            self.assertEqual(err.tool, "api_request")
+            self.assertTrue(err.text.startswith(f"litellm.{cls}: {body}"), err.text)
+            self.assertEqual(err.ts, events[0].ts)  # Aider stamps no line it writes itself
+            self.assertEqual(st["wall_seconds"], 0)  # one stamp: the prompt's
+            u = aider.usage(REAL_CHAT / sid)
+            self.assertEqual(u["messages"], 0)
+            self.assertIsNone(u["tokens_as_printed"])  # absent, not zero
+            self.assertIsNone(u["sum_message_cost"])
+            d = aider.diagnostics(REAL_CHAT / sid)
+            self.assertEqual(d["api_error_classes"], {cls: 1})
+            self.assertEqual(d["unknown_types"], {})
+            self.assertEqual(d["no_timestamp"], 1)  # the error event, on the prompt's clock
+
+    def test_bad_model_name_is_an_error_with_no_description_after_it(self):
+        der = aider.diagnostics(REAL_CHAT / R1)["derivation"]
+        self.assertEqual(der["error_api_request"], 1)
+        self.assertNotIn("api_error_description_folded", der)
+        self.assertEqual(der["error_detail_line"], 2)  # `Pass model as E.g. …`, the URL subject
+        self.assertEqual(der["confirm_answer"], 2)  # release notes, `Open URL for more info?`
+        self.assertEqual(der["url_line"], 1)  # the release-notes URL, before the prompt
+
+    def test_401_raw_line_and_its_description_are_one_error(self):
+        der = aider.diagnostics(REAL_CHAT / R2)["derivation"]
+        self.assertEqual((der["error_api_request"], der["api_error_description_folded"]), (1, 1))
+        self.assertEqual(digest.stats(aider.load_events(REAL_CHAT / R2))["errors"], 1)
+
+    def test_double_written_stamps_fold_to_one_per_input(self):
+        raw = (REAL / aider.INPUT_FILE).read_text(encoding="utf-8").count("\n# ")
+        self.assertEqual(raw, 4)  # as written: two per `add_to_input_history` call
+        for sid, stamp in (
+            (R1, ("2026-09-05 17:42:30", "356444")),
+            (R2, ("2026-09-05 17:43:57", "904712")),
+        ):
+            d = aider.diagnostics(REAL_CHAT / sid)
+            ih = d["input_history"]
+            self.assertEqual(
+                (ih["entries"], ih["double_written_entries"], ih["entries_in_window"]),
+                (2, 2, 1),
+                sid,
+            )
+            self.assertEqual(d["derivation"]["prompt_stamped"], 1)
+            self.assertNotIn("prompt_without_input_stamp", d["derivation"])
+            p = next(e for e in aider.load_events(REAL_CHAT / sid) if e.kind == "prompt")
+            self.assertEqual(p.ts, _t(*stamp))  # the FIRST of the pair
+            self.assertEqual(d["last_ts"], f"{stamp[0]}.{stamp[1]}")
+
+    def test_command_line_is_classified_and_carries_the_launch_model(self):
+        for sid, launched in (
+            (R1, "claude-3-5-haiku-20241022"),
+            (R2, "anthropic/claude-3-5-haiku-20241022"),
+        ):
+            m = aider.meta(REAL_CHAT / sid)
+            self.assertEqual(
+                (m["model"], m["model_source"], m["launch_model"]),
+                (launched, "announcement", launched),
+            )
+            self.assertEqual(
+                m["launch_flags"],
+                [
+                    "--model",
+                    "--yes",
+                    "--message",
+                    "--no-git",
+                    "--no-check-update",
+                    "--no-show-model-warnings",
+                ],
+            )
+            self.assertEqual(
+                (m["cli_version"], m["edit_format"], m["git_repo"]), ("0.86.2", "diff", "none")
+            )
+            self.assertEqual(
+                aider.diagnostics(REAL_CHAT / sid)["derivation"]["announcement_command_line"], 1
+            )
+            self.assertNotIn("say hi", json.dumps({k: v for k, v in m.items() if k != "path"}))
+
+    def test_probe_over_the_real_repo(self):
+        from analysis import probe
+
+        self.assertEqual(probe._walk(REAL), [REAL_CHAT / R1, REAL_CHAT / R2])
+        for sid in (R1, R2):
+            text = probe.format_probe(probe.probe_file(REAL_CHAT / sid))
+            self.assertIn("UNKNOWN: none", text)
+            self.assertIn("errors: 1", text)
+            self.assertIn("(none — no Tokens line; absent, not zero)", text)
+            self.assertIn("api errors: ", text)
 
 
 if __name__ == "__main__":

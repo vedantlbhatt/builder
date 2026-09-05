@@ -20,9 +20,13 @@ out of scope here.
 
 Every shape below is marked VERIFIED (read from Aider-AI/aider `main` at commit 5dc9490b,
 2026-05-22, __version__ 0.86.3.dev, fetched 2026-09-05 via raw.githubusercontent.com and a
-depth-1 clone — file hashes matched) or ASSUMED. The house rule applies: a parser written
-from a description ships with a diagnostics-first probe (`python -m analysis probe <repo>`),
-and the first real corpus decides what this file got wrong before any number reaches a card.
+depth-1 clone — file hashes matched; re-fetched 2026-09-05 18:09 UTC, `git ls-remote
+refs/heads/main` still 5dc9490bb35f, and diffed against the INSTALLED aider 0.86.2 that
+wrote the real fixture: io.py and main.py byte-identical, exceptions.py on main adds only
+`PermissionDeniedError`, base_coder.py differs by two `auto_commits` guards) or ASSUMED.
+The house rule applies: a parser written from a description ships with a diagnostics-first
+probe (`python -m analysis probe <repo>`), and the first real corpus decides what this file
+got wrong before any number reaches a card — VERIFIED ON DISK below is what it decided.
 
 VERIFIED shapes and where they come from
 ----------------------------------------
@@ -41,16 +45,63 @@ VERIFIED shapes and where they come from
   construction, i.e. per aider process (io.py:335-336), NAIVE LOCAL TIME, no zone. It is
   the session boundary and the session's only guaranteed clock.
 * `.aider.input.history` is prompt_toolkit's `FileHistory` (io.py:355-356 as the
-  `PromptSession` history; `add_to_input_history` io.py:736). `store_string` writes
-  `"\\n# " + str(datetime.now()) + "\\n"` then `"+" + line + "\\n"` per line of the string
-  (prompt_toolkit/history.py:298-307) — microseconds present unless zero, when `str()`
-  omits them. `Buffer.append_to_history` (prompt_toolkit/buffer.py:1357) skips EMPTY input
-  and an input IDENTICAL to the previous entry, so a prompt typed twice in a row has one
-  stamp. Every `prompt_session.prompt()` call is recorded: typed prompts, each physical
-  line of a `{ … }` multiline input, and the `y`/`n`/`a`/`d` answers of `confirm_ask`
-  (io.py:876). Aider itself appends `/run <command>` when it runs an LLM-suggested shell
-  command (base_coder.py:2471). Without `fancy_input` (dumb terminal, `--no-fancy-input`)
-  `input()` is used and NOTHING is stamped (io.py:670).
+  `PromptSession` history). `store_string` writes `"\\n# " + str(datetime.now()) + "\\n"`
+  then `"+" + line + "\\n"` per line of the string (prompt_toolkit 3.0.52 history.py:37-46)
+  — microseconds present unless zero, when `str()` omits them. `Buffer.append_to_history`
+  (buffer.py:1356-1365) skips EMPTY input and an input IDENTICAL to the previous entry, so
+  a prompt typed twice in a row has one stamp. Every `prompt_session.prompt()` call is
+  recorded: typed prompts, each physical line of a `{ … }` multiline input, and the
+  `y`/`n`/`a`/`d` answers of `confirm_ask` (io.py:876). Without `fancy_input` (dumb
+  terminal, `--no-fancy-input`) `input()` is used and NOTHING is stamped (io.py:670).
+* THE DOUBLE WRITE. `add_to_input_history` (io.py:736-745) — called for `--message`
+  (main.py:1127), for the `/run <command>` Aider records after an LLM-suggested shell
+  command (base_coder.py:2474) and by the GUI (gui.py:387) — writes the string through a
+  throwaway `FileHistory(self.input_history_file)` AND then through
+  `self.prompt_session.history`, a second `FileHistory` on the SAME file, so whenever a
+  `PromptSession` exists the entry lands TWICE, back to back. MEASURED on the real
+  fixture: 4 of 4 `--message` entries doubled, 46 µs and 82 µs apart
+  (`17:42:30.356444` / `.356490`, `17:43:57.904712` / `.904794`). The `Buffer` dedupe
+  above never sees these. `_read_inputs` folds consecutive identical entries less than
+  `_DOUBLE_WRITE_SEC` apart into the FIRST stamp and counts `double_written_entries`, so
+  `entries`, `entries_in_window` and the prompt ↔ stamp match are all one per input.
+* THE FIRST `> ` LINE OF A SESSION IS THE COMMAND LINE. main.py:749-751 writes
+  `" ".join(sys.argv)` through `tool_output(cmd_line, log_only=True)` — to the history
+  only, never the terminal — after `scrub_sensitive_info` (format_settings.py:1-9) has
+  replaced the `--openai-api-key` / `--anthropic-api-key` VALUES with `...` + their last
+  four characters (a key given any other way, or in the environment, is never on the
+  line). It precedes `Aider v…`, repeats the `--message` text and every file path the
+  person passed, and is an announcement here (`announcement_command_line`): `--model X`
+  (or `--model=X`) is kept as `meta["launch_model"]` and is the model of record when no
+  `Model:` line follows (`meta["model_source"]` says which), and the bare flag names are
+  kept as `meta["launch_flags"]` — values dropped, so neither the prompt nor the paths
+  leave the file. Shortcut flags (`--sonnet`, `--4o`, …) are not resolved. REAL:
+  `> /…/bin/aider --model claude-3-5-haiku-20241022 --yes --message say hi --no-git
+  --no-check-update --no-show-model-warnings  `.
+* THE RAW LITELLM LINE PRECEDES THE FRIENDLY ONE. A failed request reaches
+  `check_and_open_urls` (base_coder.py:944-961; the retry path :1479-1486 is the same
+  pair): `str(err)` — `litellm.<Class>: …`, litellm 1.81.10 exceptions.py formats every
+  class that way, `litellm.Timeout:` included — through `tool_warning` when
+  aider/exceptions.py has a description for the class and `tool_error` when it does not,
+  THEN the description through `tool_error`, then `offer_url` for every URL in the text
+  (`> <url>` subject + `Open URL for more info? … : y`). A multi-line `str(err)` becomes
+  one `> ` line per line (`_tool_message`). Here the raw line is the error, exactly once
+  per failure (`error_api_request`, class name in `api_error_classes`); its later lines
+  are `error_detail_line`; the description that follows is the SAME failure and is folded
+  (`api_error_description_folded`), never a second event. `BadRequestError`,
+  `NotFoundError`, `APIError`, … have NO description, so before this rule a rejected
+  request left `errors: 0`. REAL: `> litellm.BadRequestError: LLM Provider NOT provided.
+  …  ` then `> Pass model as E.g. …  `; and `> litellm.AuthenticationError:
+  AnthropicException - b'{"type":"error",…"invalid x-api-key"…}'  ` then `> The API
+  provider is not able to authenticate you. Check your API key.  `.
+* NO `Tokens:` LINE ON FAILURE. `send` (base_coder.py:1811) calls
+  `calculate_and_show_tokens_and_cost` only after a completion (or on
+  `ContextWindowExceededError`, :1814-1817), and `show_usage_report` (:2102) returns when
+  no report was built. A session whose every request failed has NO usage — `usage()`
+  reports `tokens_as_printed` and `sum_message_cost` as None, never zero, with `messages`
+  0; `wall_seconds` still comes from the stamps that exist (the prompt's), so a one-prompt
+  failure has wall 0 and its error events inherit the prompt's clock. `no_timestamp` in
+  the diagnostics counts exactly those inherited clocks — Aider stamps nothing it writes
+  itself, so every non-prompt event is one.
 * Order of a turn (base_coder.py `send` finally-block :1828-1834; `send_message`
   :1548-1620): `#### prompt` → [`> ^C again to exit` if interrupted mid-stream,
   io.py `keyboard_interrupt` :998 called from `send` :1818] → assistant text → `> Tokens: …`
@@ -122,15 +173,44 @@ VERIFIED shapes and where they come from
   `result_error` events; everything else unrecognised is counted under
   `tool_line_unclassified` and its first words surface in the probe.
 
+VERIFIED ON DISK (aider 0.86.2 via pip, 2026-09-05; the files are spec/fixtures/aider/real)
+-------------------------------------------------------------------------------------------
+Two `--message "say hi"` runs with `ANTHROPIC_API_KEY=invalid-builder-test`, `--yes
+--no-git --no-check-update --no-show-model-warnings`, stdin not a TTY, both exit 0, both
+appending to the same pair of files — kept verbatim except that argv[0], a container path,
+reads `/home/user/aider-venv/bin/aider`; the key reached neither file (it was in the
+environment, and `scrub_sensitive_info` only touches `--*-api-key` values anyway):
+  * `20260905-174227`, `--model claude-3-5-haiku-20241022` — litellm rejects the bare
+    name BEFORE any request: command line, `Aider v0.86.2`, `Model: … with diff edit
+    format`, `Git repo: none`, `Repo-map: disabled`, the release-notes URL and its
+    confirm, `#### say hi`, `litellm.BadRequestError: LLM Provider NOT provided. …`, its
+    second line `Pass model as E.g. …`, the URL `offer_url` pulled out of it and its
+    confirm. 16 lines: 1 prompt, 1 error, no Tokens line.
+  * `20260905-174355`, `--model anthropic/claude-3-5-haiku-20241022` — the request goes
+    out and comes back 401: the same announcements, `#### say hi`,
+    `litellm.AuthenticationError: AnthropicException - b'{…"invalid x-api-key"…}'`, `The
+    API provider is not able to authenticate you. Check your API key.` 11 lines: 1 prompt,
+    1 error, no Tokens line.
+  * `.aider.input.history`: FOUR entries for TWO inputs (THE DOUBLE WRITE), read as
+    `entries` 2, `double_written_entries` 2, one `prompt_stamped` per session.
+Before these rules the probe filed the command line and both raw litellm lines under
+`tool_line_unclassified` and reported `errors: 0` for the first run. Not exercised (no
+working model): assistant text, `Tokens:` / `Cost:`, `Applied edit to`, `Commit`,
+`Running`, `/run`, `^C` — those remain source-verified only.
+
 ASSUMED (not in the current source, or a choice this loader makes; counted in diagnostics)
 ------------------------------------------------------------------------------------------
 * Prompt stamps are matched by TEXT: the nearest input-history entry at or after the
   session header (and after the previous match) whose text equals the prompt; a `{ … }`
-  multiline prompt falls back to its first line. An unmatched prompt (consecutive duplicate,
-  no input history, `--message` mode, an entry from an overlapping aider process) sits at
-  the previous stamp and is counted `prompt_without_input_stamp`. Header and stamps are
-  interpreted in the LOCAL zone of the machine running this code — the machine that ran
-  aider, on the daemon side.
+  multiline prompt falls back to its first line. An unmatched prompt (consecutive duplicate
+  typed at the prompt, no input history, `--no-fancy-input`, an entry from an overlapping
+  aider process) sits at the previous stamp and is counted `prompt_without_input_stamp`.
+  `--message` prompts ARE stamped (main.py:1127 — twice, see THE DOUBLE WRITE). Header
+  and stamps are interpreted in the LOCAL zone of the machine running this code — the
+  machine that ran aider, on the daemon side. `_DOUBLE_WRITE_SEC` = 1.0 is a ceiling far
+  above the measured 46–82 µs and far below anything a person or a second `Running …` can
+  produce; consecutive identical entries cannot come from typing at all (the `Buffer`
+  dedupe), so the fold has no legitimate victim.
 * Line credit: a SEARCH/REPLACE block scores a real line diff (difflib) of SEARCH → REPLACE,
   a udiff or patch block its `+`/`-` lines, in the assistant text immediately preceding the
   `Applied edit to` line, matched by path (exact, then basename). `whole` blocks are the
@@ -227,6 +307,10 @@ _ERROR_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Permission was denied. Check your API key", API_TOOL),
     ("The API provider has rate limited you.", API_TOOL),
     ("The API provider timed out without returning a response.", API_TOOL),
+    # exceptions.py `get_ex_info`: the three descriptions built from the message text
+    ("You need to: pip install boto3", API_TOOL),
+    ("OpenRouter or the upstream API provider is down", API_TOOL),
+    ("Insufficient credits with the API provider.", API_TOOL),
     ("Invalid command: ", AIDER_TOOL),
     ("Ambiguous command: ", AIDER_TOOL),
     ("Error: Command ", AIDER_TOOL),
@@ -253,6 +337,18 @@ _ERROR_SUFFIXES: tuple[tuple[str, str], ...] = (
 )
 _ERROR_INFIX: tuple[tuple[str, str], ...] = ((": unable to read: ", AIDER_TOOL),)
 _TOKEN_LIMIT = re.compile(r"^Model .+ has hit a token limit!$")  # base_coder.py:1653
+# VERIFIED main.py:749-751 — `" ".join(sys.argv)`, so argv[0] is the console script
+# (`…/bin/aider`, `…\Scripts\aider.exe`) or `…/aider/__main__.py` under `python -m aider`.
+# REAL: `/home/user/aider-venv/bin/aider --model claude-3-5-haiku-20241022 --yes --message
+# say hi --no-git --no-check-update --no-show-model-warnings`.
+_CMD_LINE = re.compile(r"^(?:\S*[\\/])?aider(?:\.exe|[\\/]__main__\.py)?(?:\s+(.*))?$")
+_LAUNCH_MODEL = "--model"
+# VERIFIED litellm 1.81.10 exceptions.py: every class formats `litellm.<Class>: <message>`
+# (`litellm.Timeout:` has no `Error` suffix); base_coder.py:944-961 writes `str(err)` first.
+_LITELLM = re.compile(r"^litellm\.([A-Za-z]\w*): ")
+# MEASURED spec/fixtures/aider/real: the two writes of one `add_to_input_history` call landed
+# 46 µs and 82 µs apart. One second is a ceiling, not a fit (see THE DOUBLE WRITE).
+_DOUBLE_WRITE_SEC = 1.0
 
 # VERIFIED commands.py: which slash commands carry a message to a model
 _MESSAGE_COMMANDS = frozenset({"/ask", "/code", "/architect", "/context", "/help"})
@@ -393,8 +489,9 @@ def list_sessions(path: pathlib.Path) -> list[Session]:
 def _read_inputs(path: pathlib.Path | None) -> tuple[list[tuple[float, str, str]], dict]:
     d = {
         "present": path is not None,
-        "entries": 0,
+        "entries": 0,  # inputs, after the fold below
         "entries_in_window": 0,
+        "double_written_entries": 0,  # second copies folded away (io.py:740-743)
         "malformed_lines": 0,
         "bad_timestamp": 0,
         "partial_trailing_line": False,
@@ -409,7 +506,16 @@ def _read_inputs(path: pathlib.Path | None) -> tuple[list[tuple[float, str, str]
 
     def flush() -> None:  # FileHistory.load_history_strings: a stamp with no `+` lines is nothing
         if cur and cur_ts is not None:
-            out.append((cur_ts, cur_stamp, "\n".join(cur)))
+            text = "\n".join(cur)
+            # THE DOUBLE WRITE: `add_to_input_history` (io.py:736-745) stores the string
+            # through two `FileHistory` objects on the same file. REAL:
+            #   # 2026-09-05 17:42:30.356444 / +say hi
+            #   # 2026-09-05 17:42:30.356490 / +say hi
+            # One input; the first stamp is when it was accepted.
+            if out and out[-1][2] == text and 0 <= cur_ts - out[-1][0] < _DOUBLE_WRITE_SEC:
+                d["double_written_entries"] += 1
+                return
+            out.append((cur_ts, cur_stamp, text))
 
     for ln in lines:
         m = _INPUT_STAMP.match(ln)
@@ -432,6 +538,25 @@ def _read_inputs(path: pathlib.Path | None) -> tuple[list[tuple[float, str, str]
     flush()
     d["entries"] = len(out)
     return out, d
+
+
+def _launch_flags(args: str) -> tuple[list[str], str | None]:
+    """(flag names in order, `--model` value) from the logged command line. Values are
+    dropped on purpose: the `--message` text and every file path the person passed are
+    on that line, and neither belongs in meta. `--model=X` and `--model X` both count;
+    the shortcut flags (`--sonnet`, `--4o`, …) are kept as flags and not resolved."""
+    flags: list[str] = []
+    model: str | None = None
+    toks = args.split()
+    for i, tok in enumerate(toks):
+        if not tok.startswith("-") or tok == "-" or tok.lstrip("-").replace(".", "").isdigit():
+            continue
+        name, eq, val = tok.partition("=")
+        flags.append(name)
+        if name == _LAUNCH_MODEL:
+            nxt = toks[i + 1] if i + 1 < len(toks) else None
+            model = val if eq else (nxt if nxt and not nxt.startswith("-") else None)
+    return flags, model or None
 
 
 # ----------------------------------------------------------------------------- lines
@@ -796,6 +921,9 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
         {
             "cli_version": None,
             "model": None,
+            "model_source": None,  # "announcement" (`Model:` line) | "command_line" | None
+            "launch_model": None,  # `--model` on the logged command line
+            "launch_flags": None,  # the command line's flag names, values dropped
             "edit_format": None,
             "models_seen": None,
             "weak_model": None,
@@ -804,7 +932,9 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
             "files_in_chat": 0,
         }
     )
-    s.diagnostics.update({"no_timestamp": 0, "last_ts": None, "unknown_types": {}})
+    s.diagnostics.update(
+        {"no_timestamp": 0, "last_ts": None, "unknown_types": {}, "api_error_classes": {}}
+    )
     if s.session is None:
         counters["no_session"] += 1
         return out, dict(sorted(counters.items()))
@@ -815,7 +945,9 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
     cur_ts = s.session.start_ts
     last_stamp: str | None = None
     model: str | None = None
+    launch_model: str | None = None
     models_seen: Counter = Counter()
+    api_classes: Counter = Counter()
     files_in_chat: set[str] = set()
     unknown: Counter = Counter()
     cost_sum = 0.0
@@ -891,6 +1023,7 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
             model = m.group(2).strip()
             models_seen[model] += 1
             s.meta["model"], s.meta["edit_format"] = model, m.group(3)
+            s.meta["model_source"] = "announcement"
             counters["announcement_model"] += 1
             return True
         for rx, key in ((_WEAK_MODEL, "weak_model"), (_EDITOR_MODEL, "editor_model")):
@@ -967,6 +1100,21 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
             continue
 
         # a `> ` line Aider wrote about itself
+        m = _CMD_LINE.match(text)
+        if m:
+            # VERIFIED main.py:749-751 (`tool_output(cmd_line, log_only=True)`). REAL:
+            # `> /home/user/aider-venv/bin/aider --model claude-3-5-haiku-20241022 --yes
+            #  --message say hi --no-git --no-check-update --no-show-model-warnings  `
+            # An announcement — never an error, never a tool — and the model of last resort.
+            counters["announcement_command_line"] += 1
+            flags, launch = _launch_flags(m.group(1) or "")
+            s.meta["launch_flags"] = flags
+            if launch:
+                launch_model = launch
+                s.meta["launch_model"] = launch
+                if model is None:
+                    model = launch  # until (unless) a `Model:` line says otherwise
+            continue
         m = _TOKENS.match(text)
         if m:
             error_body = False
@@ -1055,8 +1203,35 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
             counters["error_detail_line"] += 1
             error_body = True
             continue
+        m = _LITELLM.match(text)
+        if m:
+            # VERIFIED base_coder.py:944-961 / :1479-1486: `str(err)` comes first. REAL:
+            #   `> litellm.BadRequestError: LLM Provider NOT provided. Pass in the LLM
+            #    provider you are trying to call. You passed model=claude-3-5-haiku-20241022  `
+            #   `> litellm.AuthenticationError: AnthropicException - b'{"type":"error",
+            #    "error":{"type":"authentication_error","message":"invalid x-api-key"},…}'  `
+            # The first has NO aider/exceptions.py description (BadRequestError → None), so
+            # nothing after it matched `_ERROR_PREFIXES` and the failed turn scored
+            # `errors: 0`. The raw line is the error, once; what follows it is detail.
+            counters[f"error_{API_TOOL}"] += 1
+            api_classes[m.group(1)] += 1
+            ev = _error(text, API_TOOL)
+            _emit(ev)
+            error_body, error_ev = True, ev
+            continue
         tool = _error_tool(text)
         if tool is not None:
+            if (
+                tool == API_TOOL
+                and error_body
+                and error_ev is not None
+                and error_ev.tool == API_TOOL
+            ):
+                # REAL: `> The API provider is not able to authenticate you. Check your API
+                # key.  ` right after the `litellm.AuthenticationError:` line — the same
+                # failure, described; one event, not two.
+                counters["api_error_description_folded"] += 1
+                continue
             counters[f"error_{tool}"] += 1
             ev = _error(text, tool)
             _emit(ev)
@@ -1064,6 +1239,7 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
             continue
         if _RETRY.match(text):
             counters["api_retry"] += 1
+            error_body, error_ev = False, None  # the next attempt's raw line is a new failure
             continue
         if _announce(text):
             continue
@@ -1094,7 +1270,11 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
         counters["tool_line_unclassified"] += 1
         unknown[" ".join(text.split()[:2])] += 1
 
-    usage["sum_message_cost"] = round(cost_sum, 6)
+    if usage["messages"] == 0:
+        # NO `Tokens:` LINE ON FAILURE (base_coder.py:1811, :2102): absent, not zero. REAL:
+        # both failed runs wrote none.
+        usage["tokens_as_printed"] = None
+    usage["sum_message_cost"] = round(cost_sum, 6) if usage["messages_with_cost"] else None
     usage["last_session_cost"] = last_session_cost
     if last_session_cost is not None:
         n = max(1, usage["messages_with_cost"])
@@ -1102,7 +1282,10 @@ def _derive(s: Scan, start: float | None = None, end: float | None = None):
     s.usage.clear()
     s.usage.update(usage)
     s.meta["models_seen"] = dict(models_seen.most_common()) or None
+    if s.meta["model"] is None and launch_model is not None:
+        s.meta["model"], s.meta["model_source"] = launch_model, "command_line"
     s.meta["files_in_chat"] = len(files_in_chat)
+    s.diagnostics["api_error_classes"] = dict(api_classes.most_common())
     s.diagnostics["no_timestamp"] = inherited
     s.diagnostics["last_ts"] = last_stamp
     s.diagnostics["unknown_types"] = dict(unknown.most_common(10))
