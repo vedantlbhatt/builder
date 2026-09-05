@@ -2,8 +2,11 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # claude/** so an autonomous branch gets the macOS Swift job — the only compiler
+    # those sessions have — before a PR exists.
+    branches: [main, 'claude/**']
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
