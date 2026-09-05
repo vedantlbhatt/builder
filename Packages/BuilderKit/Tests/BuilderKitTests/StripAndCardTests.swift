@@ -118,7 +118,8 @@ struct CardTests {
     static func model(
         active: Double = 3600, lines: Int = 0, commits: Int = 0, prompts: Int = 10,
         title: String? = nil, chore: Bool = false, record: Bool = false,
-        bucket: AgentLineBucket = .unknown, confidence: AttributionConfidence = .none
+        bucket: AgentLineBucket = .unknown, confidence: AttributionConfidence = .none,
+        analysisHeadline: String? = nil
     ) -> RecapModel {
         RecapModel(
             clientSessionID: "abc123def456", harness: .claudeCode, repoName: "gt-transit",
@@ -129,7 +130,8 @@ struct CardTests {
             models: ["claude-opus-5[1m]"], agentLineBucket: bucket, attribConfidence: confidence,
             stripColumns: [UInt8](repeating: 0, count: 1024), stripMarks: [],
             isPersonalRecord: record, recordKind: record ? "session" : nil,
-            previousRecord: record ? 3000 : nil)
+            previousRecord: record ? 3000 : nil,
+            analysisHeadline: analysisHeadline)
     }
 
     /// A personal record outranks everything. It is the only fact on the ladder that is
@@ -138,6 +140,58 @@ struct CardTests {
         let s = Superlative.choose(Self.model(active: 7200, lines: 5000, commits: 20, record: true))
         #expect(s.headline.contains("longest session yet"))
         #expect(s.subline?.contains("previous best") == true)
+    }
+
+    /// A record is rarer news than a reading of the session, so it still wins when the
+    /// model has written a headline.
+    @Test func recordOutranksAnalysisHeadline() {
+        let s = Superlative.choose(
+            Self.model(active: 7200, record: true, analysisHeadline: "Wired Stripe webhooks end to end"))
+        #expect(s.headline.contains("longest session yet"))
+        #expect(!s.headline.contains("Stripe"))
+    }
+
+    /// The model's one line says more than a ratio, so it outranks the agent-share rung —
+    /// and everything below it.
+    @Test func analysisHeadlineOutranksAgentShare() {
+        let s = Superlative.choose(
+            Self.model(
+                lines: 3000, commits: 9, bucket: .nineInTen, confidence: .high,
+                analysisHeadline: "Wired Stripe webhooks end to end"))
+        #expect(s == .analysis("Wired Stripe webhooks end to end"))
+        #expect(s.headline == "Wired Stripe webhooks end to end")
+        #expect(s.subline == nil)
+    }
+
+    /// A blank headline is not a headline. It must fall through to the measured rungs,
+    /// never render a card with nothing on it.
+    @Test func blankAnalysisHeadlineFallsThrough() {
+        let s = Superlative.choose(
+            Self.model(lines: 3000, bucket: .nineInTen, confidence: .high, analysisHeadline: ""))
+        #expect(s.headline == "9 of every 10 lines came from Opus 5 — at least")
+    }
+
+    /// With no analysis stored the ladder is exactly what it was: the same rung, the same
+    /// bytes. Every rung is pinned so a reordering shows up here rather than on a card.
+    @Test func noAnalysisRendersTheOldHeadline() {
+        let cases: [(RecapModel, String)] = [
+            (Self.model(active: 7200, record: true), "2h 0m — longest session yet"),
+            (Self.model(lines: 3000, commits: 9, bucket: .nineInTen, confidence: .high),
+             "9 of every 10 lines came from Opus 5 — at least"),
+            (Self.model(commits: 7), "7 commits"),
+            (Self.model(active: 3000), "50m in one sitting"),
+            (Self.model(active: 1500, title: "Wired up Stripe webhooks"), "Wired up Stripe webhooks"),
+            (Self.model(active: 900, prompts: 0), "15m"),
+        ]
+        for (m, expected) in cases {
+            #expect(m.analysisHeadline == nil)
+            #expect(m.analysisLine == nil)
+            #expect(m.dimensionScores.isEmpty)
+            #expect(Superlative.choose(m).headline == expected)
+        }
+        // The lines rung goes through a locale-formatted number, so it is pinned by
+        // rung rather than by bytes.
+        #expect(Superlative.choose(Self.model(lines: 1500)) == .netLines(1500))
     }
 
     /// The agent share is the number nobody else displays, so it outranks raw output.

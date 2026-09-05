@@ -31,6 +31,26 @@ enum PreviewCommand {
             try panelData.write(to: URL(fileURLWithPath: panelPath))
             print("  \(panelPath)  (420x560 @2x)")
 
+            // The analysis block on its own, when the previewed session has one. The
+            // full panel may push it below the 560pt fold; this frame keeps two recent
+            // rows so the block is always in view.
+            if let analysis = panel.analysis {
+                let focused = MenuBarPanel.Model(
+                    todayActiveSeconds: panel.todayActiveSeconds,
+                    streakDays: panel.streakDays,
+                    totalSessions: panel.totalSessions,
+                    allTimeSeconds: panel.allTimeSeconds,
+                    live: panel.live,
+                    recent: Array(panel.recent.prefix(2)),
+                    graph: panel.graph,
+                    phone: panel.phone,
+                    analysis: analysis)
+                let path = "\(outDir)/panel-analysis.png"
+                let data = try ImageExport.png(of: MenuBarPanel(model: focused), scale: 2)
+                try data.write(to: URL(fileURLWithPath: path))
+                print("  \(path)  (420x560 @2x)")
+            }
+
             // Cards for the most interesting sessions
             for (label, id) in try topSessionIDs(cache: cache) {
                 guard let model = try RecapLoader.model(state: state, cache: cache, sessionID: id)
@@ -128,6 +148,15 @@ enum PreviewCommand {
             allTime = s.double(1) ?? 0
         }
 
+        // The previewed session is the latest notable one — the first row. Its stored
+        // analysis, if any, feeds both the panel's block and the `panel-analysis` frame.
+        var summary: MenuBarPanel.AnalysisSummary?
+        if let id = rows.first?.id,
+           let record = try AnalysisStore.record(for: id, in: state),
+           let decoded = try? record.decoded() {
+            summary = MenuBarPanel.AnalysisSummary(analysis: decoded, checkpoint: record.checkpoint)
+        }
+
         return MenuBarPanel.Model(
             todayActiveSeconds: today,
             streakDays: streak,
@@ -135,7 +164,8 @@ enum PreviewCommand {
             allTimeSeconds: allTime,
             live: nil,
             recent: rows,
-            graph: graph)
+            graph: graph,
+            analysis: summary)
     }
 
     private static func shortDuration(_ seconds: Double) -> String {

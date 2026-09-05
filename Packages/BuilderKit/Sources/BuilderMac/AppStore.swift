@@ -55,6 +55,10 @@ final class AppStore {
     var liveSession: SessionRow?
     var recent: [SessionRow] = []
     var graph: [Analysis.GraphDay] = []
+    /// The model-written reading shown under the top card: the live session's checkpoint
+    /// when it has one, otherwise the last notable session's final analysis. nil until
+    /// one is stored.
+    var analysis: MenuBarPanel.AnalysisSummary?
     var totalSessions: Int = 0
     var lastScanAt: Date?
     var scanning = false
@@ -154,6 +158,7 @@ final class AppStore {
             var streak = 0
             var total = 0
             var names: [Int: String] = [:]
+            var analysisSummary: MenuBarPanel.AnalysisSummary?
 
             do {
                 _ = try coordinator.run()
@@ -206,6 +211,9 @@ final class AppStore {
                     live = rows.first { $0.id == openSession.clientSessionID }
                         ?? Self.row(from: openSession, names: names)
                 }
+                analysisSummary = Self.loadAnalysis(
+                    candidates: [openSession?.clientSessionID, rows.first?.id].compactMap { $0 },
+                    state: state)
             } catch {
                 NSLog("builder: pass failed: \(error)")
             }
@@ -217,6 +225,7 @@ final class AppStore {
             let capturedStreak = streak
             let capturedTotal = total
             let capturedNames = names
+            let capturedAnalysis = analysisSummary
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -224,6 +233,7 @@ final class AppStore {
                 self.recent = capturedRows
                 self.liveSession = capturedLive
                 self.graph = capturedGraph
+                self.analysis = capturedAnalysis
                 self.todayActiveSeconds = capturedToday
                 self.streakDays = capturedStreak
                 self.totalSessions = capturedTotal
@@ -366,6 +376,22 @@ final class AppStore {
         try cache.scalarInt(
             "SELECT repo_id_primary FROM session WHERE client_session_id = ?", [.text(sessionID)]
         ).flatMap { names[$0] }
+    }
+
+    /// The first stored analysis among `candidates`, in order — the live session first
+    /// so a checkpoint shows while a run is going, then the last notable session.
+    /// Read through `AnalysisStore`, the one reader of `session_analysis`; a row whose
+    /// body no longer decodes is skipped, never surfaced as an error in the popover.
+    private nonisolated static func loadAnalysis(
+        candidates: [String], state: SQLiteDB
+    ) -> MenuBarPanel.AnalysisSummary? {
+        for id in candidates {
+            guard let record = try? AnalysisStore.record(for: id, in: state),
+                  let analysis = try? record.decoded()
+            else { continue }
+            return MenuBarPanel.AnalysisSummary(analysis: analysis, checkpoint: record.checkpoint)
+        }
+        return nil
     }
 
     private nonisolated static func row(from s: DetectedSession, names: [Int: String]) -> SessionRow {

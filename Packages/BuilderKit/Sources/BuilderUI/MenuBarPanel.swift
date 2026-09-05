@@ -51,6 +51,60 @@ public struct MenuBarPanel: View {
         case paired(label: String)
     }
 
+    /// The part of a stored `SessionAnalysis` the panel shows. Plain strings, already
+    /// worded for display, so the panel neither imports the document type nor decides
+    /// how an enum is spelled.
+    public struct AnalysisSummary: Sendable, Equatable {
+        public let headline: String
+        public let summary: String
+        /// Display form, e.g. "shipped".
+        public let outcome: String
+        /// Display form, e.g. "velocity machine". nil when the session was too short.
+        public let archetype: String?
+        /// A live mid-run reading rather than the final one.
+        public let checkpoint: Bool
+
+        public init(
+            headline: String, summary: String, outcome: String, archetype: String? = nil,
+            checkpoint: Bool = false
+        ) {
+            self.headline = headline
+            self.summary = summary
+            self.outcome = outcome
+            self.archetype = archetype
+            self.checkpoint = checkpoint
+        }
+
+        /// Underscores become spaces, the same `labelize` the phone applies.
+        public init(analysis: SessionAnalysis, checkpoint: Bool = false) {
+            self.init(
+                headline: analysis.headline,
+                summary: analysis.summary,
+                outcome: analysis.outcome.rawValue.replacingOccurrences(of: "_", with: " "),
+                archetype: analysis.archetype?.rawValue.replacingOccurrences(of: "_", with: " "),
+                checkpoint: checkpoint)
+        }
+
+        /// One-sentence-ish: the summary cut at about `limit` characters with "…".
+        ///
+        /// Cuts at the last word boundary before the limit rather than mid-word, and the
+        /// first sentence wins outright when it fits, so a 700-character summary reads as
+        /// a lead rather than a fragment.
+        public func shortSummary(limit: Int = 160) -> String {
+            let text = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.count <= limit { return text }
+            // A full stop followed by a space ends a sentence; a bare "." may be "1.5 h".
+            if let stop = text.range(of: ". "),
+               text.distance(from: text.startIndex, to: stop.lowerBound) < limit {
+                return String(text[...stop.lowerBound])
+            }
+            let cut = text.index(text.startIndex, offsetBy: limit)
+            let head = text[..<cut]
+            let atWord = head.lastIndex(of: " ").map { head[..<$0] } ?? head
+            return String(atWord).trimmingCharacters(in: .punctuationCharacters) + "…"
+        }
+    }
+
     public struct Model: Sendable {
         public let todayActiveSeconds: Double
         public let streakDays: Int
@@ -60,11 +114,16 @@ public struct MenuBarPanel: View {
         public let recent: [SessionRow]
         public let graph: [Analysis.GraphDay]
         public let phone: PhoneLink?
+        /// The reading for the session the top card describes: the live one when it has
+        /// a checkpoint, otherwise the last notable session. nil renders the quiet
+        /// "Analysis runs when a session ends" line.
+        public let analysis: AnalysisSummary?
 
         public init(
             todayActiveSeconds: Double, streakDays: Int, totalSessions: Int,
             allTimeSeconds: Double, live: SessionRow?, recent: [SessionRow],
-            graph: [Analysis.GraphDay], phone: PhoneLink? = nil
+            graph: [Analysis.GraphDay], phone: PhoneLink? = nil,
+            analysis: AnalysisSummary? = nil
         ) {
             self.todayActiveSeconds = todayActiveSeconds
             self.streakDays = streakDays
@@ -74,6 +133,7 @@ public struct MenuBarPanel: View {
             self.recent = recent
             self.graph = graph
             self.phone = phone
+            self.analysis = analysis
         }
     }
 
@@ -92,6 +152,7 @@ public struct MenuBarPanel: View {
 
             VStack(alignment: .leading, spacing: 20) {
                 if let live = model.live { liveCard(live) }
+                AnalysisBlock(summary: model.analysis, dark: dark)
                 recentSection
                 graphSection
                 if let phone = model.phone {
@@ -251,6 +312,68 @@ public struct MenuBarPanel: View {
         let df = DateFormatter()
         df.dateFormat = "d MMM HH:mm"
         return df.string(from: Date(timeIntervalSince1970: ts))
+    }
+}
+
+/// What the model made of the last session, under the top card.
+///
+/// Shared between the pure-data panel and the live app, like `PhoneConnectRow`, so the
+/// two cannot drift. The full reading — features, friction, growth edge — lives on the
+/// phone; this is the headline and enough of the summary to decide whether to open it.
+/// With nothing stored it is one quiet line, never an empty section.
+public struct AnalysisBlock: View {
+
+    let summary: MenuBarPanel.AnalysisSummary?
+    let dark: Bool
+
+    public init(summary: MenuBarPanel.AnalysisSummary?, dark: Bool = true) {
+        self.summary = summary
+        self.dark = dark
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("ANALYSIS")
+                .font(.system(size: 10, weight: .bold)).kerning(0.8)
+                .foregroundStyle(StripPalette.textDim(dark: dark))
+
+            if let a = summary {
+                Text(a.headline)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(StripPalette.text(dark: dark))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(a.shortSummary())
+                    .font(.system(size: 11))
+                    .foregroundStyle(StripPalette.textDim(dark: dark))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    chip(a.outcome, accent: true)
+                    if let archetype = a.archetype { chip(archetype, accent: false) }
+                    Spacer(minLength: 8)
+                    Text(a.checkpoint ? "Mid-run reading · read it on your phone" : "Read on your phone")
+                        .font(.system(size: 10))
+                        .foregroundStyle(StripPalette.textDim(dark: dark))
+                        .lineLimit(1)
+                }
+            } else {
+                Text("Analysis runs when a session ends")
+                    .font(.system(size: 11))
+                    .foregroundStyle(StripPalette.textDim(dark: dark))
+            }
+        }
+    }
+
+    private func chip(_ text: String, accent: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(accent ? StripPalette.accent(dark: dark) : StripPalette.textDim(dark: dark))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().stroke(
+                    accent ? StripPalette.accent(dark: dark).opacity(0.5) : StripPalette.border(dark: dark),
+                    lineWidth: 1))
     }
 }
 

@@ -94,7 +94,38 @@ public enum RecapLoader {
         if m.stripColumns.isEmpty {
             m.stripColumns = [UInt8](repeating: StripSpec.pack(.idle, density: 0), count: StripSpec.columns)
         }
+
+        // The model-written reading, when one exists. Optional by construction: a
+        // missing row, an unreadable body or an older store leaves every analysis
+        // field nil and the card exactly as it was.
+        if let stored = try storedAnalysis(for: m.clientSessionID, state: state) {
+            m.apply(stored)
+        }
         return m
+    }
+
+    /// The stored `SessionAnalysis` for one session, or nil.
+    ///
+    /// Read directly from `state.session_analysis` rather than through
+    /// `AnalysisStore`: this target links only BuilderModel and BuilderSQLite, and the
+    /// document type itself lives in BuilderModel. The decoder is the same shape as
+    /// `AnalysisStore.decoder()` — `generated_at` is an ISO 8601 string inside the body —
+    /// so a body that decodes there decodes here.
+    ///
+    /// A body that fails to decode is treated as absent, not as an error: the card is
+    /// a derived surface and must never fail to render because an analysis written by a
+    /// newer build is unreadable by this one.
+    public static func storedAnalysis(for clientSessionID: String, state: SQLiteDB) throws -> SessionAnalysis? {
+        guard try state.tableExists("session_analysis") else { return nil }
+        var body: String?
+        try state.query(
+            "SELECT body FROM session_analysis WHERE client_session_id = ?",
+            [.text(clientSessionID)]
+        ) { s in body = s.text(0) }
+        guard let body, !body.isEmpty else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(SessionAnalysis.self, from: Data(body.utf8))
     }
 
     public static func decodeMarks(_ json: String?) -> [(ms: Int, kind: StripMarkKind)] {

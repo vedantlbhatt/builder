@@ -104,6 +104,15 @@ public struct RecapCardView: View {
                     .font(.system(size: 30 * scale, weight: .medium))
                     .foregroundStyle(StripPalette.accent(dark: dark))
             }
+            // "shipped · velocity machine" — the analysis's two words, dim, under the
+            // headline. Absent entirely when no analysis has been stored, so a card
+            // without one is byte-identical to the card before analysis existed.
+            if let line = model.analysisLine {
+                Text(line)
+                    .font(.system(size: 30 * scale, weight: .medium))
+                    .foregroundStyle(StripPalette.textDim(dark: dark))
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -146,6 +155,44 @@ public struct RecapCardView: View {
             // about Cursor.
             if model.tokensReported {
                 stat(compact(model.totalTokens), "tokens")
+            }
+            // The five dimension bars sit at the trailing end of the stats row — the
+            // lower-right quadrant — at a fixed width, so the stats share what is left
+            // and nothing above this row moves. Only when scores exist.
+            if !model.dimensionScores.isEmpty {
+                dimensionStrip(model.dimensionScores)
+                    .fixedSize()
+            }
+        }
+    }
+
+    /// Five vertical 0...100 bars with short labels: steer · exec · eng · product · plan.
+    ///
+    /// Amber on the token border colour, no numbers. docs/analysis.md: the scores are
+    /// one model's reading and are never shown as a bare number — a bar reads as a
+    /// shape, which is the honest amount of precision.
+    private func dimensionStrip(_ dims: [RecapModel.Dimension]) -> some View {
+        let barWidth = 26 * scale
+        let barHeight = 56 * scale
+        return HStack(alignment: .bottom, spacing: 14 * scale) {
+            ForEach(Array(dims.enumerated()), id: \.offset) { item in
+                let d = item.element
+                VStack(spacing: 6 * scale) {
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 3 * scale)
+                            .fill(StripPalette.border(dark: dark))
+                            .frame(width: barWidth, height: barHeight)
+                        RoundedRectangle(cornerRadius: 3 * scale)
+                            .fill(StripPalette.accent(dark: dark))
+                            .frame(
+                                width: barWidth,
+                                height: max(3 * scale, barHeight * CGFloat(d.score) / 100))
+                    }
+                    Text(d.label)
+                        .font(.system(size: 16 * scale, weight: .medium))
+                        .foregroundStyle(StripPalette.textDim(dark: dark))
+                        .lineLimit(1)
+                }
             }
         }
     }

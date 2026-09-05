@@ -47,6 +47,7 @@ enum ShareCommand {
         print("")
         print("  \(superlative.headline)")
         if let sub = superlative.subline { print("  \(sub)") }
+        if let line = model.analysisLine { print("  \(line)") }
         print("")
         print("  \(model.repoName ?? "private repo")  ·  \(Fmt.date(model.startedAt))")
         print("  \(Fmt.duration(model.activeSeconds)) active of \(Fmt.duration(model.wallSeconds)) elapsed")

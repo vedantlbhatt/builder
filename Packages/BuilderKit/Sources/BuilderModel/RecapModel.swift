@@ -31,6 +31,44 @@ public struct RecapModel: Sendable, Equatable {
     public var isPersonalRecord: Bool
     public var recordKind: String?
     public var previousRecord: Double?
+    /// The model-written reading of the session (`SessionAnalysis`), when one has been
+    /// stored. All nil/empty when analysis is off, has not run yet, or failed — the card
+    /// must render identically to before in that case.
+    public var analysisHeadline: String?
+    /// Raw enum value, e.g. `shipped`. Display copy comes from `analysisLine`.
+    public var analysisOutcome: String?
+    /// Raw enum value, e.g. `velocity_machine`. nil for sessions too short to type.
+    public var analysisArchetype: String?
+    /// One bar per dimension, in spec order, each already clamped to 0...100. Empty
+    /// when there is no analysis.
+    public var dimensionScores: [Dimension]
+
+    /// One dimension score as the card draws it: a short label and a 0...100 bar.
+    ///
+    /// Clamped on construction rather than at draw time. The schema says 0-100, but a
+    /// bar drawn from a value the model got wrong would overflow its track and look
+    /// like a rendering bug rather than a data one.
+    public struct Dimension: Sendable, Equatable {
+        public let label: String
+        public let score: Int
+
+        public init(label: String, score: Int) {
+            self.label = label
+            self.score = min(100, max(0, score))
+        }
+
+        /// The card's five short labels, in spec order. Five columns under 30pt each is
+        /// all the lower-right quadrant has room for.
+        public static func shortLabel(_ d: SessionAnalysis.Dimension) -> String {
+            switch d {
+            case .steering: return "steer"
+            case .execution: return "exec"
+            case .engineering: return "eng"
+            case .productInstinct: return "product"
+            case .planning: return "plan"
+            }
+        }
+    }
 
     public init(
         clientSessionID: String, harness: Harness, repoName: String?, startedAt: Double,
@@ -40,7 +78,9 @@ public struct RecapModel: Sendable, Equatable {
         totalTokens: Int, models: [String], agentLineBucket: AgentLineBucket,
         attribConfidence: AttributionConfidence, stripColumns: [UInt8],
         stripMarks: [(ms: Int, kind: StripMarkKind)], isPersonalRecord: Bool = false,
-        recordKind: String? = nil, previousRecord: Double? = nil
+        recordKind: String? = nil, previousRecord: Double? = nil,
+        analysisHeadline: String? = nil, analysisOutcome: String? = nil,
+        analysisArchetype: String? = nil, dimensionScores: [Dimension] = []
     ) {
         self.clientSessionID = clientSessionID
         self.harness = harness
@@ -67,6 +107,38 @@ public struct RecapModel: Sendable, Equatable {
         self.isPersonalRecord = isPersonalRecord
         self.recordKind = recordKind
         self.previousRecord = previousRecord
+        self.analysisHeadline = analysisHeadline
+        self.analysisOutcome = analysisOutcome
+        self.analysisArchetype = analysisArchetype
+        self.dimensionScores = dimensionScores
+    }
+
+    /// Copy the parts of a stored analysis the card shows. One place, so the CLI, the
+    /// app and the tests derive the same four things from the same document.
+    ///
+    /// The headline is dropped when blank: an empty string must never win the
+    /// `Superlative` ladder and render a card with no headline at all. Dimensions are
+    /// emitted in spec order regardless of the order the model wrote them, and a
+    /// dimension the model omitted is omitted here too — never invented as zero.
+    public mutating func apply(_ analysis: SessionAnalysis) {
+        let h = analysis.headline.trimmingCharacters(in: .whitespacesAndNewlines)
+        analysisHeadline = h.isEmpty ? nil : h
+        analysisOutcome = analysis.outcome.rawValue
+        analysisArchetype = analysis.archetype?.rawValue
+        dimensionScores = SessionAnalysis.Dimension.allCases.compactMap { d in
+            analysis.dimensions.first(where: { $0.dimension == d }).map {
+                Dimension(label: Dimension.shortLabel(d), score: $0.score)
+            }
+        }
+    }
+
+    /// "shipped · velocity machine" — the card's second line. nil without an analysis.
+    /// Enum values are shown with underscores as spaces, the same `labelize` the phone
+    /// applies, so the two surfaces read the same word.
+    public var analysisLine: String? {
+        let parts = [analysisOutcome, analysisArchetype].compactMap { $0 }
+            .map { $0.replacingOccurrences(of: "_", with: " ") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     public static func == (a: RecapModel, b: RecapModel) -> Bool {
@@ -99,6 +171,11 @@ public struct RecapModel: Sendable, Equatable {
 /// the card describes what happened and stops there.
 public enum Superlative: Sendable, Equatable {
     case personalRecord(kind: String, value: String, previous: String?)
+    /// The model's one-line reading of what the session WAS. Below a record — a record
+    /// is rarer news, and it is about the person rather than the session — but above
+    /// every measured rung, because "Wired Stripe webhooks end to end" says more than
+    /// "9 of every 10 lines".
+    case analysis(String)
     case agentShare(bucket: AgentLineBucket, model: String)
     case commits(Int)
     case netLines(Int)
@@ -113,6 +190,7 @@ public enum Superlative: Sendable, Equatable {
                 value: format(duration: m.activeSeconds),
                 previous: m.previousRecord.map { format(duration: $0) })
         }
+        if let h = m.analysisHeadline, !h.isEmpty { return .analysis(h) }
         // The agent share is the one number nobody else displays, and everyone is
         // privately curious about theirs. It outranks raw output when it is known.
         if m.attribConfidence != .none, m.agentLineBucket != .unknown, m.agentLinesAdded >= 200,
@@ -131,6 +209,8 @@ public enum Superlative: Sendable, Equatable {
         switch self {
         case .personalRecord(let kind, let value, _):
             return "\(value) — longest \(kind) yet"
+        case .analysis(let h):
+            return h
         case .agentShare(let bucket, let model):
             return bucket.headline(modelName: model)
         case .commits(let n):

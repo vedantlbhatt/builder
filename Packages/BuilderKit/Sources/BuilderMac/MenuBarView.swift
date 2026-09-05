@@ -23,6 +23,7 @@ struct MenuBarView: View {
                     if let live = store.liveSession {
                         liveCard(live)
                     }
+                    AnalysisBlock(summary: store.analysis, dark: true)
                     recentSection
                     graphSection
                     phoneRow
