@@ -144,8 +144,10 @@ def upgrade() -> None:
           human_edit_events integer NOT NULL DEFAULT 0,
 
           agent_line_bucket text NOT NULL CHECK (agent_line_bucket IN
-            ('almost_all_agent','nine_in_ten','three_in_four','about_half','mostly_you','unknown')),
-          attrib_confidence text NOT NULL CHECK (attrib_confidence IN ('high','medium','low','none')),
+            ('almost_all_agent','nine_in_ten','three_in_four','about_half',
+             'mostly_you','unknown')),
+          attrib_confidence text NOT NULL
+            CHECK (attrib_confidence IN ('high','medium','low','none')),
 
           -- Tokens must be absent rather than zero when unreported. Cursor writes
           -- {0,0} locally and the client turns that into NULL; a stored 0 would read as

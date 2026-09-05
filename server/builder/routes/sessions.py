@@ -55,7 +55,7 @@ def list_sessions(
                 f"""
                 SELECT s.*, r.public_name
                 FROM sessions s LEFT JOIN repos r ON r.id = s.repo_id
-                WHERE {' AND '.join(clauses)}
+                WHERE {" AND ".join(clauses)}
                 ORDER BY started_at DESC LIMIT :limit
                 """
             ),

@@ -1,3 +1,4 @@
+import contextlib
 import json
 import time
 from datetime import UTC, datetime, timedelta
@@ -131,17 +132,13 @@ def send_session_finished(user_id: str, title: str, body: str, session_id: str) 
                 break
 
             reason = ""
-            try:
+            with contextlib.suppress(Exception):
                 reason = resp.json().get("reason", "")
-            except Exception:
-                pass
 
             if reason in {"Unregistered", "BadDeviceToken"} and env == _other(row.environment):
                 # Failed against both hosts: the install is genuinely gone.
                 with db_session() as db:
-                    db.execute(
-                        text("DELETE FROM push_tokens WHERE id = :i"), {"i": str(row.id)}
-                    )
+                    db.execute(text("DELETE FROM push_tokens WHERE id = :i"), {"i": str(row.id)})
             elif reason not in {"BadDeviceToken", "Unregistered"}:
                 break
 

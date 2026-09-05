@@ -77,8 +77,9 @@ def upgrade() -> None:
         CREATE POLICY strips_owner ON session_strips
           USING (EXISTS (SELECT 1 FROM sessions s WHERE s.id = session_id
                          AND s.user_id = NULLIF(current_setting('app.viewer_id', true), '')::uuid))
-          WITH CHECK (EXISTS (SELECT 1 FROM sessions s WHERE s.id = session_id
-                              AND s.user_id = NULLIF(current_setting('app.viewer_id', true), '')::uuid));
+          WITH CHECK (EXISTS (
+            SELECT 1 FROM sessions s WHERE s.id = session_id
+              AND s.user_id = NULLIF(current_setting('app.viewer_id', true), '')::uuid));
 
         CREATE POLICY strips_public ON session_strips FOR SELECT USING (
           EXISTS (SELECT 1 FROM sessions s WHERE s.id = session_id AND s.is_shared)
@@ -87,8 +88,9 @@ def upgrade() -> None:
         CREATE POLICY stats_owner ON session_stats
           USING (EXISTS (SELECT 1 FROM sessions s WHERE s.id = session_id
                          AND s.user_id = NULLIF(current_setting('app.viewer_id', true), '')::uuid))
-          WITH CHECK (EXISTS (SELECT 1 FROM sessions s WHERE s.id = session_id
-                              AND s.user_id = NULLIF(current_setting('app.viewer_id', true), '')::uuid));
+          WITH CHECK (EXISTS (
+            SELECT 1 FROM sessions s WHERE s.id = session_id
+              AND s.user_id = NULLIF(current_setting('app.viewer_id', true), '')::uuid));
 
         CREATE POLICY stats_public ON session_stats FOR SELECT USING (
           EXISTS (SELECT 1 FROM sessions s WHERE s.id = session_id AND s.is_shared)

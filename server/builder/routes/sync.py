@@ -169,8 +169,10 @@ def _upsert_session(db, device: CurrentDevice, p: SessionUpload, repo_id, existi
               :sv, :acv, :harness, :repo_id,
               :started, :ended, :active, :idle, :tz,
               (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz))::date,
-              EXTRACT(hour FROM (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz)))::smallint,
-              EXTRACT(isodow FROM (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz)))::smallint - 1,
+              EXTRACT(hour FROM
+                (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz)))::smallint,
+              EXTRACT(isodow FROM
+                (:started AT TIME ZONE 'UTC' + make_interval(mins => :tz)))::smallint - 1,
               :state, :visible, :notable, :unattended, :tq, :fidelity,
               :title, :title_source, :observed
             )

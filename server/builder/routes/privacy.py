@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from ..auth import CurrentDevice, current_device
-from ..contract import CONTRACT_VERSION, PUBLIC_FIELDS
+from ..contract import ANONYMOUS_FIELDS, CONTRACT_VERSION, PUBLIC_FIELDS
 from ..db import db_session
 
 router = APIRouter(prefix="/v1", tags=["privacy"])
@@ -51,7 +51,7 @@ def privacy_fields_text():
         "repositories you have not marked public, MCP server names, terminal commands or",
         "their output, environment variables, URLs fetched, hostname, IP address.",
         "",
-        f"Public-repo-only fields: {sorted(set(PUBLIC_FIELDS) - set(fields[:0]) & {'repo_name', 'title', 'title_source'})}",
+        f"Public-repo-only fields: {sorted(set(PUBLIC_FIELDS) - set(ANONYMOUS_FIELDS))}",
     ]
     return "\n".join(lines)
 
@@ -138,7 +138,9 @@ def delete_account(device: CurrentDevice = Depends(current_device)):
             counts[table] = db.execute(text(sql), {"u": user_id}).scalar() or 0
 
         payload = json.dumps(counts, sort_keys=True)
-        receipt = hmac.new(b"builder-deletion-receipt-v1", payload.encode(), hashlib.sha256).hexdigest()
+        receipt = hmac.new(
+            b"builder-deletion-receipt-v1", payload.encode(), hashlib.sha256
+        ).hexdigest()
 
         db.execute(
             text(

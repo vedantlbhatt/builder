@@ -105,16 +105,12 @@ def redeem_refresh_token(db, raw: str) -> tuple[str, str, str]:
             text("UPDATE device_tokens SET revoked_at = now() WHERE device_id = :d"),
             {"d": str(row.device_id)},
         )
-        raise HTTPException(
-            401, "refresh token reuse detected; all tokens for this device revoked"
-        )
+        raise HTTPException(401, "refresh token reuse detected; all tokens for this device revoked")
 
     if row.expires_at < datetime.now(UTC):
         raise HTTPException(401, "refresh token expired")
 
-    db.execute(
-        text("UPDATE device_tokens SET used_at = now() WHERE id = :i"), {"i": str(row.id)}
-    )
+    db.execute(text("UPDATE device_tokens SET used_at = now() WHERE id = :i"), {"i": str(row.id)})
     new_refresh = issue_refresh_token(db, str(row.device_id), prev_id=str(row.id))
     access = issue_access_token(str(row.user_id), str(row.device_id))
     return access, new_refresh, str(row.user_id)
@@ -129,9 +125,7 @@ def current_device(request: Request) -> CurrentDevice:
         raise HTTPException(401, "missing bearer token")
     claims = verify_access_token(header[7:])
     try:
-        return CurrentDevice(
-            user_id=uuid.UUID(claims["sub"]), device_id=uuid.UUID(claims["did"])
-        )
+        return CurrentDevice(user_id=uuid.UUID(claims["sub"]), device_id=uuid.UUID(claims["did"]))
     except (KeyError, ValueError) as e:
         raise HTTPException(401, "malformed token claims") from e
 

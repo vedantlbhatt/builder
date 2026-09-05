@@ -5,9 +5,9 @@ builder_app, which is NOBYPASSRLS and deliberately cannot create roles or alter 
 that separation is the point, and it is why boot.py can assert the API is not privileged.
 """
 
-from alembic import context
 from sqlalchemy import create_engine
 
+from alembic import context
 from builder.settings import settings
 
 config = context.config

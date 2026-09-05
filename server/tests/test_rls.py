@@ -17,6 +17,7 @@ import uuid
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 TEST_DB = os.environ.get("BUILDER_TEST_DB")
 pytestmark = pytest.mark.skipif(not TEST_DB, reason="set BUILDER_TEST_DB to run")
@@ -28,8 +29,28 @@ def owner_engine():
 
 def app_engine():
     """Connect as builder_app — the role the API actually uses."""
-    url = TEST_DB.replace("://", "://builder_app@", 1) if "@" not in TEST_DB else TEST_DB
-    return create_engine(url, future=True)
+    return create_engine(app_url(), future=True)
+
+
+def app_url() -> str:
+    """The builder_app connection string, derived from BUILDER_TEST_DB.
+
+    Structurally, via make_url — never by string replacement. CI passes a URL WITH
+    credentials (`postgres:postgres@localhost`), and `replace("://", "://builder_app@")`
+    on that yields `builder_app@postgres:postgres@localhost`, which parses as the user
+    `builder_app@postgres` and fails to connect. The RLS suite's variant of the same trick
+    skipped the substitution whenever an `@` was present, so it silently ran as the
+    superuser and every isolation test failed for the right reason — its guard caught it.
+
+    The password defaults to the owner's: CI grants `builder_app` LOGIN with the same one.
+    """
+    u = make_url(TEST_DB)
+    return str(
+        u.set(
+            username="builder_app",
+            password=os.environ.get("BUILDER_TEST_APP_PASSWORD", u.password),
+        ).render_as_string(hide_password=False)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -121,9 +142,7 @@ def test_shared_sessions_are_publicly_readable(two_users):
     owner = owner_engine()
     with owner.begin() as c:
         c.execute(
-            text(
-                "UPDATE sessions SET is_shared = true, shared_at = now() WHERE user_id = :u"
-            ),
+            text("UPDATE sessions SET is_shared = true, shared_at = now() WHERE user_id = :u"),
             {"u": a},
         )
     try:
