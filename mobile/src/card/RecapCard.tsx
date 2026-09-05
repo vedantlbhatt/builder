@@ -143,6 +143,8 @@ const HARNESS_LABEL: Record<string, string> = {
   cursor_ide: 'Cursor',
   cursor_agent: 'cursor-agent',
   codex: 'Codex',
+  gemini_cli: 'Gemini CLI',
+  cline: 'Cline',
 };
 
 interface Props {

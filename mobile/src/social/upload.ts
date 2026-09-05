@@ -1,6 +1,8 @@
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
+
 import { ApiError, type PostMedia } from '../data/api';
 import { api } from '../data/client';
-import type { MediaJob } from './media';
+import { downscaleTarget, type MediaJob, PHOTO_JPEG_QUALITY, type PhotoJob } from './media';
 
 /**
  * One media upload, the three-step way the server designed it: presign → PUT the bytes
@@ -22,7 +24,42 @@ async function readBlob(uri: string): Promise<Blob> {
   return res.blob();
 }
 
-export async function uploadJob(postId: string, job: MediaJob): Promise<PostMedia> {
+/**
+ * A photo over `PHOTO_LONG_EDGE` becomes a JPEG at that edge and `PHOTO_JPEG_QUALITY`
+ * (docs/social.md). The manipulator writes a new file in the cache directory and leaves
+ * the original alone, and the job that comes back describes the NEW file — its type,
+ * size and dimensions are what the presign signs and what `attach` records. A photo
+ * already within the edge is returned as-is, in whatever format the picker handed over.
+ */
+export async function downscalePhoto(job: PhotoJob): Promise<PhotoJob> {
+  const target = downscaleTarget(job.width, job.height);
+  if (!target) return job;
+  const context = ImageManipulator.manipulate(job.uri);
+  try {
+    // One edge only: the native side keeps the aspect from the decoded bitmap, which is
+    // the truth even when the picker's reported dimensions were swapped by EXIF rotation.
+    const longer = job.width >= job.height ? { width: target.width } : { height: target.height };
+    const image = await context.resize(longer).renderAsync();
+    try {
+      const saved = await image.saveAsync({ compress: PHOTO_JPEG_QUALITY, format: SaveFormat.JPEG });
+      return {
+        ...job,
+        uri: saved.uri,
+        content_type: 'image/jpeg',
+        width: Math.round(saved.width),
+        height: Math.round(saved.height),
+        oversized: false,
+      };
+    } finally {
+      image.release();
+    }
+  } finally {
+    context.release();
+  }
+}
+
+export async function uploadJob(postId: string, original: MediaJob): Promise<PostMedia> {
+  const job = original.kind === 'photo' && original.oversized ? await downscalePhoto(original) : original;
   const blob = await readBlob(job.uri);
   // The presign wants the byte count up front and signs the content type into the URL,
   // so the PUT must send exactly that type — not whatever the Blob believes it is.

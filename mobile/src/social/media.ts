@@ -12,11 +12,32 @@ export const MAX_PHOTOS = 6;
 export const MAX_AUDIO_MS = 90_000;
 
 /**
- * The long edge docs/social.md asks the phone to downscale to. Nothing here downscales
- * yet — see the note in `MediaPicker.tsx` — but the plan flags the photos that exceed it,
- * so the follow-up has somewhere to hang.
+ * The long edge docs/social.md asks the phone to downscale to, and the JPEG quality it
+ * re-encodes at. The plan flags the photos over the edge (`PhotoJob.oversized`) and
+ * `upload.ts` shrinks exactly those before the presign, so the byte count it signs is
+ * the byte count it sends.
  */
 export const PHOTO_LONG_EDGE = 2048;
+export const PHOTO_JPEG_QUALITY = 0.85;
+
+/**
+ * The size a photo is resized to so its long edge is `longEdge`, or null when it already
+ * fits. Aspect is kept; the short edge rounds to a whole pixel and never below 1, so a
+ * 20000×1 banner still has a height.
+ */
+export function downscaleTarget(
+  width: number,
+  height: number,
+  longEdge: number = PHOTO_LONG_EDGE
+): { width: number; height: number } | null {
+  const long = Math.max(width, height);
+  if (!(long > longEdge)) return null;
+  const scale = longEdge / long;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
 
 /** Content types the server will presign, with the extension the object key receives. */
 export const PHOTO_MIME_EXT: Readonly<Record<string, string>> = {
@@ -138,7 +159,11 @@ export interface PhotoJob {
   content_type: string;
   width: number;
   height: number;
-  /** Long edge over `PHOTO_LONG_EDGE`. The server still accepts it (12 MB ceiling). */
+  /**
+   * Long edge over `PHOTO_LONG_EDGE`: `upload.ts` downscales it to a JPEG before the
+   * presign. The server would accept the original (12 MB ceiling); the phone does not
+   * make it. Content type, width and height above describe the ORIGINAL until then.
+   */
   oversized: boolean;
 }
 

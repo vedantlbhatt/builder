@@ -15,6 +15,7 @@ import {
   formatClock,
   MAX_AUDIO_MS,
   MAX_PHOTOS,
+  downscaleTarget,
   mediaPlan,
   MediaPlanError,
   mimeForUri,
@@ -92,7 +93,7 @@ describe('mediaPlan', () => {
     expect(jobs[1]).toMatchObject({ duration_ms: 42_000 });
   });
 
-  test('flags a long edge over 2048 without refusing it', () => {
+  test('flags a long edge over 2048 for the uploader to shrink, without refusing it', () => {
     const jobs = mediaPlan([photo(1, { width: 4032, height: 3024 }), photo(2, { width: 2048, height: 1536 })], null);
     expect(jobs[0]).toMatchObject({ oversized: true });
     expect(jobs[1]).toMatchObject({ oversized: false });
@@ -101,6 +102,29 @@ describe('mediaPlan', () => {
   test('falls back to JPEG for a picker type the server does not sign', () => {
     const jobs = mediaPlan([photo(1, { uri: 'content://media/1', mime: 'image/gif' })], null);
     expect(jobs[0]).toMatchObject({ content_type: 'image/jpeg' });
+  });
+});
+
+describe('downscaleTarget', () => {
+  test('null when the long edge already fits, including exactly 2048', () => {
+    expect(downscaleTarget(2048, 1536)).toBeNull();
+    expect(downscaleTarget(1536, 2048)).toBeNull();
+    expect(downscaleTarget(100, 100)).toBeNull();
+  });
+
+  test('brings the long edge to 2048 and keeps the aspect, either orientation', () => {
+    expect(downscaleTarget(4032, 3024)).toEqual({ width: 2048, height: 1536 });
+    expect(downscaleTarget(3024, 4032)).toEqual({ width: 1536, height: 2048 });
+    expect(downscaleTarget(4096, 4096)).toEqual({ width: 2048, height: 2048 });
+  });
+
+  test('rounds to whole pixels and never produces a zero edge', () => {
+    expect(downscaleTarget(4033, 3000)).toEqual({ width: 2048, height: 1523 });
+    expect(downscaleTarget(20000, 1)).toEqual({ width: 2048, height: 1 });
+  });
+
+  test('the edge is a parameter, so the constant is not baked into the rule', () => {
+    expect(downscaleTarget(1000, 500, 100)).toEqual({ width: 100, height: 50 });
   });
 });
 

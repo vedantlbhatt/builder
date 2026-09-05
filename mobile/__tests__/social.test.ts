@@ -8,12 +8,9 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   applyKudos,
-  forgetFaction,
   nextCursor,
   normalizeFactionCode,
-  parseFactionList,
   relativeTime,
-  rememberFaction,
   replaceItem,
   toggleKudos,
   visibilityLabel,
@@ -115,20 +112,5 @@ describe('kudos reducer', () => {
     expect(next[0]?.kudos_count).toBe(7);
     expect(next[1]).toBe(list[1]);
     expect(replaceItem(list, { ...item, id: 'p9' })).toEqual(list);
-  });
-});
-
-describe('remembered factions', () => {
-  test('most recent first, deduped', () => {
-    expect(rememberFaction(['a', 'b'], 'b')).toEqual(['b', 'a']);
-    expect(rememberFaction([], 'x')).toEqual(['x']);
-    expect(forgetFaction(['a', 'b'], 'a')).toEqual(['b']);
-  });
-
-  test('parses only a JSON array of strings', () => {
-    expect(parseFactionList(null)).toEqual([]);
-    expect(parseFactionList('nope')).toEqual([]);
-    expect(parseFactionList('["a", 1, "b"]')).toEqual(['a', 'b']);
-    expect(parseFactionList('{"a":1}')).toEqual([]);
   });
 });

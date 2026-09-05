@@ -13,27 +13,28 @@ import {
   View,
 } from 'react-native';
 
-import { ApiError, type Faction, type FactionBoard } from '../src/data/api';
-import * as cache from '../src/data/cache';
+import { type Faction, type FactionBoard, type MyFaction } from '../src/data/api';
 import { api } from '../src/data/client';
 import { PixelBadge } from '../src/pixel/PixelBadge';
-import { forgetFaction, normalizeFactionCode, parseFactionList, rememberFaction } from '../src/social/format';
-import { MY_FACTIONS_KEY } from '../src/social/identity';
-import { colors, duration, hitSlopToReach, space } from '../src/theme';
+import { pruneBySlug, upsertMine } from '../src/social/account';
+import { normalizeFactionCode } from '../src/social/format';
+import { colors, duration, hitSlopToReach, space, TAP_TARGET } from '../src/theme';
 
 const c = colors('dark');
 
 /**
  * Factions: create, join by code, and the weekly board.
  *
- * The server has no "my factions" endpoint (checked: routes/social.py exposes create,
- * join, board and membership patch only), so the slugs this phone created or joined live in
- * the cache kv. A board that answers 403/404 evicts its slug — that is the membership
- * check, done lazily.
+ * `GET /v1/factions/mine` is the list. The phone used to remember the slugs it had created
+ * or joined and evict one when its board answered 403 — an inference that missed a faction
+ * joined from another device and kept one the person had been removed from until they
+ * happened to scroll past it. Now the server says, and a board that fails is just a board
+ * that failed: the membership is not in question.
  */
 export default function FactionsScreen() {
   const router = useRouter();
-  const [mine, setMine] = useState<string[] | null>(null);
+  const [mine, setMine] = useState<MyFaction[] | null>(null);
+  const [mineError, setMineError] = useState<string | null>(null);
   const [boards, setBoards] = useState<Record<string, FactionBoard | 'error'>>({});
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
@@ -41,35 +42,43 @@ export default function FactionsScreen() {
   const [joining, setJoining] = useState(false);
   const [justCreated, setJustCreated] = useState<Faction | null>(null);
 
-  const persist = useCallback(async (list: string[]) => {
-    setMine(list);
-    await cache.setKv(MY_FACTIONS_KEY, JSON.stringify(list));
+  const loadBoard = useCallback(async (slug: string) => {
+    try {
+      const b = await api.factionBoard(slug);
+      setBoards((prev) => ({ ...prev, [slug]: b }));
+    } catch {
+      setBoards((prev) => ({ ...prev, [slug]: 'error' }));
+    }
   }, []);
 
-  const loadBoard = useCallback(
-    async (slug: string, list: string[]) => {
-      try {
-        const b = await api.factionBoard(slug);
-        setBoards((prev) => ({ ...prev, [slug]: b }));
-      } catch (e) {
-        if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
-          // Not a member any more, or never was: stop remembering it.
-          await persist(forgetFaction(list, slug));
-          return;
-        }
-        setBoards((prev) => ({ ...prev, [slug]: 'error' }));
-      }
-    },
-    [persist]
-  );
+  /** The server's list replaces ours; boards for factions no longer in it go with them. */
+  const loadMine = useCallback(async () => {
+    try {
+      const { factions } = await api.myFactions();
+      setMine(factions);
+      setMineError(null);
+      setBoards((prev) => pruneBySlug(factions, prev));
+      await Promise.all(factions.map((f) => loadBoard(f.slug)));
+    } catch (e) {
+      setMineError(e instanceof Error ? e.message : 'could not load your factions');
+      // First load failed: show the screen (create/join still work) rather than a spinner.
+      setMine((prev) => prev ?? []);
+    }
+  }, [loadBoard]);
 
   useEffect(() => {
-    (async () => {
-      const list = parseFactionList(await cache.getKv(MY_FACTIONS_KEY));
-      setMine(list);
-      await Promise.all(list.map((slug) => loadBoard(slug, list)));
-    })();
-  }, [loadBoard]);
+    void loadMine();
+  }, [loadMine]);
+
+  /** A create/join answer shows its card now; the re-fetch brings the real roster count. */
+  const adopt = useCallback(
+    async (f: Faction) => {
+      setMine((prev) => upsertMine(prev ?? [], f));
+      await loadBoard(f.slug);
+      void loadMine();
+    },
+    [loadBoard, loadMine]
+  );
 
   const create = useCallback(async () => {
     const n = name.trim();
@@ -79,15 +88,13 @@ export default function FactionsScreen() {
       const f = await api.createFaction({ name: n });
       setJustCreated(f);
       setName('');
-      const list = rememberFaction(mine ?? [], f.slug);
-      await persist(list);
-      await loadBoard(f.slug, list);
+      await adopt(f);
     } catch (e) {
       Alert.alert('Could not create faction', e instanceof Error ? e.message : 'try again');
     } finally {
       setCreating(false);
     }
-  }, [creating, loadBoard, mine, name, persist]);
+  }, [adopt, creating, name]);
 
   const join = useCallback(async () => {
     const normalized = normalizeFactionCode(code);
@@ -96,15 +103,13 @@ export default function FactionsScreen() {
     try {
       const f = await api.joinFaction(normalized);
       setCode('');
-      const list = rememberFaction(mine ?? [], f.slug);
-      await persist(list);
-      await loadBoard(f.slug, list);
+      await adopt(f);
     } catch (e) {
       Alert.alert('Could not join', e instanceof Error ? e.message : 'try again');
     } finally {
       setJoining(false);
     }
-  }, [code, joining, loadBoard, mine, persist]);
+  }, [adopt, code, joining]);
 
   const setShare = useCallback(async (slug: string, share: boolean) => {
     const before = boards[slug];
@@ -207,7 +212,20 @@ export default function FactionsScreen() {
         </View>
       </View>
 
-      {mine.length === 0 && (
+      {mineError && (
+        <View style={[card, { borderWidth: 1, borderColor: c.textDim }]}>
+          <Text style={{ color: c.textDim, fontSize: 13 }}>Could not load your factions: {mineError}</Text>
+          <Pressable
+            onPress={() => void loadMine()}
+            accessibilityRole="button"
+            style={{ minHeight: TAP_TARGET, justifyContent: 'center', alignSelf: 'flex-start' }}
+          >
+            <Text style={{ color: c.accent, fontSize: 13, fontWeight: '600' }}>Retry</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {mine.length === 0 && !mineError && (
         <View style={{ marginTop: space.sm }}>
           <PixelBadge state="waving" text="Start a faction or join one with a code." style={{ paddingHorizontal: 0 }} />
           <Text style={{ color: c.textDim, fontSize: 12 }}>
@@ -216,21 +234,29 @@ export default function FactionsScreen() {
         </View>
       )}
 
-      {mine.map((slug) => {
-        const b = boards[slug];
+      {mine.map((f) => {
+        const b = boards[f.slug];
         return (
-          <View key={slug} style={card}>
+          <View key={f.slug} style={card}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-              <Text style={{ color: c.text, fontSize: 18, fontWeight: '700', flex: 1 }}>
-                {b && b !== 'error' ? b.faction.name : slug}
-              </Text>
-              <Pressable onPress={() => router.push({ pathname: '/feed', params: { slug } })} hitSlop={hitSlopToReach(18)} accessibilityRole="button">
+              <Text style={{ color: c.text, fontSize: 18, fontWeight: '700', flex: 1 }}>{f.name}</Text>
+              <Pressable
+                onPress={() => router.push({ pathname: '/feed', params: { slug: f.slug } })}
+                hitSlop={hitSlopToReach(18)}
+                accessibilityRole="button"
+              >
                 <Text style={{ color: c.accent, fontSize: 13, fontWeight: '600' }}>Feed</Text>
               </Pressable>
             </View>
+            <Text style={{ color: c.textDim, fontSize: 12 }}>
+              /{f.slug} · {f.member_count} {f.member_count === 1 ? 'member' : 'members'}
+              {f.role === 'admin' ? ' · you admin' : ''}
+            </Text>
             {b === undefined && <ActivityIndicator color={c.accent} style={{ marginVertical: space.md }} />}
-            {b === 'error' && <Text style={{ color: c.textDim, fontSize: 13 }}>Board unavailable right now.</Text>}
-            {b && b !== 'error' && <Board board={b} onShare={(v) => void setShare(slug, v)} />}
+            {b === 'error' && (
+              <Text style={{ color: c.textDim, fontSize: 13, marginTop: space.sm }}>Board unavailable right now.</Text>
+            )}
+            {b && b !== 'error' && <Board board={b} onShare={(v) => void setShare(f.slug, v)} />}
           </View>
         );
       })}
@@ -242,7 +268,7 @@ function Board({ board, onShare }: { board: FactionBoard; onShare: (share: boole
   const me = board.members.find((m) => m.you);
   return (
     <>
-      <Text style={{ color: c.textDim, fontSize: 12, marginBottom: space.sm }}>
+      <Text style={{ color: c.textDim, fontSize: 12, marginTop: space.sm, marginBottom: space.sm }}>
         {board.week} · {board.week_start} → {board.week_end}
         {board.faction.join_code ? ` · code ${board.faction.join_code}` : ''}
       </Text>

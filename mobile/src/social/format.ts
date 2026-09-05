@@ -98,26 +98,3 @@ export function authorName(a: { handle: string | null; display_name: string | nu
 export function repoLine(item: Pick<FeedItem, 'session'>): string | null {
   return item.session.repo_name ?? null;
 }
-
-/**
- * The factions this phone knows it belongs to. The server has no "my factions" endpoint,
- * so the app remembers slugs it created or joined in the cache kv; a board fetch that
- * answers 403/404 evicts one. Deduped, most recent first.
- */
-export function rememberFaction(list: string[], slug: string): string[] {
-  return [slug, ...list.filter((s) => s !== slug)];
-}
-
-export function forgetFaction(list: string[], slug: string): string[] {
-  return list.filter((s) => s !== slug);
-}
-
-export function parseFactionList(raw: string | null): string[] {
-  if (!raw) return [];
-  try {
-    const v: unknown = JSON.parse(raw);
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-}

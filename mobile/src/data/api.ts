@@ -188,6 +188,12 @@ export type Visibility = 'private' | 'followers' | 'public';
 export interface Author {
   handle: string | null;
   display_name: string | null;
+  /**
+   * Compared server-side against the viewer. Optional on READ: a server older than
+   * `routes/users.py` omits it, and the screens then simply lack the owner-only controls
+   * rather than guessing ownership from a remembered handle.
+   */
+  is_you?: boolean;
 }
 
 export interface PostMedia {
@@ -286,6 +292,41 @@ export interface Faction {
   role?: 'admin' | 'member' | null;
   /** Admins only; the server withholds it from members. */
   join_code?: string;
+}
+
+/**
+ * One row of `GET /v1/factions/mine` and of `GET /v1/users/me`'s `factions` — the viewer's
+ * own memberships, oldest first (`server/builder/routes/users.py::_my_factions`).
+ */
+export interface MyFaction {
+  slug: string;
+  name: string;
+  role: 'admin' | 'member';
+  share_hours: boolean;
+  open: boolean;
+  member_count: number;
+  joined_at: string;
+}
+
+/** `GET /v1/users/me` and the answer to `PATCH /v1/users/me`: the viewer's own row. */
+export interface Me {
+  id: string;
+  /** Null until the person picks one. */
+  handle: string | null;
+  display_name: string | null;
+  profile_public: boolean;
+  created_at: string;
+  factions: MyFaction[];
+}
+
+/**
+ * Body of `PATCH /v1/users/me`. Omit a field to leave it alone; `display_name: null`
+ * clears it (the server reads the field SET, not its value, for that one).
+ */
+export interface MePatch {
+  handle?: string;
+  display_name?: string | null;
+  profile_public?: boolean;
 }
 
 export interface FactionBoardMember extends Author {
@@ -601,6 +642,28 @@ export class Api {
       'GET',
       `/v1/users/${encodeURIComponent(handle)}${this.cursorQuery(cursor)}`
     );
+  }
+
+  // ----------------------------------------------------------------- account
+
+  /** The viewer's own row plus their factions, in one request. */
+  getMe(): Promise<Me> {
+    return this.request('GET', '/v1/users/me');
+  }
+
+  /**
+   * Handle, display name, profile visibility; answers with the same shape as `getMe`.
+   * 422 for a malformed or reserved handle, 409 when it is taken OR when the last change
+   * was under 30 days ago — that detail names the instant it opens again, and
+   * `social/account.ts::describeHandleConflict` turns it into a sentence.
+   */
+  patchMe(body: MePatch): Promise<Me> {
+    return this.request('PATCH', '/v1/users/me', { body });
+  }
+
+  /** Every faction the viewer belongs to, with their role in each. Oldest membership first. */
+  myFactions(): Promise<{ factions: MyFaction[] }> {
+    return this.request('GET', '/v1/factions/mine');
   }
 
   /** The creator is the first admin; the response carries `join_code`. */

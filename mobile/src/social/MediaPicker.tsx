@@ -25,12 +25,9 @@ const THUMB = 72;
  * flight; the chosen photos and the finished recording live in the sheet's state so
  * that Post can turn them into an upload plan after the post row exists.
  *
- * Downscaling: docs/social.md asks for a 2048 long edge at JPEG q=0.85 before upload.
- * `quality: 0.85` is passed to the picker, which recompresses; the long edge is not
- * reduced here because `expo-image-manipulator` is not a dependency of this build and is
- * deliberately not added in this pass. The server accepts the larger file (12 MB
- * ceiling), so a 4032-px screenshot uploads and renders; shrinking it is a follow-up,
- * and `PhotoJob.oversized` already marks the ones it would apply to.
+ * Downscaling happens at upload time, not here: `upload.ts::downscalePhoto` shrinks any
+ * photo the plan marks `oversized` to a 2048 long edge at JPEG q=0.85 (docs/social.md).
+ * The picker's `quality: 0.85` only recompresses; the thumbnails below show the original.
  */
 export function MediaPicker({
   photos,

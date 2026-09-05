@@ -107,6 +107,74 @@ describe('Api transport', () => {
     expect(calls[0]!.headers.Authorization).toBe('Bearer A1');
   });
 
+  test('getMe / myFactions hit the account endpoints with the bearer', async () => {
+    const { storage } = memoryStorage({ 'builder.access': 'A1', 'builder.refresh': 'R1' });
+    const me = {
+      id: 'u1',
+      handle: 'ved',
+      display_name: null,
+      profile_public: false,
+      created_at: '2026-08-01T00:00:00+00:00',
+      factions: [],
+    };
+    const calls = installFetch((call) =>
+      call.url.endsWith('/v1/factions/mine') ? json(200, { factions: [{ slug: 'gt' }] }) : json(200, me)
+    );
+    const api = new Api(BASE, storage);
+
+    expect(await api.getMe()).toEqual(me);
+    expect((await api.myFactions()).factions.map((f) => f.slug)).toEqual(['gt']);
+
+    expect(calls.map((c) => [c.method, c.url.replace(BASE, '')])).toEqual([
+      ['GET', '/v1/users/me'],
+      ['GET', '/v1/factions/mine'],
+    ]);
+    expect(calls.every((c) => c.headers.Authorization === 'Bearer A1')).toBe(true);
+  });
+
+  test('patchMe sends only the fields given, keeps a null display_name, and surfaces the 409 detail', async () => {
+    const { storage } = memoryStorage({ 'builder.access': 'A1', 'builder.refresh': 'R1' });
+    let n = 0;
+    const calls = installFetch(() => {
+      n += 1;
+      if (n === 1) return json(200, { id: 'u1', handle: 'ved', display_name: null, profile_public: true, created_at: '', factions: [] });
+      return json(409, {
+        detail: 'handle can be changed once every 30 days; next change allowed at 2026-10-05T14:03:22+00:00',
+      });
+    });
+    const api = new Api(BASE, storage);
+
+    const me = await api.patchMe({ display_name: null, profile_public: true });
+    expect(me.profile_public).toBe(true);
+    expect(calls[0]!.method).toBe('PATCH');
+    expect(calls[0]!.url).toBe(`${BASE}/v1/users/me`);
+    // `display_name: null` must travel (the server reads the field SET to clear it);
+    // an omitted handle must NOT appear as `handle: undefined`.
+    expect(calls[0]!.body).toEqual({ display_name: null, profile_public: true });
+    expect(Object.keys(calls[0]!.body as object)).not.toContain('handle');
+
+    const err = (await api.patchMe({ handle: 'other' }).catch((e: unknown) => e)) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(409);
+    expect(err.message).toContain('next change allowed at 2026-10-05T14:03:22+00:00');
+  });
+
+  test('a 401 on patchMe refreshes and retries once like every other call', async () => {
+    const { storage } = memoryStorage({ 'builder.access': 'A1', 'builder.refresh': 'R1' });
+    const calls = installFetch((call) => {
+      if (call.url.endsWith('/v1/auth/refresh')) return json(200, { access_token: 'A2', refresh_token: 'R2' });
+      if (call.headers.Authorization === 'Bearer A1') return json(401, { detail: 'expired' });
+      return json(200, { id: 'u1', handle: 'ved', display_name: null, profile_public: false, created_at: '', factions: [] });
+    });
+    const api = new Api(BASE, storage);
+
+    const me = await api.patchMe({ handle: 'ved' });
+
+    expect(me.handle).toBe('ved');
+    expect(calls.map((c) => c.url.replace(BASE, ''))).toEqual(['/v1/users/me', '/v1/auth/refresh', '/v1/users/me']);
+    expect(calls[2]!.body).toEqual({ handle: 'ved' });
+  });
+
   test('sign-in endpoints send no bearer and the documented body', async () => {
     const { storage } = memoryStorage();
     const calls = installFetch(() => json(200, { access_token: 'A', refresh_token: 'R' }));

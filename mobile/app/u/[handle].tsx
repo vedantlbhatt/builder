@@ -5,7 +5,6 @@ import { Alert, Pressable, Text, View } from 'react-native';
 import type { Cursor, FollowState, UserPage } from '../../src/data/api';
 import { api } from '../../src/data/client';
 import { FeedList } from '../../src/social/FeedList';
-import { rememberMyHandle } from '../../src/social/identity';
 import { colors, hitSlopToReach, space } from '../../src/theme';
 
 const c = colors('dark');
@@ -27,7 +26,6 @@ export default function UserScreen() {
       const page = await api.user(handle!, cursor ?? undefined);
       if (!cursor) {
         setProfile(page.profile);
-        if (page.profile.is_you) void rememberMyHandle(page.profile.handle);
       }
       return { items: page.posts, next_before: page.next_before, next_before_id: page.next_before_id };
     },

@@ -16,7 +16,6 @@ import { api } from '../../src/data/client';
 import { PixelBadge } from '../../src/pixel/PixelBadge';
 import { PostRow } from '../../src/social/FeedList';
 import { applyKudos, authorName, relativeTime, toggleKudos } from '../../src/social/format';
-import { myHandle, rememberMyHandle } from '../../src/social/identity';
 import { colors, hitSlopToReach, space } from '../../src/theme';
 
 const c = colors('dark');
@@ -25,15 +24,14 @@ const COMMENT_MAX = 500;
 /**
  * One post: the card, its comments oldest-first, and a composer.
  *
- * "Own" for a comment is decided by handle, against the one `social/identity.ts`
- * remembers. Until the app has learned it, comments simply lack the delete button; the
- * server's owner-only policy is the real gate either way.
+ * "Own" for a comment is the server's `author.is_you`, compared against the viewer there.
+ * A server that predates the field sends none, and those comments simply lack the delete
+ * button; the owner-only policy is the real gate either way.
  */
 export default function PostScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [post, setPost] = useState<FeedItem | null>(null);
   const [comments, setComments] = useState<Comment[] | null>(null);
-  const [me, setMe] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +51,6 @@ export default function PostScreen() {
 
   useEffect(() => {
     void load();
-    void myHandle().then((h) => setMe((prev) => prev ?? h));
   }, [load]);
 
   const onKudos = useCallback(async (item: FeedItem) => {
@@ -76,17 +73,12 @@ export default function PostScreen() {
       setComments((prev) => [...(prev ?? []), created]);
       setPost((p) => (p ? { ...p, comment_count: created.comment_count } : p));
       setDraft('');
-      // The first comment tells us who we are, if nothing else has yet.
-      if (!me && created.author.handle) {
-        setMe(created.author.handle);
-        void rememberMyHandle(created.author.handle);
-      }
     } catch (e) {
       Alert.alert('Could not comment', e instanceof Error ? e.message : 'try again');
     } finally {
       setSending(false);
     }
-  }, [draft, id, me, sending]);
+  }, [draft, id, sending]);
 
   const remove = useCallback(
     (cm: Comment) => {
@@ -145,7 +137,7 @@ export default function PostScreen() {
               <Text style={{ color: c.text, fontWeight: '600', fontSize: 13 }}>{authorName(cm.author)}</Text>
               <Text style={{ color: c.textDim, fontSize: 12 }}>· {relativeTime(cm.created_at)}</Text>
               <View style={{ flex: 1 }} />
-              {me !== null && cm.author.handle === me && (
+              {cm.author.is_you === true && (
                 <Pressable onPress={() => remove(cm)} hitSlop={hitSlopToReach(16)} accessibilityRole="button">
                   <Text style={{ color: c.textDim, fontSize: 12 }}>Delete</Text>
                 </Pressable>

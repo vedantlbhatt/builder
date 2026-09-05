@@ -27,7 +27,6 @@ import {
 import * as cache from '../../src/data/cache';
 import { api, SAMPLE_SESSION } from '../../src/data/client';
 import { VISIBILITIES, visibilityLabel } from '../../src/social/format';
-import { rememberMyHandle } from '../../src/social/identity';
 import {
   formatClock,
   mediaPlan,
@@ -347,7 +346,6 @@ function ComposeModal({
         visibility,
         share_analysis: shareAnalysis,
       });
-      void rememberMyHandle(p.author.handle);
     } catch (e) {
       setBusy(false);
       Alert.alert('Could not post', e instanceof Error ? e.message : 'try again');
