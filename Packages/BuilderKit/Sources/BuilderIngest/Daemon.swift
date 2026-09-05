@@ -77,6 +77,7 @@ public final class Daemon {
         return [
             home.appendingPathComponent(".claude/projects"),
             home.appendingPathComponent(".codex/sessions"),
+            home.appendingPathComponent(".gemini/tmp"),
             home.appendingPathComponent(".cursor/projects"),
         ].filter { FileManager.default.fileExists(atPath: $0) }
     }

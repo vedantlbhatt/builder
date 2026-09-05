@@ -56,7 +56,7 @@
     { "name": "client_version",       "type": "string",    "modes": ["public", "anonymous"], "doc": "agent version" },
     { "name": "sessionizer_version",  "type": "int",       "modes": ["public", "anonymous"], "doc": "so a retuned boundary is a recompute, not a migration" },
     { "name": "active_calc_version",  "type": "int",       "modes": ["public", "anonymous"], "doc": "so a retuned active-time formula is a recompute" },
-    { "name": "harness",              "type": "enum",      "modes": ["public", "anonymous"], "values": ["claude_code", "cursor_ide", "cursor_agent", "codex"] },
+    { "name": "harness",              "type": "enum",      "modes": ["public", "anonymous"], "values": ["claude_code", "cursor_ide", "cursor_agent", "codex", "gemini_cli", "cline"] },
     { "name": "agent_observed_at",    "type": "datetime",  "modes": ["public", "anonymous"], "doc": "when the agent produced this payload: the finalize instant for final, the snapshot instant for live" },
     { "name": "client_clock_offset_ms", "type": "int",     "modes": ["public", "anonymous"], "doc": "measured against the server Date header" },
 

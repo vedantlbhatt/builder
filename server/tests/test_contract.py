@@ -220,6 +220,18 @@ def test_enum_values_are_enforced():
     with pytest.raises(ValidationError):
         valid_payload(harness="cursor")  # the real value is cursor_ide
     assert "cursor_ide" in ENUM_VALUES["harness"]
+    # The full list, pinned: a value added here must also reach the Postgres `harness`
+    # enum (0001 + 0010), or the first upload carrying it is a 22P02 on the INSERT.
+    assert sorted(ENUM_VALUES["harness"]) == [
+        "claude_code",
+        "cline",
+        "codex",
+        "cursor_agent",
+        "cursor_ide",
+        "gemini_cli",
+    ]
+    for value in ("gemini_cli", "cline"):
+        assert valid_payload(harness=value).harness == value
 
     # 'flat' must not be a legal token scope: it would let the ~3x subagent overcount
     # into the database wearing a legitimate label.

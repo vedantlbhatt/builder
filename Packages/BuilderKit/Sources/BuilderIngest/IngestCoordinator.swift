@@ -45,7 +45,7 @@ public final class IngestCoordinator {
 
     public init(
         db: SQLiteDB,
-        parsers: [any HarnessParser] = [ClaudeCodeParser(), CursorIDEParser(), CodexParser()],
+        parsers: [any HarnessParser] = [ClaudeCodeParser(), CursorIDEParser(), CodexParser(), GeminiParser()],
         resolver: RepoResolverCache = RepoResolverCache()
     ) {
         self.db = db

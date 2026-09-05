@@ -15,13 +15,20 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     case cursorIDE = "cursor_ide"
     case cursorAgent = "cursor_agent"
     case codex = "codex"
+    case geminiCLI = "gemini_cli"
+    /// Declared ahead of its parser, like `cursorAgent`: the contract, the Postgres enum
+    /// and this case land together so the parser is later a code change, not a migration.
+    case cline = "cline"
 
+    /// The label the menu bar, the card and the CLI print for this harness.
     public var displayName: String {
         switch self {
         case .claudeCode: return "Claude Code"
         case .cursorIDE: return "Cursor"
         case .cursorAgent: return "cursor-agent"
         case .codex: return "Codex"
+        case .geminiCLI: return "Gemini CLI"
+        case .cline: return "Cline"
         }
     }
 
@@ -33,9 +40,14 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     /// written locally. So a Cursor session's token count is not missing data to be
     /// back-filled later; it is *structurally absent*, and the UI must say so rather than
     /// render a zero that looks like a bug.
+    ///
+    /// Gemini CLI: `recordMessageTokens` writes a `TokensSummary` on the gemini message
+    /// (analysis/gemini.py, VERIFIED from the CLI source). Cline: ASSUMED true from its
+    /// per-message `api_req_started` usage until `analysis/cline.py` says otherwise; the
+    /// flag is moot while `isImplemented` is false.
     public var reportsTokens: Bool {
         switch self {
-        case .claudeCode, .codex: return true
+        case .claudeCode, .codex, .geminiCLI, .cline: return true
         case .cursorIDE, .cursorAgent: return false
         }
     }
@@ -46,9 +58,11 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     /// `"default"` on 115 of 137 composers and names a real model on only 22, and
     /// individual message rows carry no model field at all. Any per-model breakdown for
     /// Cursor is therefore ~84% unknown, which is a labelling problem, not a parsing bug.
+    ///
+    /// Gemini CLI stamps `model` on every `type: 'gemini'` record (VERIFIED, same source).
     public var reportsModel: Bool {
         switch self {
-        case .claudeCode, .codex: return true
+        case .claudeCode, .codex, .geminiCLI, .cline: return true
         case .cursorIDE, .cursorAgent: return false
         }
     }
@@ -58,10 +72,14 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     /// Codex: `CodexParser` reads `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. Its
     /// rules are ported from `analysis/codex.py` and verified against the synthetic
     /// fixture only — not yet against a real corpus.
+    ///
+    /// Gemini CLI: `GeminiParser` reads `~/.gemini/tmp/<project>/chats/**/*.jsonl`, ported
+    /// from `analysis/gemini.py` and held to `spec/fixtures/gemini` — also not yet measured
+    /// against a real corpus. Cline: contract and enum only; no parser in this build.
     public var isImplemented: Bool {
         switch self {
-        case .claudeCode, .cursorIDE, .codex: return true
-        case .cursorAgent: return false
+        case .claudeCode, .cursorIDE, .codex, .geminiCLI: return true
+        case .cursorAgent, .cline: return false
         }
     }
 }
