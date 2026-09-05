@@ -226,6 +226,10 @@ export default function SettingsScreen() {
                 placeholderTextColor={c.textDim}
                 style={{
                   flex: 1,
+                  // SEEN ON WEB: a text input's intrinsic width (its `size`) is a flex
+                  // minimum there, so `flex: 1` alone let it push the Scan button off the
+                  // card. minWidth 0 lets it shrink; a no-op on iOS.
+                  minWidth: 0,
                   color: c.text,
                   backgroundColor: c.bg,
                   borderRadius: 8,
@@ -239,6 +243,7 @@ export default function SettingsScreen() {
                 onPress={() => router.push('/pair')}
                 style={({ pressed }) => [
                   {
+                    flexShrink: 0,
                     backgroundColor: c.bg,
                     borderRadius: 8,
                     paddingHorizontal: space.md,
