@@ -136,6 +136,13 @@ public struct GeminiParser: HarnessParser {
     public struct RecordingShape: Equatable, Sendable {
         public let projectID: String
         public let parentSessionID: String?
+
+        // The memberwise initializer of a public struct is internal; the tests build
+        // expected shapes from outside the module.
+        public init(projectID: String, parentSessionID: String?) {
+            self.projectID = projectID
+            self.parentSessionID = parentSessionID
+        }
     }
 
     /// A recording is EXACTLY `<project>/chats/<name>.jsonl` (a root) or
