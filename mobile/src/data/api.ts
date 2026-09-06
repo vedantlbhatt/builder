@@ -314,6 +314,19 @@ export interface CorpusProfile {
   metrics: Record<string, CorpusMetric>;
   top_tools: { tool: string; calls: number; share: number }[];
   model_mix: { model: string; output_tokens: number; share: number }[];
+  /**
+   * The top five sessions by ATTENDED time, best first, and how many were eligible at
+   * all. Ranked on attended and never on active, and `unattended` runs are excluded
+   * outright: an eight-hour autonomous run is not a personal record.
+   */
+  session_rank: {
+    rank: number;
+    session_id: string;
+    attended_seconds: number;
+    active_seconds: number;
+    started_at: string;
+  }[];
+  ranked_sessions: number;
   archetype: CorpusArchetype;
   facts: CorpusFact[];
 }

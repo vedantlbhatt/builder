@@ -127,6 +127,36 @@ export default function ProfileScreen() {
         )}
       </Section>
 
+      {corpus && (
+        <Section title="Where you stand">
+          {/* The three questions a person actually asks about their own profile, and the
+              one ranking the app is allowed to make. Every value is null-checked: a
+              refused metric prints its reason further down rather than a zero here. */}
+          {corpus.session_rank[0] && (
+            <Row
+              label={`Longest attended session (1 of ${corpus.ranked_sessions})`}
+              value={duration(corpus.session_rank[0].attended_seconds)}
+            />
+          )}
+          {typeof corpus.metrics.default_model?.value === 'string' && (
+            <Row
+              label="Model that did most of the work"
+              value={String(corpus.metrics.default_model.value)}
+            />
+          )}
+          {typeof corpus.metrics.shipping_day?.value === 'string' && (
+            <Row label="Day the most code landed" value={String(corpus.metrics.shipping_day.value)} />
+          )}
+          {typeof corpus.metrics.busiest_day?.value === 'string' && (
+            <Row label="Day you were at it longest" value={String(corpus.metrics.busiest_day.value)} />
+          )}
+          <Text style={{ color: c.textDim, fontSize: 11, marginTop: space.sm }}>
+            Sessions are ranked on attended time, never on elapsed. An overnight run the
+            agent did alone counts toward your hours and can never hold a record.
+          </Text>
+        </Section>
+      )}
+
       <Section title="Active hours">
         <ContributionGrid days={recentDays} width={contentWidth} />
         <Text style={{ color: c.textDim, fontSize: 11, marginTop: space.sm }}>

@@ -412,3 +412,72 @@ class CommitsCannotSimplyBeSummed(unittest.TestCase):
             [self._fact("a", day, day + 4_800, 19, "r1"), self._fact("b", day + 3_000, day + 3_700, 6, "r2")]
         )
         self.assertEqual(p["totals"]["total_commits"], 25)
+
+
+class WhereEachSessionStands(unittest.TestCase):
+    """`default_model`, `shipping_day` and `session_rank`: the three the profile leads on.
+
+    Each is a place a plausible wrong answer would be easy. The model that "did most of
+    the work" is a token share and not a count of how often it was picked; the day the
+    most code landed is not the day with the most hours; and a ranking on elapsed time
+    hands the record to a robot, which is the mistake this repo has already made once.
+    """
+
+    @staticmethod
+    def _fact(sid, start, attended, active, lines, model_tokens, unattended=False):
+        return pf.SessionFact(
+            session_id=sid,
+            started_at=start,
+            ended_at=start + active,
+            active_seconds=active,
+            attended_seconds=attended,
+            autonomous_seconds=active - attended,
+            lines_added_agent=lines,
+            lines_basis=pf.LINES_EDIT_AND_SHELL if lines else pf.LINES_ABSENT,
+            output_tokens_by_model=model_tokens,
+            unattended=unattended,
+        )
+
+    def test_the_default_model_is_the_one_that_wrote_the_most(self):
+        day = 1_780_000_000.0
+        p = pf.corpus_profile([
+            self._fact('a', day, 600, 600, 10, {'small': 100, 'big': 900}),
+            self._fact('b', day + 100_000, 600, 600, 10, {'big': 200}),
+        ])
+        self.assertEqual(p['metrics']['default_model']['value'], 'big')
+        self.assertAlmostEqual(p['metrics']['default_model']['share'], 1100 / 1200, places=3)
+
+    def test_no_tokens_at_all_refuses_rather_than_naming_one(self):
+        # Every harness but Claude Code uploads `tokens_reported: false`, so this is the
+        # normal case for a Codex or an Aider corpus, not an edge one.
+        day = 1_780_000_000.0
+        p = pf.corpus_profile([self._fact('a', day, 600, 600, 10, {})])
+        self.assertIsNone(p['metrics']['default_model']['value'])
+        self.assertIn('output tokens', p['metrics']['default_model']['reason'])
+
+    def test_the_shipping_day_is_lines_not_hours(self):
+        # A long day that produced nothing is not the day you shipped. These two days are
+        # deliberately opposite: the first is four times longer and wrote a tenth as much.
+        day = 1_780_000_000.0
+        long_quiet = self._fact('a', day, 14_400, 14_400, 20, {'m': 10})
+        short_busy = self._fact('b', day + 86_400, 3_600, 3_600, 900, {'m': 10})
+        p = pf.corpus_profile([long_quiet, short_busy])
+        self.assertEqual(p['metrics']['shipping_day']['value'], short_busy.local_day.isoformat())
+        self.assertEqual(p['metrics']['busiest_day']['value'], long_quiet.local_day.isoformat())
+
+    def test_the_ranking_is_attended_and_a_robot_cannot_win_it(self):
+        # CLAUDE.md, "Rank sessions by duration alone": the longest session in the
+        # reference corpus had ZERO typed prompts. Here the longest by elapsed time is an
+        # unattended run and it is not in the ranking at all; second place goes to the
+        # session with more ATTENDED time, not more active time.
+        day = 1_780_000_000.0
+        robot = self._fact('robot', day, 0, 20_000, 5_000, {'m': 10}, unattended=True)
+        long_active = self._fact('mixed', day + 100_000, 1_200, 9_000, 100, {'m': 10})
+        attended = self._fact('human', day + 200_000, 3_000, 3_000, 100, {'m': 10})
+        p = pf.corpus_profile([robot, long_active, attended])
+        self.assertEqual([r['session_id'] for r in p['session_rank']], ['human', 'mixed'])
+        self.assertEqual(p['ranked_sessions'], 2)
+        self.assertEqual(p['session_rank'][0]['rank'], 1)
+        self.assertEqual(p['session_rank'][0]['attended_seconds'], 3_000)
+        # The robot still counted toward the hours; it just cannot hold a record.
+        self.assertGreater(p['totals']['total_hours'], 8)

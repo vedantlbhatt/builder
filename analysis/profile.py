@@ -714,6 +714,27 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
         active_seconds=round(busiest[1]) if busiest else None,
     )
 
+    # ---- the day the most code landed
+    #
+    # NOT the same question as `busiest_day`, which is hours. A day can be long and
+    # produce nothing, and the shipping day is the one a person would name. Measured in
+    # ATTRIBUTED LINES rather than commits: commits cannot be summed across overlapping
+    # sessions (see `_corpus_commits`) and lines can, because two sessions in one repo
+    # attribute their own edits and never each other's.
+    lines_by_day: Counter[dt.date] = Counter()
+    for s in ss:
+        if s.lines_basis != LINES_ABSENT:
+            lines_by_day[s.local_day] += s.lines_added_agent
+    shipped = max(lines_by_day.items(), key=lambda kv: (kv[1], kv[0])) if lines_by_day else None
+    m["shipping_day"] = _metric(
+        shipped[0].isoformat() if shipped and shipped[1] > 0 else None,
+        "date",
+        len(lines_by_day),
+        lines_known[0].lines_basis if lines_known else LINES_ABSENT,
+        None if shipped and shipped[1] > 0 else "no lines were attributed on any day",
+        lines_added=shipped[1] if shipped else None,
+    )
+
     # ---- model mix
     tokens: Counter[str] = Counter()
     for s in ss:
@@ -725,6 +746,43 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
         {"model": mid, "output_tokens": n, "share": round(n / total_out, 4)}
         for mid, n in sorted(tokens.items(), key=lambda kv: (-kv[1], kv[0]))
         if n > 0
+    ]
+
+    # ---- the model that did most of the work
+    #
+    # The share is of OUTPUT TOKENS, which is the only per-model number that leaves a
+    # machine, so this is "which model wrote most of what you shipped" and not "which one
+    # you picked most often". Null rather than a guess when no tokens were reported at
+    # all: every harness but Claude Code is in that position (capture/harnesses.py).
+    m["default_model"] = _metric(
+        model_mix[0]["model"] if model_mix else None,
+        "model id",
+        len(model_mix),
+        "output_token_share",
+        None if model_mix else "no output tokens were reported by any session",
+        share=model_mix[0]["share"] if model_mix else None,
+    )
+
+    # ---- where each session stands
+    #
+    # Ranked by ATTENDED seconds, never active: an eight-hour autonomous run is not a
+    # personal record (CLAUDE.md, "Rank sessions by duration alone"). `unattended`
+    # sessions are excluded outright, which is the same rule the Mac uses for records.
+    ranked = sorted(
+        (s for s in ss if not s.unattended and s.attended_seconds > 0),
+        key=lambda s: (-s.attended_seconds, s.started_at),
+    )
+    session_rank = [
+        {
+            "rank": i + 1,
+            "session_id": s.session_id,
+            "attended_seconds": round(s.attended_seconds),
+            "active_seconds": round(s.active_seconds),
+            "started_at": dt.datetime.fromtimestamp(s.started_at, dt.UTC).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+        }
+        for i, s in enumerate(ranked[:5])
     ]
 
     sample = {
@@ -751,6 +809,10 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
         "metrics": m,
         "top_tools": top_tools,
         "model_mix": model_mix,
+        # The top five attended sessions and how many were eligible at all, so the phone
+        # can say "your longest attended session, 1 of 9" without ranking anything itself.
+        "session_rank": session_rank,
+        "ranked_sessions": len(ranked),
         "archetype": arch,
     }
     profile["facts"] = headline_facts(profile)
