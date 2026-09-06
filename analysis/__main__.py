@@ -601,6 +601,52 @@ def _cards(a) -> int:
     return 0
 
 
+def _recent_trends(facts):
+    """The last 30 days against the 30 before. Empty when there is not enough history,
+    which is the normal state for a first month and not an error."""
+    from . import profile as pf_mod
+    from . import trends as tr_mod
+
+    now = time.time()
+    edge, floor = now - 30 * 86400, now - 60 * 86400
+    recent = [f for f in facts if f.started_at >= edge]
+    earlier = [f for f in facts if floor <= f.started_at < edge]
+    if not recent or not earlier:
+        return []
+    return tr_mod.compare(pf_mod.corpus_profile(earlier), pf_mod.corpus_profile(recent))
+
+
+def _corpus_fanout(root: pathlib.Path):
+    """Every subagent across the corpus, as one `Fanout`. Never a token: see agents.py."""
+    from capture import discover
+
+    from . import agents as ag_mod
+
+    spans = [s for t in discover.iter_root_transcripts(root) for s in ag_mod.spans(t.path)]
+    if not spans:
+        return None
+    wall = max(s.ended_at for s in spans) - min(s.started_at for s in spans)
+    return ag_mod.fanout(spans, wall)
+
+
+def _corpus_contributions(facts):
+    """Commits by day, split by whether a sitting was running."""
+    from capture import repo as cap_repo
+
+    from . import contributions as co_mod
+
+    roots = sorted({f.repo for f in facts if f.repo})
+    if not roots or not facts:
+        return None
+    since = min(f.started_at for f in facts) - co_mod.LOOKBACK_SEC
+    commits = [ts for r in roots for _sha, ts in cap_repo.commits_in(r, since, time.time())]
+    if not commits:
+        return None
+    return co_mod.split(
+        commits, [(f.started_at, f.ended_at) for f in facts], facts[-1].tz_offset_minutes
+    )
+
+
 def _narrative_inputs(root: pathlib.Path):
     """(facts, session events) for the whole corpus: the one place both commands cut it."""
     import datetime as _dt
@@ -666,8 +712,17 @@ def _narrative(a) -> int:
         return 0
 
     prof = pf_mod.corpus_profile(facts)
+    # Everything else this machine can measure, so the page reflects the whole picture
+    # rather than the one module the prose happened to start from.
     kw = {"model": a.model} if a.model else {}
-    doc = nar.write(profile=prof, findings=found, **kw)
+    doc = nar.write(
+        profile=prof,
+        findings=found,
+        trends=_recent_trends(facts),
+        fanout=_corpus_fanout(pathlib.Path(a.path).expanduser()),
+        contributions=_corpus_contributions(facts),
+        **kw,
+    )
     text = json.dumps(doc, indent=1, ensure_ascii=False)
     if a.out:
         pathlib.Path(a.out).write_text(text)

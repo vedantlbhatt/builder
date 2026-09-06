@@ -66,6 +66,9 @@ def build_input(
     profile: Mapping,
     findings: Sequence,
     session_headlines: Sequence[str] = (),
+    trends: Sequence = (),
+    fanout: object = None,
+    contributions: object = None,
 ) -> str:
     """The user message: every measurement, laid out flat, nothing else.
 
@@ -98,6 +101,45 @@ def build_input(
         add("  Nothing cleared the bars: not enough sessions yet to compare two groups of")
         add("  them honestly. Do not invent a comparison. Write a shorter page from the")
         add("  archetype and the background numbers below, and say less.")
+
+    if trends:
+        add("")
+        add("HOW IT HAS MOVED since the window before this one. Second best material.")
+        add("A trend is something they can act on; a level is something they already knew.")
+        for t in trends:
+            if t.steady:
+                add(f"  {t.label}: steady, {t.before:g} then {t.now:g}")
+            else:
+                verdict = "" if t.good is None else (
+                    "  (the way they want it)" if t.good else "  (worth a look)"
+                )
+                add(
+                    f"  {t.label}: {t.direction} {abs(t.move) * 100:.0f}%, "
+                    f"{t.before:g} -> {t.now:g}{verdict}"
+                )
+
+    if fanout is not None and getattr(fanout, "agents", 0):
+        add("")
+        add("HOW MANY AGENTS THEY RUN AT ONCE")
+        add(
+            f"  {fanout.agents} agents, up to {fanout.max_concurrent} at the same moment, "
+            f"{fanout.agent_seconds / 3600:.1f} hours of agent work"
+        )
+        add(f"  {fanout.produced} of them produced something")
+        add(f"  by kind: {', '.join(f'{k} {v}' for k, v in fanout.by_type.items())}")
+
+    if contributions is not None and getattr(contributions, "total", 0):
+        share = contributions.assisted_share
+        add("")
+        add("THEIR COMMITS, split by whether an agent was in the room")
+        add(
+            f"  {contributions.total} commits over {contributions.active_days} days"
+            + (f", {round(share * 100)}% with an agent" if share is not None else "")
+        )
+        add(
+            f"  longest run of days they shipped: {contributions.longest_streak}, "
+            f"currently on {contributions.current_streak}"
+        )
 
     add("")
     add("THE ARCHETYPE THE RULES CHOSE")
@@ -242,11 +284,21 @@ def write(
     profile: Mapping,
     findings: Sequence = (),
     session_headlines: Sequence[str] = (),
+    trends: Sequence = (),
+    fanout: object = None,
+    contributions: object = None,
     model: str = rn.DEFAULT_MODEL,
 ) -> dict:
     """Generate the narrative through the user's own `claude`, verified. Raises
     `run.AnalysisError` when the CLI is missing or the call fails."""
-    source = build_input(profile=profile, findings=findings, session_headlines=session_headlines)
+    source = build_input(
+        profile=profile,
+        findings=findings,
+        session_headlines=session_headlines,
+        trends=trends,
+        fanout=fanout,
+        contributions=contributions,
+    )
     system = PROMPT_PATH.read_text()
     doc, envelope = rn.call_claude(system, source, load_schema(), model)
     doc, dropped = verify(doc, source)

@@ -230,6 +230,42 @@ rendered as muddy brown across most of a real strip, because a 71-minute session
 per column and most columns land in the lowest bucket. Density should modulate the colour,
 not dilute it.
 
+**Silence after the agent stopped is not the agent spinning.**
+`patterns._runs_with_nothing_to_show` credited the trailing stretch to the session's
+`ended_at` rather than to the last tool call, so every idle second after the work finished
+counted as the agent going nowhere. A sitting whose last 50 calls finished in 100 seconds
+and whose window ran two more hours reported a two hour stretch. The boundary rules
+deliberately extend `endedAt` by the trailing gap, which is right for active time and wrong
+for this: the corpus total was 2h11m and is 2h09m.
+
+**The subagent sidecars are 12,236 records nothing had ever read.** Excluding them from
+token counts is correct and it also made every agent invisible. `analysis/agents.py` reads
+them and NEVER contributes a token, a line or a commit: it answers how many agents, of what
+kind, running at once or one after another, and whether the delegation produced anything.
+MEASURED: 52 agents in one sitting, up to 8 at the same moment, 712 agent-minutes inside a
+1,159 minute stretch. Two rules that fail silently: discovery is an ALLOWLIST on path shape
+(50 of 165 jsonl files here are in sibling `workflows/` and `tool-results/` directories),
+and a handoff at the same instant is NOT two agents at once, or every consecutive chain
+reads as parallel.
+
+**A cost in tokens and the same cost in dollars can point opposite ways.** The sittings
+that ended with no commit were 23% of the output TOKENS and 1% of the money, because the
+quiet ones were cheap Sonnet sittings and every expensive Opus one shipped. The token
+version was a true sentence pointing at waste that was not there. `analysis/pricing.py` is
+the only place a price lives, it carries the day it was read, and the number is labelled
+API LIST PRICES everywhere: most people are on a subscription and "you spent $12" is false
+for them.
+
+**One rule is one function, even when the arguments are in a different order.** The build
+post migration first added a `repo_excluded_for_owner(repo, user)` beside the existing
+`session_repo_excluded(user, repo)`. `can_view_post` COALESCEs the pair out of whichever of
+the session or the post carries it and calls the one function.
+
+**A `JOIN` written when a post could only be about one session.** `can_view_post` and the
+feed query both INNER JOIN `sessions`, so a build post (0017) matched nothing: invisible to
+everyone including its author, and absent from every feed, with no error. The exclusion
+sweep had the same shape, deleting sessions and never reaching a post that has none.
+
 ## Commands
 
 ```bash
@@ -247,6 +283,13 @@ cd server && pytest            contract, RLS, boot guard, auth bootstrap
 make measure                   boundary rules over your corpus, read-only
 make analyze T=<jsonl>         digest + your own Claude Code -> SessionAnalysis
 python -m analysis probe DIR   what record shapes a foreign transcript store holds
+python -m analysis trends       how you build now against how you built before
+python -m analysis agents       several agents at once: who ran, and what landed
+python -m analysis rules --list failures that recurred across DIFFERENT sittings
+python -m analysis playbook     your prompts that landed, against the ones that cost
+python -m analysis contributions your commits, split by whether an agent was in the room
+python -m analysis cards        what this corpus gives you to put in a feed
+python -m analysis shipped      a build post: what you made, and what was hard
 make capture-test              the cloud uploader against the boundary fixtures and the contract
 python -m capture sync --dry-run   what a cloud container would upload, without sending
 curl $SERVER/v1/ingest/hook.sh   the Claude Code hook: nothing installed, sessions on the phone (docs/hooks-capture.md)
@@ -255,16 +298,17 @@ curl $SERVER/v1/ingest/hook.sh   the Claude Code hook: nothing installed, sessio
 Design notes worth reading before touching the corresponding code: `docs/session-boundaries.md`
 (when a session ends, two clocks, three cuts), `docs/analysis.md` (the digest rules and the
 prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/social.md`
-(the layer that is deliberately small).
+(the layer that is deliberately small), `docs/analysis-complete.md` (the two kinds of
+analysis, every metric, and the nine things this codebase refuses to compute).
 
 ## What each suite is actually for
 
 | suite | n | protects |
 |---|---|---|
 | `swift test` | 138 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
-| `bun test` | 393 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes, per-frame change ceiling, that every one of them faces forward and that each loop moves at least three parts; the profile screen's archetype wording and its closest-rule fallback |
-| `pytest` | 125 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
-| `unittest` (analysis/) | 168 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
+| `bun test` | 424 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes, per-frame change ceiling, that every one of them faces forward and that each loop moves at least three parts; the profile screen's archetype wording and its closest-rule fallback |
+| `pytest` | 149 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
+| `unittest` (analysis/) | 455 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
 | `make capture-test` | 74 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth, and that every other harness discovers, dedupes and uploads |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 

@@ -9,6 +9,12 @@ WHAT YOU ARE GIVEN
   - comparative findings: two groups of their own sessions and the gap between them.
     These are the best material you have. They are already checked for sample size and
     effect, and each one already names a cost or a move.
+  - how those metrics have MOVED since the window before this one, when there is enough
+    history for it. A trend is the second best material you have: a level is something
+    they already knew about themselves, a change is news.
+  - how many agents they run at once, when they run more than one
+  - their commits split by whether an agent was in the room, which is a fact about their
+    work nobody else can tell them
   - the headlines of their recent sessions, if any have been analysed
 
 RULES, in order of how badly breaking them hurts
