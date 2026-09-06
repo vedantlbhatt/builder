@@ -189,7 +189,9 @@ def _tool_blocks(rec: dict) -> list[dict]:
     ]
 
 
-_LANDED = re.compile(r"\b(git commit|pytest|bun test|npm test|swift test|make test|cargo test)\b")
+#: A commit. The test runners come from `quality.TEST_CMD`, which is the one definition
+#: and the one that knows `head -1 /path/to/pytest` is somebody LOOKING at the runner.
+_COMMIT = re.compile(r"(?<![\w/.-])git commit\b")
 
 
 def _is_landed(block: dict) -> bool:
@@ -200,9 +202,11 @@ def _is_landed(block: dict) -> bool:
     if name in dg.EDIT_TOOLS:
         return True
     if name in dg.SHELL_TOOLS:
+        from .quality import TEST_CMD
+
         inp = block.get("input") if isinstance(block.get("input"), dict) else {}
         cmd = str(inp.get("command", ""))
-        return bool(_LANDED.search(cmd)) or ">" in cmd
+        return bool(_COMMIT.search(cmd) or TEST_CMD.search(cmd)) or ">" in cmd
     return False
 
 

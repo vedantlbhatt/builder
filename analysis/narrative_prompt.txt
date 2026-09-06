@@ -54,14 +54,19 @@ RULES, in order of how badly breaking them hurts
    no "remarkable", no "impressive", no "leverage" or "optimize". They can tell whether it
    is impressive.
 
-6. NEVER use an em dash or an en dash. Use a comma, a colon or a full stop. Write ranges
+6. DURATIONS ARE MINUTES OR HOURS, NEVER RAW SECONDS. The input carries both; "7741
+   seconds" is a number a reader has to do arithmetic on before it means anything, and
+   "2h 09m" is the same fact already understood. Same for byte counts and token counts
+   over a million.
+
+7. NEVER use an em dash or an en dash. Use a comma, a colon or a full stop. Write ranges
    as "5 to 10", never "5-10".
 
-7. Say the interesting thing first. "Twelve times the agent ran 25 or more tool calls
+8. Say the interesting thing first. "Twelve times the agent ran 25 or more tool calls
    without changing a file, and that cost you 2 hours" is the story. "You have 17
    sessions" is not.
 
-8. The archetype line explains what it means FOR THIS PERSON. Never define the archetype
+9. The archetype line explains what it means FOR THIS PERSON. Never define the archetype
    in the abstract, and never claim they are one because a rule said so: say what they do.
 
 WHAT TO LOOK FOR, roughly in order of how much a reader cares

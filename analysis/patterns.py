@@ -71,9 +71,9 @@ REWORK_WRITES = 4
 NIGHT_FROM = 22
 DAY_BOUNDARY_HOUR = 4
 
-_TEST_CMD = re.compile(
-    r"\b(pytest|bun test|npm test|swift test|jest|cargo test|go test|make test)\b"
-)
+#: Running the tests, imported rather than re-written: three regexes that drift produce
+#: three different answers to "how often do you test" and no way to tell which is right.
+from .quality import TEST_CMD as _TEST_CMD
 _COMMIT_CMD = re.compile(r"\bgit commit\b")
 
 

@@ -46,6 +46,11 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    ql = sub.add_parser(
+        "quality", help="how long it takes you to get back to green, and what passed first try"
+    )
+    ql.add_argument("path", nargs="?", default="~/.claude/projects")
+    ql.add_argument("--days", type=int, default=30, help="how far back to look (default 30)")
     co = sub.add_parser(
         "contributions",
         help="your commits by day, split by whether an agent was in the room",
@@ -128,6 +133,9 @@ def main() -> int:
         print(json.dumps(prof, indent=1, default=str))
         return 0
 
+    if a.cmd == "quality":
+        return _quality(a)
+
     if a.cmd == "contributions":
         return _contributions(a)
 
@@ -183,6 +191,45 @@ def main() -> int:
     else:
         print(text)
     return 0
+
+
+def _quality(a) -> int:
+    """Two of DORA's four questions, for one person. The other two are refused: see
+    `analysis/quality.py` for the measurement that forced it."""
+    from . import quality as q_mod
+
+    facts, sessions = _narrative_inputs(pathlib.Path(a.path).expanduser())
+    cutoff = time.time() - a.days * 86400
+    picked = [s for f, s in zip(facts, sessions, strict=True) if f.started_at >= cutoff]
+    stats = q_mod.summary(picked)
+    if stats["first_try_rate"] is None:
+        sys.stderr.write(f"{stats['reason']}.\n")
+        return 0
+
+    print(
+        f"{stats['runs']} test runs in the last {a.days} days: {stats['passed']} passed, "
+        f"{stats['failed']} failed. {round(stats['first_try_rate'] * 100)}% were already green."
+    )
+    ttg = stats["time_to_green"]
+    if ttg is None:
+        print(f"\nNothing failed and then passed in one sitting ({stats['reason']}).")
+        return 0
+    print(
+        f"\nBack to green in {_hm(ttg['median_seconds'])} at the median, "
+        f"{_hm(ttg['worst_seconds'])} at the worst, over {ttg['n']} recover"
+        f"{'y' if ttg['n'] == 1 else 'ies'}."
+    )
+    print(f"It takes {ttg['median_attempts']} test runs to get there, typically.\n")
+    for g in sorted(q_mod.recoveries(picked), key=lambda g: -g.seconds)[:5]:
+        print(f"  {_hm(g.seconds):>10}  {g.attempts} runs   {g.command[:64]}")
+    return 0
+
+
+def _hm(seconds: float) -> str:
+    m = round(seconds / 60)
+    if m < 1:
+        return "under a minute"
+    return f"{m} min" if m < 60 else f"{m // 60}h {m % 60:02d}m"
 
 
 def _contributions(a) -> int:
