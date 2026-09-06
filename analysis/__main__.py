@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import datetime as dt
 import json
 import pathlib
 import sys
+import time
 
 from . import digest as dg
 
@@ -44,6 +46,20 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    sh = sub.add_parser(
+        "shipped",
+        help="draft a build post: what you made in a window, and what was hard about it",
+    )
+    sh.add_argument("path", nargs="?", default="~/.claude/projects")
+    sh.add_argument("--repo", help="only this repository (matched on the directory name)")
+    sh.add_argument("--days", type=int, default=7, help="how far back to look (default 7)")
+    sh.add_argument("--out")
+    sh.add_argument("--model", default=None)
+    sh.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print what the model would be shown and stop, without calling it",
+    )
     bg = sub.add_parser(
         "cards", help="the postable cards: what this corpus gives you to put in a feed"
     )
@@ -73,6 +89,9 @@ def main() -> int:
             return 0
         print(json.dumps(prof, indent=1, default=str))
         return 0
+
+    if a.cmd == "shipped":
+        return _shipped(a)
 
     if a.cmd == "cards":
         return _cards(a)
@@ -111,6 +130,132 @@ def main() -> int:
     else:
         print(text)
     return 0
+
+
+def _shipped(a) -> int:
+    """One repository, one window, one draft post about what got built in it."""
+    import datetime as _dt
+
+    from capture import repo as cap_repo
+
+    from . import shipped as sh
+
+    facts, sessions = _narrative_inputs(pathlib.Path(a.path).expanduser())
+    cutoff = time.time() - a.days * 86400
+    picked = [(f, s) for f, s in zip(facts, sessions, strict=True) if f.started_at >= cutoff]
+    if a.repo:
+        picked = [(f, s) for f, s in picked if f.repo and a.repo.lower() in f.repo.lower()]
+    if not picked:
+        sys.stderr.write(
+            f"no sessions in the last {a.days} days"
+            + (f" in a repository matching {a.repo!r}" % () if a.repo else "")
+            + ". Nothing to write a post about.\n"
+        )
+        return 0
+
+    # ONE repository per post. A post that spans two projects is two posts, and a reader
+    # cannot tell which half of it they are looking at. The busiest one wins when the
+    # window covers several and `--repo` did not narrow it.
+    by_repo = collections.Counter(f.repo for f, _ in picked if f.repo)
+    root = by_repo.most_common(1)[0][0] if by_repo else None
+    picked = [(f, s) for f, s in picked if f.repo == root]
+    project = pathlib.Path(root).name if root else "this project"
+
+    commits = _commit_messages(root, cutoff) if root else []
+    files = sorted({e.path.rsplit("/", 1)[-1] for _, s in picked for e in s.events if e.path})[:40]
+    struggle_list = sh.struggles([s for _, s in picked], commits)
+    dependencies = sh.stack_evidence(root)
+    summaries = _stored_summaries([f.session_id for f, _ in picked])
+
+    since = _dt.date.fromtimestamp(cutoff)
+    source = sh.build_input(
+        project=project,
+        since=since,
+        until=_dt.date.today(),
+        session_summaries=summaries,
+        commits=commits,
+        files=files,
+        struggle_list=struggle_list,
+        dependencies=dependencies,
+    )
+    if a.dry_run:
+        print(source)
+        sys.stderr.write(
+            f"\n{len(picked)} session(s) in {project}, {len(commits)} commit(s), "
+            f"{len(struggle_list)} measured struggle(s), {len(summaries)} analysed. "
+            f"Nothing was sent.\n"
+        )
+        return 0
+
+    kw = {"model": a.model} if a.model else {}
+    doc = sh.write(
+        project=project,
+        since=since,
+        until=_dt.date.today(),
+        session_summaries=summaries,
+        commits=commits,
+        files=files,
+        struggle_list=struggle_list,
+        dependencies=dependencies,
+        **kw,
+    )
+    text = json.dumps(doc, indent=1, ensure_ascii=False)
+    if a.out:
+        pathlib.Path(a.out).write_text(text)
+        sys.stderr.write(f"wrote {a.out}\n")
+    else:
+        print(text)
+    return 0
+
+
+def _commit_messages(common_root: str | None, since: float) -> list[str]:
+    """Commit SUBJECTS in the window, from capture's own git runner.
+
+    Subjects only: a body can run to forty lines in a repository with a commit-message
+    convention, and the post needs to know what landed, not to read the reasoning again.
+    """
+    from capture import repo as cap_repo
+    from capture.tuning import GIT_EXCLUDE_PATHSPECS
+
+    if not common_root:
+        return []
+    out = cap_repo._git(
+        [
+            "log",
+            f"--since=@{since:.0f}",
+            "--pretty=format:%s",
+            "--no-merges",
+            "--",
+            *GIT_EXCLUDE_PATHSPECS,
+        ],
+        common_root,
+    )
+    return [line for line in (out or "").splitlines() if line.strip()][:40]
+
+
+def _stored_summaries(session_ids: list[str]) -> list[dict]:
+    """Any analyses this machine has already written for these sessions.
+
+    Read from the capture state file rather than recomputed: an analysis costs a model
+    call, and drafting a post is not a reason to spend one per session in the window.
+    """
+    from capture import client as cl
+
+    state = cl.read_json(cl.state_path()) or {}
+    cache = state.get("analysis") or {}
+    out = []
+    for sid in session_ids:
+        body = cache.get(sid)
+        if not isinstance(body, dict):
+            continue
+        out.append(
+            {
+                "headline": body.get("headline"),
+                "summary": body.get("summary"),
+                "highlights": body.get("highlights") or [],
+            }
+        )
+    return out
 
 
 def _cards(a) -> int:
@@ -225,6 +370,7 @@ def _corpus_facts(root: pathlib.Path) -> tuple[list, list]:
     excluded: their numbers move every minute, so a profile that included them would
     disagree with itself between two runs.
     """
+    import dataclasses
     import datetime as _dt
 
     from capture import discover
@@ -290,11 +436,14 @@ def _corpus_facts(root: pathlib.Path) -> tuple[list, list]:
     # reported 92 commits where the repository had 68.
     from capture import repo as cap_repo
 
-    facts = pf_mod.attribute_commits(
-        facts,
-        [s.repo.common_root if s.repo else None for s in kept],
-        cap_repo.commits_in,
-    )
+    roots = [s.repo.common_root if s.repo else None for s in kept]
+    # WHICH repository, on the fact itself. Without it every session looks like it ran in
+    # the same place, which makes `_corpus_commits` treat one machine's whole corpus as a
+    # single repo and refuse the total for overlaps that are not overlaps, and leaves a
+    # build post with no commits to describe. FOUND BY RUNNING `shipped --dry-run`, which
+    # reported "0 commits" for a window with nine of them in it.
+    facts = [dataclasses.replace(f, repo=r) for f, r in zip(facts, roots, strict=True)]
+    facts = pf_mod.attribute_commits(facts, roots, cap_repo.commits_in)
     return facts, kept
 
 

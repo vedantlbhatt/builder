@@ -1,0 +1,142 @@
+{
+  "_comment": [
+    "THE BUILD POST. What somebody made, written so another builder would want to look.",
+    "",
+    "spec/analysis.v1.json is about the PERSON: build style, dimensions, archetype,",
+    "prompting, growth edge. Four of its seventeen fields describe the work. That is the",
+    "right shape for a private profile and the wrong shape for a feed, because nobody has",
+    "ever stopped scrolling for somebody else's steering score. This spec is the other",
+    "half: what got made, what it does now that it did not before, and what was hard.",
+    "",
+    "scripts/gen_shipped.py emits, all committed, all `git diff --exit-code`'d in CI:",
+    "  analysis/shipped_schema.json       handed to `claude -p --json-schema`",
+    "  server/builder/shipped_spec.py     Pydantic, extra='forbid', on the way into Postgres",
+    "  mobile/src/generated/shipped.ts    what the feed renders",
+    "",
+    "THE HARD PART IS THE POST. `hard_part` is the field this whole spec exists for.",
+    "'I built a transit app' is a sentence. 'The map kept dropping overlays because the",
+    "native layer applies inserts before removes' is a post, and it is the one thing in",
+    "here another builder cannot get anywhere else. It is grounded in measured evidence,",
+    "never in a guess: the failure loops, the rewritten files and the runs that produced",
+    "nothing are handed to the model as the candidates, and it picks among them.",
+    "",
+    "WHAT IS DELIBERATELY NOT HERE: no hours, no token counts, no dollar figures, no",
+    "archetype, no scores. Those live on the profile. A build post that leads with how",
+    "long it took is a post about the poster."
+  ],
+  "version": 1,
+  "max_lengths": {
+    "line": 100,
+    "sentence": 200,
+    "para": 400,
+    "short": 60
+  },
+  "enums": {
+    "stage": ["idea", "prototype", "working", "shipped", "maintaining"]
+  },
+  "objects": {
+    "ShippedChange": [
+      {
+        "name": "text",
+        "type": "string",
+        "max": "sentence",
+        "doc": "one thing that is now possible that was not before, in plain words. Not a commit message, not a file name."
+      },
+      {
+        "name": "evidence",
+        "type": "string",
+        "max": "sentence",
+        "nullable": true,
+        "doc": "what in the work shows it: a commit, a test, a number the input gave you. Null when the input only described it."
+      }
+    ]
+  },
+  "fields": [
+    {
+      "name": "what",
+      "type": "string",
+      "max": "line",
+      "doc": "one line: what this is. Written for somebody who has never seen the project. Not the repo name, not a commit message, no jargon a non-programmer would miss."
+    },
+    {
+      "name": "why",
+      "type": "string",
+      "max": "sentence",
+      "nullable": true,
+      "doc": "who it is for and what it lets them do, in one sentence. Null when the work genuinely does not say, which is better than a guess."
+    },
+    {
+      "name": "stage",
+      "type": "enum",
+      "values": "stage",
+      "doc": "how far along it is, from what the work shows. Tests and commits say working; a first scaffold says prototype."
+    },
+    {
+      "name": "changes",
+      "type": "list",
+      "item": "ShippedChange",
+      "min_items": 1,
+      "max_items": 4,
+      "doc": "what is new since last time, each a thing somebody could try. Never a list of files touched."
+    },
+    {
+      "name": "hard_part",
+      "type": "string",
+      "max": "para",
+      "nullable": true,
+      "doc": "the thing that was genuinely difficult, and what it turned out to be. THE FIELD THIS SPEC EXISTS FOR. Grounded in the evidence you were given, never invented. Null when nothing in the work was hard, which is a real answer."
+    },
+    {
+      "name": "stack",
+      "type": "list",
+      "item": "string",
+      "max": "short",
+      "max_items": 6,
+      "doc": "technologies actually visible in the work. Never inferred from the kind of project it looks like."
+    },
+    {
+      "name": "demo",
+      "type": "string",
+      "max": "sentence",
+      "nullable": true,
+      "doc": "the one screenshot or clip that would show this off, named concretely. Null when there is nothing visual to show."
+    },
+    {
+      "name": "next",
+      "type": "string",
+      "max": "sentence",
+      "nullable": true,
+      "doc": "what is obviously next, only when the work itself says so (a TODO, a failing test left in, a stated intent). Null otherwise."
+    },
+    {
+      "name": "shipped_version",
+      "type": "int",
+      "stamped": true,
+      "doc": "== spec version. A retuned prompt is a recompute, not a migration."
+    },
+    {
+      "name": "model",
+      "type": "string",
+      "max": "short",
+      "stamped": true,
+      "doc": "model id that wrote this, as reported by claude -p"
+    },
+    {
+      "name": "generated_at",
+      "type": "datetime",
+      "stamped": true
+    },
+    {
+      "name": "dashes_rewritten",
+      "type": "int",
+      "stamped": true,
+      "doc": "dashes rewritten as commas after the fact. Rewritten, never rejected."
+    },
+    {
+      "name": "unsupported_claims_dropped",
+      "type": "int",
+      "stamped": true,
+      "doc": "claims deleted for naming a technology or a fact the work never showed. Above zero means the check is doing work."
+    }
+  ]
+}
