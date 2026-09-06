@@ -8,7 +8,7 @@ Two documents about one person, and confusing them is how this got useless twice
 | answers | what happened just now | how you build, and whether it is changing |
 | written by | a model, from a digest | arithmetic, then a model for the prose |
 | shape | an overlay you read once | a page you come back to |
-| lives in | `spec/analysis.v1.json` | `analysis/profile.py` + `analysis/trends.py` |
+| lives in | `spec/analysis.v1.json` | `analysis/profile.py`, `analysis/trends.py`, `spec/report.v1.json` |
 | feedback | yes, about THIS sitting | yes, about the shape of your months |
 
 Everything below is measured on this container's own corpus unless it says otherwise.
@@ -159,6 +159,45 @@ percentage (`0.44` said as `44%`). Both deleted **correct** sentences.
 
 ---
 
+## 3. How it reaches the phone
+
+Everything above was, for a while, a set of commands that printed to a terminal. A
+measurement nobody sees is a measurement that did not happen, so there is now one document
+that carries all of it: `spec/report.v1.json`.
+
+```
+python -m capture report  ->  PUT /v1/profile/report  ->  GET /v1/profile/builder
+```
+
+**The server computes none of it and cannot.** Each block rests on something the upload
+contract does not put on the wire:
+
+| block | needs | which is |
+|---|---|---|
+| `trends` | the metrics over two windows | recomputable, kept here so one document describes one moment |
+| `agents` | the subagent SIDECAR transcripts | files on your machine, uploaded by nothing |
+| `quality` | shell command TEXT | a `pytest` from a `git status`; the server has a count of Bash calls |
+| `prompting` | prompt TEXT | never leaves; only the two counts do |
+| `contributions` | commit TIMES against session windows | the server has a count per session, no timestamps |
+
+**What is deliberately NOT in it.** `analysis/rules.py` writes CLAUDE.md lines quoting
+error text, which carries paths and file names, so it stays on the machine and writes to a
+file there. The playbook holds prompt text on purpose — that is what it prints locally —
+and `report._prompting` is the only function that reads attempts and is also uploaded. It
+reads five numbers and no words.
+
+**Every string in the document comes from a fixed table in this repository**: a metric key,
+a label from `trends.LABEL`, a subagent type the harness named, an ISO date, or a refusal
+reason a module wrote. A test asserts that set, so adding a field that carries an excerpt
+means arguing for it there first.
+
+The three documents under `GET /v1/profile/builder` are different kinds of thing and the
+route says so: `builder_profile` aggregates the model-written session analyses,
+`corpus` is computed server-side from stored sessions, and `report` is measured on the
+machine. A block that is null does not render. A refused rate renders its reason.
+
+---
+
 ## Where each thing runs
 
 ```
@@ -167,6 +206,8 @@ transcripts on your machine
   -> analysis.profile / patterns       arithmetic, every metric with its basis
   -> analysis.agents                   the sidecars, never counted
   -> analysis.trends                   this window against the last
+  -> analysis.quality / playbook       time to green, and prompts that landed clean
+  -> analysis.report                   one document, all of it, numbers only
   -> analysis.narrative / shipped      claude -p, then verify, then dedash
   -> the server                        validated against the same spec, stored
   -> the phone                         printed verbatim
@@ -184,4 +225,6 @@ python -m analysis playbook       your prompts, both piles
 python -m analysis cards          what is postable
 python -m analysis shipped        a build post
 python -m analysis narrative      the prose
+python -m analysis report         all of the above as one document, exactly as uploaded
+python -m capture report          measure it and put it on the profile
 ```

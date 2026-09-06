@@ -381,3 +381,52 @@ def put_builder_narrative(db, user_id: str, doc: dict) -> None:
             "b": json.dumps(doc),
         },
     )
+
+
+# ------------------------------------------------------------------------- report
+def builder_report(db, user_id: str) -> dict | None:
+    """The stored measured report, or None if this account's machine has never sent one.
+
+    None is the normal state for somebody who has only ever used the phone, and it is not
+    the same thing as an empty report: `corpus_metrics` still fills the profile from the
+    stored sessions. What is missing without this row is everything the wire cannot carry
+    — subagents, shell commands, prompt shape, commit times — and the phone says so rather
+    than drawing empty cards.
+    """
+    row = db.execute(
+        text("SELECT body FROM builder_report WHERE user_id = :u"),
+        {"u": user_id},
+    ).first()
+    return row.body if row else None
+
+
+def put_builder_report(db, user_id: str, doc: dict) -> None:
+    """Replace this person's report with `doc`, which the caller has already validated.
+
+    One row per user, upserted, no history: a report describes the corpus as it stands,
+    and the previous one describes a corpus that no longer exists. `window_days` is lifted
+    out of the body beside `report_version` for the reason the version is: a reader
+    deciding whether to recompute needs both without parsing the document.
+    """
+    db.execute(
+        text(
+            """
+            INSERT INTO builder_report
+              (user_id, report_version, generated_at, window_days, body)
+            VALUES (:u, :v, :g, :w, CAST(:b AS jsonb))
+            ON CONFLICT (user_id) DO UPDATE SET
+              report_version = EXCLUDED.report_version,
+              generated_at = EXCLUDED.generated_at,
+              window_days = EXCLUDED.window_days,
+              body = EXCLUDED.body,
+              updated_at = now()
+            """
+        ),
+        {
+            "u": user_id,
+            "v": doc["report_version"],
+            "g": doc["generated_at"],
+            "w": doc["window_days"],
+            "b": json.dumps(doc),
+        },
+    )

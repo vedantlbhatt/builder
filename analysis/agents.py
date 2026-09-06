@@ -24,9 +24,18 @@ CONSECUTIVE AND CONCURRENT ARE DIFFERENT QUESTIONS and both matter:
     clock into four hours of work, and the thing that makes a session impossible to read
     as a single timeline
 
-`parallelism` below is the ratio of agent-seconds to wall seconds, which is the honest
-statement of that: 1.0 is one agent at a time, 4.0 is four hours of agent work inside one
-hour of your life.
+`parallelism` below is agent-seconds over BUSY seconds — the union of the spans, not the
+stretch they sit in — so it reads "while agents were running, this many were running at
+once". 1.0 is one at a time and 4.0 is four at once, in both directions.
+
+WHY NOT AGENT-SECONDS OVER WALL SECONDS, which is what this was first. Over one sitting
+the two agree closely and both read as "four hours of work inside one hour of your life".
+Over a CORPUS they do not: measured on this container, 53 agents did 11.9 hours of work
+inside a 19.3 hour stretch, and agent-over-wall reported `0.61x` for a run whose peak was
+EIGHT AT ONCE. A concurrency number below one is not a small amount of concurrency, it is
+a denominator that has stopped meaning anything, and it would have been printed beside
+`max_concurrent: 8` with no way for a reader to tell which was wrong. Busy seconds give
+the same number over a sitting and a true one over a year.
 """
 
 from __future__ import annotations
@@ -89,14 +98,29 @@ class Fanout:
     max_concurrent: int
     #: Total seconds of agent work, which can far exceed the sitting itself.
     agent_seconds: float
+    #: The stretch the agents sit in: first start to last end, or the sitting itself.
     wall_seconds: float
+    #: How much of that stretch had AT LEAST ONE agent running. The union of the spans,
+    #: so overlapping agents are counted once, and always <= wall_seconds.
+    busy_seconds: float
     by_type: dict[str, int]
     spans: tuple[AgentSpan, ...]
 
     @property
     def parallelism(self) -> float:
-        """Agent-seconds per wall second. 1.0 is one at a time, 4.0 is four at once."""
-        return round(self.agent_seconds / self.wall_seconds, 2) if self.wall_seconds > 0 else 0.0
+        """Agents in flight on average WHILE ANY WERE. 1.0 is one at a time, 4.0 is four.
+
+        Never below 1.0 when anything ran, which is the property agent-over-wall did not
+        have and the reason this denominator is the union rather than the stretch.
+        """
+        return round(self.agent_seconds / self.busy_seconds, 2) if self.busy_seconds > 0 else 0.0
+
+    @property
+    def busy_share(self) -> float:
+        """How much of the stretch had an agent in it. The other half of the question
+        agent-over-wall was trying to answer, kept separate because it is a different
+        one: 0.61 of nineteen hours had an agent running, and up to eight at a time."""
+        return round(self.busy_seconds / self.wall_seconds, 2) if self.wall_seconds > 0 else 0.0
 
     @property
     def produced(self) -> int:
@@ -296,7 +320,15 @@ def fanout(agent_spans: Sequence[AgentSpan], wall_seconds: float) -> Fanout:
     # Ends before starts at the same instant: a handoff is not two agents at once.
     events.sort(key=lambda e: (e[0], e[1]))
     current = peak = 0
-    for _, delta in events:
+    busy = 0.0
+    last = events[0][0] if events else 0.0
+    for at, delta in events:
+        # Time since the previous endpoint counted once if anything was running through
+        # it. This is the union of the spans, computed in the sweep that is already here
+        # rather than by merging intervals a second time somewhere else.
+        if current > 0:
+            busy += at - last
+        last = at
         current += delta
         peak = max(peak, current)
 
@@ -309,6 +341,7 @@ def fanout(agent_spans: Sequence[AgentSpan], wall_seconds: float) -> Fanout:
         max_concurrent=max(peak, 1 if agent_spans else 0),
         agent_seconds=sum(s.seconds for s in agent_spans),
         wall_seconds=wall_seconds,
+        busy_seconds=busy,
         by_type=dict(by_type),
         spans=tuple(agent_spans),
     )

@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
 import type { BuilderNarrative } from '../generated/narrative';
+import type { BuilderReport } from '../generated/report';
 import type { Archetype, Dimension, SessionAnalysis } from '../generated/analysis';
 
 /**
@@ -354,6 +355,17 @@ export interface BuilderProfileResponse {
    * then shows what it always showed rather than an empty section.
    */
   narrative?: BuilderNarrative | null;
+  /**
+   * The MEASURED half of the profile: trends against the window before, subagent
+   * fan-out, commits split by whether an agent was in the room, time to green, and how
+   * often a prompt lands clean. The server computes none of it — it rests on sidecar
+   * transcripts, shell command text, prompt text and commit times, none of which the
+   * upload contract puts on the wire — so it arrives from `python -m capture report`.
+   *
+   * Null until that has run; optional on READ because a server older than 0018 omits the
+   * key. Both are the same thing on screen: the sections are absent, not empty.
+   */
+  report?: BuilderReport | null;
 }
 
 // ------------------------------------------------------------------ social

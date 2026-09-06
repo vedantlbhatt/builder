@@ -30,6 +30,7 @@ extend-exclude = [
   "builder/analysis_spec.py",
   "builder/narrative_spec.py",
   "builder/shipped_spec.py",
+  "builder/report_spec.py",
 ]
 
 [tool.ruff.lint]

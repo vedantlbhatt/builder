@@ -343,6 +343,15 @@ class Client:
         """
         return self._authenticated("PUT", "/v1/profile/narrative", doc)
 
+    def put_report(self, doc: dict) -> dict:
+        """PUT /v1/profile/report: the measured half of the profile.
+
+        Same shape as `put_narrative` and for the same reason — one document per person,
+        replaced rather than appended. Unlike the narrative no model was involved, so this
+        one is cheap enough to run on a schedule.
+        """
+        return self._authenticated("PUT", "/v1/profile/report", doc)
+
     def upload(self, sessions: list[dict], chunk_size: int = 200) -> dict:
         """POST /v1/sync/sessions:batch in chunks of 200, as the Mac does."""
         accepted = unchanged = 0

@@ -46,6 +46,18 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    rp = sub.add_parser(
+        "report",
+        help="the whole builder report as one JSON document, exactly as it is uploaded",
+    )
+    rp.add_argument("path", nargs="?", default="~/.claude/projects")
+    rp.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help=f"the window, and the length of each trend window (default {rp_default()})",
+    )
+    rp.add_argument("--out")
     ql = sub.add_parser(
         "quality", help="how long it takes you to get back to green, and what passed first try"
     )
@@ -132,6 +144,9 @@ def main() -> int:
             return 0
         print(json.dumps(prof, indent=1, default=str))
         return 0
+
+    if a.cmd == "report":
+        return _report(a)
 
     if a.cmd == "quality":
         return _quality(a)
@@ -382,8 +397,8 @@ def _agents(a) -> int:
     for name, fo in sorted(rows, key=lambda r: -r[1].agents)[:6]:
         print(
             f"  {name[:8]}  {fo.agents} agents, up to {fo.max_concurrent} at once, "
-            f"{fo.agent_seconds / 60:.0f} agent-minutes in a {fo.wall_seconds / 60:.0f} minute "
-            f"stretch ({fo.parallelism}x)"
+            f"{fo.agent_seconds / 60:.0f} agent-minutes over {fo.busy_seconds / 60:.0f} busy "
+            f"minutes ({fo.parallelism}x) in a {fo.wall_seconds / 60:.0f} minute stretch"
         )
         for sp in sorted(fo.spans, key=lambda s: -s.landed)[:3]:
             print(
@@ -648,14 +663,19 @@ def _cards(a) -> int:
     return 0
 
 
-def _recent_trends(facts):
-    """The last 30 days against the 30 before. Empty when there is not enough history,
-    which is the normal state for a first month and not an error."""
+def _recent_trends(facts, window_days: int = 30):
+    """The last `window_days` against the `window_days` before. Empty when there is not
+    enough history, which is the normal state for a first month and not an error.
+
+    The two windows are always the SAME LENGTH. A window against all of history reports
+    the trend of the corpus growing, and a 7 day window labelled "on last month" is a
+    wrong sentence attached to a right number.
+    """
     from . import profile as pf_mod
     from . import trends as tr_mod
 
     now = time.time()
-    edge, floor = now - 30 * 86400, now - 60 * 86400
+    edge, floor = now - window_days * 86400, now - 2 * window_days * 86400
     recent = [f for f in facts if f.started_at >= edge]
     earlier = [f for f in facts if floor <= f.started_at < edge]
     if not recent or not earlier:
@@ -731,6 +751,42 @@ def _narrative_inputs(root: pathlib.Path):
     return facts, events
 
 
+def rp_default() -> int:
+    """The report's default window, read from the module that owns it rather than typed
+    into the help text a second time."""
+    from . import report as rp_mod
+
+    return rp_mod.DEFAULT_WINDOW_DAYS
+
+
+def _report(a) -> int:
+    """The builder report: every measured block, assembled and printed.
+
+    This is the document `python -m capture report` uploads, byte for byte — the same
+    function builds it — so printing it here is the honest way to see what would leave the
+    machine before any of it does.
+    """
+    from . import report as rp_mod
+
+    root = pathlib.Path(a.path).expanduser()
+    facts, sessions = _narrative_inputs(root)
+    days = a.days or rp_mod.DEFAULT_WINDOW_DAYS
+    doc = rp_mod.build(
+        trends=_recent_trends(facts, days),
+        fanout=_corpus_fanout(root),
+        contributions=_corpus_contributions(facts),
+        sessions=sessions,
+        window_days=days,
+    )
+    text = json.dumps(doc, indent=1, ensure_ascii=False)
+    if a.out:
+        pathlib.Path(a.out).write_text(text)
+        sys.stderr.write(f"wrote {a.out}\n")
+    else:
+        print(text)
+    return 0
+
+
 def _narrative(a) -> int:
     """profile + findings -> `claude -p` -> the page, printed or written.
 
@@ -796,7 +852,6 @@ def _corpus_facts(root: pathlib.Path) -> tuple[list, list]:
 
     from capture import discover
     from capture import sessions as cap
-    from capture.tuning import COUNTED_MIN_ACTIVE_SEC, COUNTED_MIN_MEANINGFUL_EVENTS
 
     from . import profile as pf_mod
 
@@ -806,9 +861,10 @@ def _corpus_facts(root: pathlib.Path) -> tuple[list, list]:
 
     facts, kept = [], []
     for s in cut:
-        meaningful = sum(1 for e in s.events if e.kind in ("prompt", "tool", "human_edit"))
-        active = s.attended + s.autonomous
-        if active < COUNTED_MIN_ACTIVE_SEC and meaningful < COUNTED_MIN_MEANINGFUL_EVENTS:
+        # `capture.sessions.is_counted`, not a second copy of the rule: it is what decides
+        # `visible` on the wire, and a private reimplementation here is a definition of
+        # "a session" that can drift from the one the phone uses.
+        if not cap.is_counted(s):
             continue
         # Output tokens per model come from the reference LEDGER (deduped on
         # `(source_id, message.id)`, sidechain and `<synthetic>` records excluded), never

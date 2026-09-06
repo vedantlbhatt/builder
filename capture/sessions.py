@@ -124,6 +124,20 @@ def uploaded_tool_counts(events: list[digest.Ev], harness: str) -> dict[str, int
 _MEANINGFUL_EV_KINDS = frozenset({"prompt", "tool", "human_edit"})
 
 
+def is_counted(s) -> bool:
+    """Whether a sitting is big enough to be one at all. THE ONE DEFINITION.
+
+    It decides `visible` on the wire, which decides the population every server-side
+    aggregate runs over, so anything measuring this machine's corpus has to use the same
+    rule or it describes a different person than the phone does. It was written out twice
+    — here and in `analysis/__main__.py` — and the second copy drifting is how the report
+    came to attribute seven commits to sessions the phone does not show.
+    """
+    active = s.attended + s.autonomous
+    meaningful = sum(1 for e in s.events if e.kind in _MEANINGFUL_EV_KINDS)
+    return active >= COUNTED_MIN_ACTIVE_SEC or meaningful >= COUNTED_MIN_MEANINGFUL_EVENTS
+
+
 # ----------------------------------------------------------------------------- records
 
 
@@ -481,7 +495,7 @@ def build_payload(
     # a shell write and a human edit included.
     touched = {e.path for e in s.events if e.path}
 
-    counted = active >= COUNTED_MIN_ACTIVE_SEC or meaningful >= COUNTED_MIN_MEANINGFUL_EVENTS
+    counted = is_counted(s)
     unattended = s.presence == 0 and active >= NOTABLE_MIN_ACTIVE_SEC
     notable = counted and attended >= NOTABLE_MIN_ACTIVE_SEC and not unattended
 

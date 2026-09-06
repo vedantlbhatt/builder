@@ -1,0 +1,358 @@
+{
+  "_comment": [
+    "THE BUILDER REPORT. The second of the two documents about a person: the session card",
+    "says what just happened, and this says how they build and whether it is changing.",
+    "",
+    "NOTHING IN HERE IS WRITTEN BY A MODEL. Every field is a number this machine measured,",
+    "which is why there is no JSON Schema output and no `stamped` rule: there is no",
+    "constrained decoder to constrain and no claim to take back. What the spec buys is the",
+    "same thing it buys everywhere else — one definition, three notations, and a door the",
+    "server can close with `extra='forbid'` on a document it did not compute.",
+    "",
+    "scripts/gen_report.py emits, both committed, both `git diff --exit-code`'d in CI:",
+    "  server/builder/report_spec.py     Pydantic, extra='forbid', on the way into Postgres",
+    "  mobile/src/generated/report.ts    what the profile screen renders",
+    "",
+    "WHY THE SERVER CANNOT COMPUTE IT. Three of the five blocks rest on things that never",
+    "leave the machine (privacy/upload-contract.json): subagent sidecar transcripts, shell",
+    "command text, and prompt text. The server has counts, not commands, so it can no more",
+    "compute `quality` than it can compute the narrative.",
+    "",
+    "WHAT IS DELIBERATELY NOT HERE. `analysis/rules.py` produces CLAUDE.md lines from ERROR",
+    "TEXT, which carries paths and file names; it stays on the machine and is written to a",
+    "file there. `analysis/playbook.py` splits PROMPTS, so only its counts travel and not one",
+    "word of a prompt. Every field below is a number, a date, a metric name or a label from",
+    "a fixed table in this repository.",
+    "",
+    "NULL IS NOT ZERO, everywhere in this document. A block is null when it was refused, and",
+    "the refusal carries its reason so the phone can say why instead of drawing an empty",
+    "chart. A `reason` beside a null number is the difference between 'we do not know' and",
+    "'it was nothing'."
+  ],
+  "version": 1,
+  "max_lengths": {
+    "label": 80,
+    "reason": 200
+  },
+  "enums": {
+    "trend_direction": [
+      "up",
+      "down",
+      "steady"
+    ]
+  },
+  "objects": {
+    "ReportTrend": [
+      {
+        "name": "metric",
+        "type": "string",
+        "max": "label",
+        "doc": "the metric's key, from analysis/profile.py. Stable across versions; the label is not."
+      },
+      {
+        "name": "label",
+        "type": "string",
+        "max": "label",
+        "doc": "the metric in words a person reads, from the one table in analysis/trends.py."
+      },
+      {
+        "name": "before",
+        "type": "number",
+        "doc": "its value over the older of the two equal windows."
+      },
+      {
+        "name": "now",
+        "type": "number",
+        "doc": "its value over the newer window."
+      },
+      {
+        "name": "move",
+        "type": "number",
+        "doc": "the signed relative change, (now - before) / before. 0.7 is up 70 percent."
+      },
+      {
+        "name": "direction",
+        "type": "enum",
+        "values": "trend_direction",
+        "doc": "up, down, or steady. Steady is a real answer: under the noise floor is not a move."
+      },
+      {
+        "name": "good",
+        "type": "bool",
+        "nullable": true,
+        "doc": "whether this direction is the one they want, when the metric has a direction at all. Null means the change is reported with no verdict: more hours is not better and a night owl is not broken."
+      },
+      {
+        "name": "sessions_before",
+        "type": "int",
+        "doc": "sittings in the older window. Both windows need a sample or there is no trend."
+      },
+      {
+        "name": "sessions_now",
+        "type": "int",
+        "doc": "sittings in the newer window."
+      }
+    ],
+    "ReportAgentType": [
+      {
+        "name": "name",
+        "type": "string",
+        "max": "label",
+        "doc": "the subagent type as the harness names it: general-purpose, Explore, workflow-subagent."
+      },
+      {
+        "name": "agents",
+        "type": "int",
+        "doc": "how many instances of that type ran."
+      }
+    ],
+    "ReportAgents": [
+      {
+        "name": "agents",
+        "type": "int",
+        "doc": "subagent instances that ran in the window. Counted from sidecar transcripts, which every other tool skips."
+      },
+      {
+        "name": "produced",
+        "type": "int",
+        "doc": "how many of them did anything at all: a tool call, a file, an error. An agent that produced nothing is a delegation that cost tokens and returned air."
+      },
+      {
+        "name": "max_concurrent",
+        "type": "int",
+        "doc": "the most that were running at the same moment. A handoff is not two agents at once, so an end sorts before a start at equal timestamps."
+      },
+      {
+        "name": "agent_seconds",
+        "type": "number",
+        "doc": "the sum of every agent's own span. Deliberately larger than wall time when they overlap; that overlap is the point."
+      },
+      {
+        "name": "wall_seconds",
+        "type": "number",
+        "doc": "clock time from the first agent starting to the last one stopping."
+      },
+      {
+        "name": "busy_seconds",
+        "type": "number",
+        "doc": "how much of that stretch had at least one agent running. The union of the spans, so an overlap counts once."
+      },
+      {
+        "name": "parallelism",
+        "type": "number",
+        "doc": "agent_seconds over busy_seconds: while agents were running, how many were running at once. 1.0 is a queue, 3.4 is three and a bit at a time. Never below 1.0 when anything ran, which is why the denominator is the union and not the stretch."
+      },
+      {
+        "name": "by_type",
+        "type": "list",
+        "item": "ReportAgentType",
+        "max_items": 12,
+        "doc": "the split by subagent type, most common first."
+      }
+    ],
+    "ReportDay": [
+      {
+        "name": "day",
+        "type": "string",
+        "max": "label",
+        "doc": "the day, YYYY-MM-DD, with the 04:00 boundary this repository uses everywhere else."
+      },
+      {
+        "name": "assisted",
+        "type": "int",
+        "doc": "commits that landed while an agent was working."
+      },
+      {
+        "name": "alone",
+        "type": "int",
+        "doc": "commits that landed outside every session window. Deliberately generous: anything the capture never saw counts here."
+      }
+    ],
+    "ReportContributions": [
+      {
+        "name": "assisted",
+        "type": "int",
+        "doc": "commits with an agent in the room."
+      },
+      {
+        "name": "alone",
+        "type": "int",
+        "doc": "commits you wrote on your own."
+      },
+      {
+        "name": "active_days",
+        "type": "int",
+        "doc": "days you shipped something. Not days you opened the app: a streak a tab can extend is a streak about the tab."
+      },
+      {
+        "name": "longest_streak",
+        "type": "int",
+        "doc": "the longest run of consecutive shipping days."
+      },
+      {
+        "name": "current_streak",
+        "type": "int",
+        "doc": "the run ending today or yesterday. Yesterday still counts, because today is not over."
+      },
+      {
+        "name": "days",
+        "type": "list",
+        "item": "ReportDay",
+        "max_items": 400,
+        "doc": "one entry per day that had a commit, oldest first. Days with none are absent rather than zero rows."
+      }
+    ],
+    "ReportGreen": [
+      {
+        "name": "n",
+        "type": "int",
+        "doc": "how many times a failing test run was followed by a passing one."
+      },
+      {
+        "name": "median_seconds",
+        "type": "int",
+        "doc": "the median of those recoveries. The solo builder's answer to DORA's mean time to restore."
+      },
+      {
+        "name": "worst_seconds",
+        "type": "int",
+        "doc": "the longest one."
+      },
+      {
+        "name": "median_attempts",
+        "type": "int",
+        "doc": "how many runs it typically took to get back to green."
+      }
+    ],
+    "ReportQuality": [
+      {
+        "name": "runs",
+        "type": "int",
+        "doc": "test runs seen in the window, counted from shell commands."
+      },
+      {
+        "name": "passed",
+        "type": "int",
+        "nullable": true,
+        "doc": "runs with no error after them."
+      },
+      {
+        "name": "failed",
+        "type": "int",
+        "nullable": true,
+        "doc": "runs an error followed."
+      },
+      {
+        "name": "first_try_rate",
+        "type": "number",
+        "nullable": true,
+        "doc": "the share of test runs that were already green. Not 'the first try worked' per feature, which nothing here can see."
+      },
+      {
+        "name": "time_to_green",
+        "type": "object",
+        "item": "ReportGreen",
+        "nullable": true,
+        "doc": "the recovery numbers, or null when nothing in the window failed and then passed."
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "max": "reason",
+        "nullable": true,
+        "doc": "why the rates are null, when they are. Present only on a refusal."
+      }
+    ],
+    "ReportPrompting": [
+      {
+        "name": "attempts",
+        "type": "int",
+        "doc": "prompts long enough to be an instruction rather than a nudge."
+      },
+      {
+        "name": "clean",
+        "type": "int",
+        "nullable": true,
+        "doc": "of those, how many landed something without a correction and without the agent stalling."
+      },
+      {
+        "name": "costly",
+        "type": "int",
+        "nullable": true,
+        "doc": "how many cost a correction or a long stall."
+      },
+      {
+        "name": "clean_share",
+        "type": "number",
+        "nullable": true,
+        "doc": "clean over attempts. NO PROMPT TEXT TRAVELS: this is the whole of what the playbook uploads."
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "max": "reason",
+        "nullable": true,
+        "doc": "why the share is null, when it is."
+      }
+    ]
+  },
+  "fields": [
+    {
+      "name": "report_version",
+      "type": "int",
+      "doc": "the spec version these rules came from. A retuned threshold is a recompute, not a migration."
+    },
+    {
+      "name": "generated_at",
+      "type": "datetime",
+      "doc": "when this was computed. A report describes a corpus as it stood."
+    },
+    {
+      "name": "window_days",
+      "type": "int",
+      "doc": "how far back the blocks below look."
+    },
+    {
+      "name": "trend_headline",
+      "type": "string",
+      "max": "reason",
+      "nullable": true,
+      "doc": "the one sentence version of the trends, phrased to match the window. Null when nothing moved enough to say."
+    },
+    {
+      "name": "trends",
+      "type": "list",
+      "item": "ReportTrend",
+      "max_items": 24,
+      "doc": "you against you, two equal windows back to back. Never a window against all of history, which would report the trend of the corpus growing."
+    },
+    {
+      "name": "agents",
+      "type": "object",
+      "item": "ReportAgents",
+      "nullable": true,
+      "doc": "how many agents you ran and how much of it was at once. Null when no sidecar transcripts were found, which is the normal state for someone who has never delegated."
+    },
+    {
+      "name": "contributions",
+      "type": "object",
+      "item": "ReportContributions",
+      "nullable": true,
+      "doc": "commits split by whether an agent was in the room. Null below the minimum, never zero."
+    },
+    {
+      "name": "quality",
+      "type": "object",
+      "item": "ReportQuality",
+      "nullable": true,
+      "doc": "the two of DORA's four questions a transcript can answer. Null when no repository was resolved."
+    },
+    {
+      "name": "prompting",
+      "type": "object",
+      "item": "ReportPrompting",
+      "nullable": true,
+      "doc": "how often a prompt lands cleanly, and nothing else. Null when neither pile has enough in it to be a rate."
+    }
+  ]
+}

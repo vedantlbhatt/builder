@@ -10,12 +10,15 @@ from ..builder_profile import (
     MIN_SESSIONS,
     builder_narrative,
     builder_profile,
+    builder_report,
     corpus_metrics,
     put_builder_narrative,
+    put_builder_report,
 )
 from ..contract import ENUM_VALUES
 from ..db import db_session
 from ..narrative_spec import BuilderNarrative
+from ..report_spec import BuilderReport
 
 router = APIRouter(prefix="/v1", tags=["sessions"])
 
@@ -360,7 +363,7 @@ def profile(
 def profile_builder(device: CurrentDevice = Depends(current_device), window_days: int = WindowDays):
     """The builder profile alone, so the phone can refresh it without the whole tab.
 
-    TWO profiles under one route, and they are not the same kind of thing:
+    THREE documents under one route, and they are not the same kind of thing:
 
     * `builder_profile` aggregates the model-written session analyses (dimension means,
       modal archetype, build style, tags). Null until three analysed sessions exist. The
@@ -372,12 +375,19 @@ def profile_builder(device: CurrentDevice = Depends(current_device), window_days
       needs no analysis at all, and every metric it cannot honestly compute is null with
       a reason in `sample.missing`. Null for the whole block means only one thing: the
       metrics module is not deployed on this server.
+    * `report` is MEASURED ON THE MACHINE and uploaded: trends against the window before,
+      subagent fan-out, commits split by whether an agent was in the room, time to green,
+      and how often a prompt lands clean. None of it is computable here — it rests on
+      sidecar transcripts, shell command text, prompt text and commit times, none of which
+      the contract puts on the wire. Null until that machine has run `capture report`,
+      which is the normal state for somebody who has only ever used the phone.
     """
     uid = str(device.user_id)
     with db_session(viewer_id=uid) as db:
         builder, analysed = builder_profile(db, uid, window_days)
         corpus = corpus_metrics(db, uid, window_days)
         narrative = builder_narrative(db, uid)
+        report = builder_report(db, uid)
     return {
         "builder_profile": builder,
         "sessions_analysed": analysed,
@@ -385,6 +395,7 @@ def profile_builder(device: CurrentDevice = Depends(current_device), window_days
         "window_days": window_days,
         "corpus": corpus,
         "narrative": narrative,
+        "report": report,
     }
 
 
@@ -413,3 +424,24 @@ def put_narrative(doc: BuilderNarrative, device: CurrentDevice = Depends(current
     with db_session(viewer_id=uid) as db:
         put_builder_narrative(db, uid, doc.model_dump(mode="json"))
     return {"ok": True, "narrative_version": doc.narrative_version}
+
+
+@router.put("/profile/report")
+def put_report(doc: BuilderReport, device: CurrentDevice = Depends(current_uploader)):
+    """Store the measured builder report this account's own machine computed.
+
+    Unlike the narrative there is no model anywhere in this document's history: every
+    field is a number `analysis/report.py` measured. That makes the validation MORE
+    important rather than less. A model-written document arrived through a constrained
+    decoder that had already enforced its shape; this one arrives from code that can grow
+    a field without the spec growing it, and `extra='forbid'` on report_spec.py is the
+    only thing between that and a column of values nothing on the phone can render.
+
+    PUT, not POST: one report per person, replacing the last. `current_uploader` for the
+    same reason the narrative uses it — a headless container holds a capture key — and the
+    GET side stays on `current_device`, so a leaked key still reads nothing.
+    """
+    uid = str(device.user_id)
+    with db_session(viewer_id=uid) as db:
+        put_builder_report(db, uid, doc.model_dump(mode="json"))
+    return {"ok": True, "report_version": doc.report_version}

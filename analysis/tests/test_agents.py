@@ -176,13 +176,39 @@ class Concurrency(unittest.TestCase):
         self.assertEqual(fo.agents, 3)
         self.assertEqual(fo.max_concurrent, 2)
 
-    def test_parallelism_is_agent_time_over_wall_time(self):
+    def test_parallelism_is_agent_time_over_busy_time(self):
         """The honest statement of what fanning out bought: four hours of agent work
         inside one hour of your life."""
         spans = [self.span(0, 3600, f"a{i}") for i in range(4)]
         fo = agents.fanout(spans, 3600)
         self.assertEqual(fo.parallelism, 4.0)
         self.assertEqual(fo.agent_seconds, 14400)
+        self.assertEqual(fo.busy_seconds, 3600)
+
+    def test_a_long_quiet_stretch_cannot_drag_concurrency_below_one(self):
+        """THE BUG THIS REPLACED. Agent-seconds over WALL seconds reported 0.61x for a
+        corpus whose peak was eight agents at once, because most of the nineteen hours had
+        no agent in it at all. Two agents that genuinely overlapped are 2.0 whether they
+        sit in an hour or in a year; how much of that year had an agent in it is
+        `busy_share`, which is a different question and is reported as one."""
+        spans = [self.span(0, 100, "a"), self.span(0, 100, "b")]
+        fo = agents.fanout(spans, 100_000)
+        self.assertEqual(fo.parallelism, 2.0)
+        self.assertEqual(fo.busy_seconds, 100)
+        self.assertEqual(fo.busy_share, 0.0)
+
+    def test_busy_seconds_count_an_overlap_once(self):
+        """The union of the spans, not their sum: that is what makes it a denominator."""
+        spans = [self.span(0, 100, "a"), self.span(50, 150, "b")]
+        fo = agents.fanout(spans, 150)
+        self.assertEqual(fo.busy_seconds, 150)
+        self.assertEqual(fo.agent_seconds, 200)
+
+    def test_a_gap_between_agents_is_not_busy(self):
+        spans = [self.span(0, 100, "a"), self.span(500, 600, "b")]
+        fo = agents.fanout(spans, 600)
+        self.assertEqual(fo.busy_seconds, 200)
+        self.assertEqual(fo.parallelism, 1.0)
 
     def test_a_span_shorter_than_the_timestamp_resolution_is_not_concurrency(self):
         spans = [self.span(0, 0.5, "blip"), self.span(0, 0.5, "blip2")]
@@ -208,8 +234,18 @@ class Concurrency(unittest.TestCase):
         self.assertEqual(fo.max_concurrent, 0)
         self.assertEqual(fo.parallelism, 0.0)
 
-    def test_no_wall_clock_refuses_a_ratio_rather_than_dividing_by_zero(self):
-        self.assertEqual(agents.fanout([self.span(0, 10)], 0).parallelism, 0.0)
+    def test_no_wall_clock_refuses_a_share_rather_than_dividing_by_zero(self):
+        """Concurrency survives a missing wall clock — two agents that overlapped
+        overlapped — but the SHARE of a stretch nobody measured cannot be computed and is
+        0.0 rather than an exception."""
+        fo = agents.fanout([self.span(0, 10)], 0)
+        self.assertEqual(fo.parallelism, 1.0)
+        self.assertEqual(fo.busy_share, 0.0)
+
+    def test_spans_too_short_to_overlap_leave_no_busy_time_and_no_crash(self):
+        fo = agents.fanout([self.span(0, 0.5, "blip")], 100)
+        self.assertEqual(fo.busy_seconds, 0.0)
+        self.assertEqual(fo.parallelism, 0.0)
 
 
 if __name__ == "__main__":

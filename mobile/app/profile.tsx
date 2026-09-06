@@ -14,6 +14,7 @@ import { ANIMAL_KEY } from './icon';
 import { resolveAnimal } from '../src/pixel/animals';
 import { archetypeSentence } from '../src/profile/narrative';
 import { NarrativeSection } from '../src/profile/NarrativeSection';
+import { ReportSections } from '../src/profile/ReportSections';
 import { ShareBars } from '../src/profile/ShareBars';
 import { StripClass } from '../src/generated/strip';
 import { colors, duration, space } from '../src/theme';
@@ -85,6 +86,9 @@ export default function ProfileScreen() {
   // Absent on a server older than 0016, and null until this account's own machine has
   // run `python -m capture narrative`. Both are the same thing on screen: nothing.
   const narrative = builder?.narrative ?? null;
+  // Absent on a server older than 0018, and null until this account's machine has run
+  // `python -m capture report`. The sections are skipped rather than drawn empty.
+  const report = builder?.report ?? null;
   const missing = Object.entries(corpus?.sample.missing ?? {});
 
   return (
@@ -111,6 +115,11 @@ export default function ProfileScreen() {
           person who reads "quality guardian" and nothing else has learned a label; the
           paragraph under it is the part that is about them. */}
       {narrative && <NarrativeSection narrative={narrative} />}
+
+      {/* The measured half, directly under the prose it was written from: whether you are
+          getting better, what fanning out bought you, how much of the work is yours, and
+          how long you stay broken. Each section is silent when the machine refused it. */}
+      {report && <ReportSections report={report} />}
 
       {corpus && corpus.facts.length > 0 && (
         <Section title="What stands out">

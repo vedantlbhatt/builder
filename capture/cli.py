@@ -258,31 +258,33 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
     return payloads, {"state": state, **stats}
 
 
-def cmd_narrative(a: argparse.Namespace) -> int:
-    """Write the "how you work" page from this machine's transcripts and upload it.
+def _corpus(a: argparse.Namespace):
+    """Sessionize this machine and measure everything both documents rest on.
 
-    It is its own command rather than a flag on `sync` because it costs a model call and
-    describes the whole corpus: running it on every sync would pay for a document that has
-    not changed. `--dry-run` prints it and sends nothing, which is also the only way to
-    read it without a server.
+    ONE cut, shared by `narrative` and `report`. They describe the same corpus at the same
+    moment, and two functions that each sessionize are two functions that will one day
+    disagree about how many sessions somebody had — which is the same bug as a wrong
+    number, arriving as two screens that contradict each other.
 
-    The work itself lives in `analysis`, not here: this command sessionizes with the same
-    reference cut `sync` uses, hands the sessions to `analysis.patterns` and
-    `analysis.profile`, and posts what `analysis.narrative` returns.
+    Returns (facts, events, trends, fanout, contributions).
     """
-    key = cl.capture_key(a.key)
-    tz = _tz(a.tz)
-    now = time.time()
-
-    from analysis import narrative as nar
+    from analysis import agents as ag
+    from analysis import contributions as co
     from analysis import patterns as pat
     from analysis import profile as pf
+    from analysis import trends as tr
 
-    sources, _, _ = discover_sources(a)
+    tz = _tz(a.tz)
+    now = time.time()
+    sources, transcripts, _ = discover_sources(a)
+    # Final AND counted: the same population the phone shows and the same one every
+    # server-side aggregate runs over (`visible` on the wire is exactly `is_counted`).
+    # Without the second half this command measured sittings the app does not display,
+    # and MEASURED on this container that moved seven commits from "alone" to "assisted".
     cut = [
         s
         for s in sessions.sessionize_sources(sources, tz, now=now, tau=getattr(a, "tau", "auto"))
-        if s.state == "final"
+        if s.state == "final" and sessions.is_counted(s)
     ]
     facts, events, roots = [], [], []
     for s in cut:
@@ -332,16 +334,83 @@ def cmd_narrative(a: argparse.Namespace) -> int:
     # bug as one wrong number.
     facts = pf.attribute_commits(facts, roots, repo.commits_in)
 
+    # You against you: the window against the window before it, both the same length.
+    days = getattr(a, "days", None) or 30
+    edge, floor = now - days * 86400, now - 2 * days * 86400
+    recent = [f for f in facts if f.started_at >= edge]
+    earlier = [f for f in facts if floor <= f.started_at < edge]
+    trends = (
+        tr.compare(pf.corpus_profile(earlier), pf.corpus_profile(recent))
+        if recent and earlier
+        else []
+    )
+
+    # Subagents, from the sidecar transcripts every other tool on this machine skips. They
+    # never contribute a token, a line or a commit to anything above. Read from the ROOT
+    # TRANSCRIPTS rather than from `sources`: sidecar discovery is an allowlist on path
+    # shape (`<projectdir>/<uuid>.jsonl` is a root), and the other harnesses have no such
+    # shape and no sidecars.
+    spans = [sp for t in transcripts for sp in ag.spans(t.path)]
+    fanout = (
+        ag.fanout(spans, max(s.ended_at for s in spans) - min(s.started_at for s in spans))
+        if spans
+        else None
+    )
+
+    contributions = None
+    commit_roots = sorted({r for r in roots if r})
+    if commit_roots and facts:
+        since = min(f.started_at for f in facts) - co.LOOKBACK_SEC
+        commits = [ts for r in commit_roots for _sha, ts in repo.commits_in(r, since, now)]
+        if commits:
+            contributions = co.split(
+                commits,
+                [(f.started_at, f.ended_at) for f in facts],
+                facts[-1].tz_offset_minutes,
+            )
+    return facts, events, trends, fanout, contributions
+
+
+def cmd_narrative(a: argparse.Namespace) -> int:
+    """Write the "how you work" page from this machine's transcripts and upload it.
+
+    It is its own command rather than a flag on `sync` because it costs a model call and
+    describes the whole corpus: running it on every sync would pay for a document that has
+    not changed. `--dry-run` prints it and sends nothing, which is also the only way to
+    read it without a server.
+
+    The work itself lives in `analysis`, not here: this command sessionizes with the same
+    reference cut `sync` uses, hands the sessions to `analysis.patterns` and
+    `analysis.profile`, and posts what `analysis.narrative` returns.
+    """
+    key = cl.capture_key(a.key)
+
+    from analysis import narrative as nar
+    from analysis import patterns as pat
+    from analysis import profile as pf
+
+    facts, events, trends, fanout, contributions = _corpus(a)
     found = pat.findings(events)
     if not a.quiet:
         print(
-            f"{len(cut)} final session(s), {len(found)} comparative finding(s) cleared "
+            f"{len(facts)} final session(s), {len(found)} comparative finding(s) cleared "
             f"both bars (both sides need {pat.MIN_GROUP}, the gap needs {pat.MIN_LIFT}x).",
             file=sys.stderr,
         )
 
     kw = {"model": a.model} if a.model else {}
-    doc = nar.write(profile=pf.corpus_profile(facts), findings=found, **kw)
+    # Everything this machine measured, not only the module the prose started from. The
+    # first version of this passed `profile` and `findings` alone while `python -m analysis
+    # narrative` passed all five, so the same corpus produced two different pages depending
+    # on which command wrote it.
+    doc = nar.write(
+        profile=pf.corpus_profile(facts),
+        findings=found,
+        trends=trends,
+        fanout=fanout,
+        contributions=contributions,
+        **kw,
+    )
 
     if a.dry_run:
         print(json.dumps(doc, indent=1, ensure_ascii=False))
@@ -363,6 +432,57 @@ def cmd_narrative(a: argparse.Namespace) -> int:
         print(
             "Uploaded your builder narrative."
             + (f" {dropped} claim(s) were dropped for citing a number nobody measured." if dropped else "")
+        )
+    return 0
+
+
+def cmd_report(a: argparse.Namespace) -> int:
+    """Measure the builder report from this machine's transcripts and upload it.
+
+    NO MODEL IS CALLED. Every field is a number, which is why this can run on a schedule
+    and the narrative cannot, and why `--dry-run` is worth running once before the first
+    upload: what it prints is byte for byte what would be sent.
+
+    Five blocks, and the server can compute none of them. Trends need two windows of
+    recomputed metrics; agents need the subagent sidecar transcripts; quality needs shell
+    command TEXT; prompting needs prompt TEXT; contributions need commit TIMES. The
+    contract puts none of that on the wire, so the measuring happens here or nowhere.
+    """
+    key = cl.capture_key(a.key)
+
+    from analysis import report as rp
+
+    facts, events, trends, fanout, contributions = _corpus(a)
+    doc = rp.build(
+        trends=trends,
+        fanout=fanout,
+        contributions=contributions,
+        sessions=events,
+        window_days=getattr(a, "days", None) or rp.DEFAULT_WINDOW_DAYS,
+    )
+
+    if a.dry_run:
+        print(json.dumps(doc, indent=1, ensure_ascii=False))
+        print(
+            "\ndry run: nothing was sent. Every number above was measured on this machine "
+            "from your own transcripts; no prompt, path or command is in it.",
+            file=sys.stderr,
+        )
+        return 0
+
+    c = cl.Client(_server(a.server), key=key)
+    if key is None and cl.load_credentials() is None:
+        if not a.quiet:
+            print("Not paired. Run `python -m capture pair --server URL` first.")
+        return 3
+    c.put_report(doc)
+    if not a.quiet:
+        ag_doc = doc["agents"]
+        print(
+            f"Uploaded your builder report over {doc['window_days']} days: "
+            f"{len(doc['trends'])} trend(s)"
+            + (f", {ag_doc['agents']} subagents" if ag_doc else "")
+            + "."
         )
     return 0
 
@@ -531,7 +651,39 @@ def make_parser() -> argparse.ArgumentParser:
         help="Claude Code only: skip Codex, Gemini CLI, Cline, opencode and Aider",
     )
     n.add_argument("--quiet", action="store_true", help="only print errors")
+    n.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="trend window, and the window before it (default 30)",
+    )
     n.set_defaults(fn=cmd_narrative)
+
+    rp = sub.add_parser(
+        "report",
+        help="measure the builder report from this machine's transcripts and upload it",
+    )
+    rp.add_argument(
+        "--root", default=DEFAULT_ROOT, help=f"transcript root (default {DEFAULT_ROOT})"
+    )
+    rp.add_argument("--server", help="API base URL (or BUILDER_API_URL)")
+    rp.add_argument("--key", help="capture key (or BUILDER_CAPTURE_KEY); replaces pairing")
+    rp.add_argument("--tz", help="IANA zone for the 04:00 day rule (or BUILDER_TZ / TZ)")
+    rp.add_argument("--tau", default="auto", help="idle-gap threshold; see `sync --tau`")
+    rp.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="the window, and the length of each trend window (default 30)",
+    )
+    rp.add_argument("--dry-run", action="store_true", help="print the report; send nothing")
+    rp.add_argument(
+        "--no-other-harnesses",
+        action="store_true",
+        help="Claude Code only: skip Codex, Gemini CLI, Cline, opencode and Aider",
+    )
+    rp.add_argument("--quiet", action="store_true", help="only print errors")
+    rp.set_defaults(fn=cmd_report)
     return ap
 
 

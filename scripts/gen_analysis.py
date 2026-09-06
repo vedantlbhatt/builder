@@ -43,6 +43,7 @@ SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
 SWIFT_SCALARS = {
     "sha256hex": "String",
+    "number": "Double",
     "string": "String",
     "int": "Int",
     "double": "Double",
@@ -51,6 +52,7 @@ SWIFT_SCALARS = {
 }
 TS_SCALARS = {
     "sha256hex": "string",
+    "number": "number",
     "string": "string",
     "int": "number",
     "double": "number",
@@ -59,6 +61,7 @@ TS_SCALARS = {
 }
 PY_SCALARS = {
     "sha256hex": "Sha256Hex",
+    "number": "float",
     "string": "str",
     "int": "int",
     "double": "float",
@@ -67,6 +70,7 @@ PY_SCALARS = {
 }
 JSON_SCALARS = {
     "sha256hex": {"type": "string", "pattern": SHA256_PATTERN},
+    "number": {"type": "number"},
     "string": {"type": "string"},
     "int": {"type": "integer"},
     "double": {"type": "number"},

@@ -28,6 +28,7 @@ gen:
 	@python3 scripts/gen_analysis.py
 	@python3 scripts/gen_narrative.py
 	@python3 scripts/gen_shipped.py
+	@python3 scripts/gen_report.py
 	@python3 scripts/gen_fixtures.py
 
 # The exact command the backend job runs, with the version CI pins. Three pushes went red

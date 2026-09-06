@@ -225,6 +225,24 @@ default root at all; `discover(repo_roots=...)` reads only `<repo>/.aider.chat.h
 in repositories this machine's own transcripts already resolved to, which is knowledge
 rather than a guess.
 
+**A denominator that stops meaning anything is a wrong number with no error.** `Fanout.parallelism`
+was agent-seconds over WALL seconds, which over one sitting reads correctly as "four hours of
+agent work inside one hour of your life". Over a corpus it does not: MEASURED on this container,
+53 agents did 11.9 hours of work inside a 19.3 hour stretch, and the ratio came out `0.61x` — a
+concurrency figure below one, printed beside `max_concurrent: 8`, with nothing to tell a reader
+which of the two was wrong. The denominator is now BUSY seconds, the union of the spans, so the
+number is "while agents were running, this many were running" and can never fall below 1.0 when
+anything ran. How much of the stretch had an agent in it is a different question and is reported
+as one (`busy_share`).
+
+**A rule copied into a second module is a definition that will drift.** `counted` decides
+`visible` on the wire, which decides the population every server-side aggregate runs over. It was
+written out twice — `capture/sessions.py` and `analysis/__main__.py` — and the uploader's own new
+report path used neither, so it measured sittings the phone does not display and moved SEVEN of
+this container's commits from "alone" to "assisted". `capture.sessions.is_counted` is the one
+definition now, and a test asserts the constant appears exactly twice in that file: once imported,
+once used.
+
 **The density floor is a design constant, not a detail.** At 0.45 the identity amber
 rendered as muddy brown across most of a real strip, because a 71-minute session is 4.2s
 per column and most columns land in the lowest bucket. Density should modulate the colour,
@@ -291,6 +309,8 @@ python -m analysis contributions your commits, split by whether an agent was in 
 python -m analysis cards        what this corpus gives you to put in a feed
 python -m analysis shipped      a build post: what you made, and what was hard
 make capture-test              the cloud uploader against the boundary fixtures and the contract
+python -m analysis report          the whole builder report, printed: trends, agents, commits, green
+python -m capture report --dry-run what would be uploaded to the profile, without sending
 python -m capture sync --dry-run   what a cloud container would upload, without sending
 curl $SERVER/v1/ingest/hook.sh   the Claude Code hook: nothing installed, sessions on the phone (docs/hooks-capture.md)
 ```
@@ -306,9 +326,9 @@ analysis, every metric, and the nine things this codebase refuses to compute).
 | suite | n | protects |
 |---|---|---|
 | `swift test` | 138 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
-| `bun test` | 424 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes, per-frame change ceiling, that every one of them faces forward and that each loop moves at least three parts; the profile screen's archetype wording and its closest-rule fallback |
-| `pytest` | 149 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
-| `unittest` (analysis/) | 455 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
+| `bun test` | 443 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes, per-frame change ceiling, that every one of them faces forward and that each loop moves at least three parts; the profile screen's archetype wording and its closest-rule fallback; that no refused block of the report renders as a zero |
+| `pytest` | 159 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals, the report's door (nested extras, enums, string bounds) and that a null block survives the round trip |
+| `unittest` (analysis/) | 490 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules; that the report's keys ARE the spec's keys at every level and that no field in it can carry free text |
 | `make capture-test` | 74 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth, and that every other harness discovers, dedupes and uploads |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 

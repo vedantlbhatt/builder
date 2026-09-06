@@ -82,6 +82,9 @@ def assert_policies_present() -> None:
         # 0016. Prose about the PERSON, not about a session. Owner-only with no public
         # policy at all, so a deployment where the migration never ran must not serve it.
         "builder_narrative",
+        # 0018. Numbers about the PERSON, from transcripts the server never sees. Same
+        # shape as 0016 and for the same reason: sharing a session shares a session.
+        "builder_report",
     }
     with engine().connect() as conn:
         rows = conn.execute(
