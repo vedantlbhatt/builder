@@ -46,6 +46,20 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    ru = sub.add_parser(
+        "rules",
+        help="the same mistake, made again: recurring failures turned into rules-file lines",
+    )
+    ru.add_argument("path", nargs="?", default="~/.claude/projects")
+    ru.add_argument("--repo", help="only this repository (matched on the directory name)")
+    ru.add_argument("--days", type=int, default=30, help="how far back to look (default 30)")
+    ru.add_argument("--model", default=None)
+    ru.add_argument(
+        "--list",
+        action="store_true",
+        help="list the recurring failures and stop, without calling a model",
+    )
+    ru.add_argument("--out", help="append the accepted rules to this file")
     sh = sub.add_parser(
         "shipped",
         help="draft a build post: what you made in a window, and what was hard about it",
@@ -90,6 +104,9 @@ def main() -> int:
         print(json.dumps(prof, indent=1, default=str))
         return 0
 
+    if a.cmd == "rules":
+        return _rules(a)
+
     if a.cmd == "shipped":
         return _shipped(a)
 
@@ -129,6 +146,67 @@ def main() -> int:
         sys.stderr.write(f"wrote {a.out}  cost ${res['cost_usd']}  {res['duration_ms']} ms\n")
     else:
         print(text)
+    return 0
+
+
+def _rules(a) -> int:
+    """Failures that happened in more than one sitting, and the lines that stop them."""
+    from . import rules as ru
+
+    facts, sessions = _narrative_inputs(pathlib.Path(a.path).expanduser())
+    cutoff = time.time() - a.days * 86400
+    picked = [(f, s) for f, s in zip(facts, sessions, strict=True) if f.started_at >= cutoff]
+    if a.repo:
+        picked = [(f, s) for f, s in picked if f.repo and a.repo.lower() in f.repo.lower()]
+    root = collections.Counter(f.repo for f, _ in picked if f.repo).most_common(1)
+    project = pathlib.Path(root[0][0]).name if root else "this project"
+
+    found = ru.recurring([s for _, s in picked])
+    if not found:
+        sys.stderr.write(
+            f"nothing has failed in more than one of your last {len(picked)} sittings. "
+            f"Every error was a one off, which is the good outcome.\n"
+        )
+        return 0
+
+    if a.list:
+        for i, r in enumerate(found, 1):
+            hours = r.span_seconds / 3600
+            print(
+                f"[{i}] {r.sessions} sittings, {r.occurrences}x"
+                + (f", spread over {hours:.0f}h" if hours >= 1 else "")
+            )
+            print(f"     ran  {r.command[:110]}")
+            print(f"     got  {r.error[:110]}")
+            print()
+        return 0
+
+    kw = {"model": a.model} if a.model else {}
+    doc = ru.write(project=project, recurrences=found, **kw)
+    lines = []
+    for r in doc["rules"]:
+        evidence = found[r["candidate"] - 1]
+        mark = {"certain": "", "likely": "  (likely)", "guess": "  (a guess, check it)"}
+        lines.append(f"- {r['rule']}{mark.get(r.get('confidence', ''), '')}")
+        lines.append(f"  {r['because']}")
+        lines.append(
+            f"  Seen in {evidence.sessions} sittings, {evidence.occurrences} times: "
+            f"{evidence.error[:120]}"
+        )
+        lines.append("")
+    text = "\n".join(lines)
+
+    if a.out:
+        path = pathlib.Path(a.out)
+        with path.open("a") as fh:
+            fh.write(f"\n## Rules from failures that kept coming back\n\n{text}")
+        sys.stderr.write(f"appended {len(doc['rules'])} rule(s) to {a.out}\n")
+    else:
+        print(text)
+        sys.stderr.write(
+            f"{len(found)} recurring failure(s), {len(doc['rules'])} rule(s) proposed. "
+            f"Read them, then `--out CLAUDE.md` to append the ones you keep.\n"
+        )
     return 0
 
 

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "HAND-WRITTEN, unlike analysis/schema.json, narrative_schema.json and shipped_schema.json, which are generated because a server and a phone both have to agree with them. This document never leaves the machine: it becomes lines in a rules file the author edits and keeps, so there is one consumer and one definition, and a generator would be ceremony around a single output.",
+  "x-version": 1,
+  "title": "ProposedRules",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rules"],
+  "properties": {
+    "rules": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 8,
+      "description": "One proposed rule per recurring failure, at most. Fewer is fine and zero is a real answer.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule", "because", "candidate"],
+        "properties": {
+          "rule": {
+            "type": "string",
+            "maxLength": 220,
+            "description": "The line to put in the rules file, written as an instruction to the agent. Imperative, specific, and useless if it is vague: 'be careful with the database' stops nothing. (max 220 chars)"
+          },
+          "because": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Why it is there, in one sentence, naming the failure and how many sittings hit it. This is the half that survives a year. (max 200 chars)"
+          },
+          "candidate": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Which numbered candidate from the input this rule is for. A rule for a candidate you were not shown is a rule about a failure that never happened."
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["certain", "likely", "guess"],
+            "description": "certain: the error states the fix. likely: the fix follows from the error. guess: you are inferring, and the author should check before keeping it."
+          }
+        }
+      }
+    }
+  }
+}
