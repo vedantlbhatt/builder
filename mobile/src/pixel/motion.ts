@@ -637,7 +637,9 @@ export const ANIMAL_MOTION: Record<Animal, AnimalMotion> = {
     beatMs: 300,
     drift: null,
     breathMs: 3600,
-    note: 'tail wags, three positions, both ways',
+    // Head on you do not see the tail, you see its TIP appear past one flank and then the
+    // other. Fast, because a wag that is not fast is a limp.
+    note: 'tail tip swings past one flank, then the other',
   },
   cat: {
     beatMs: 600,
@@ -657,7 +659,9 @@ export const ANIMAL_MOTION: Record<Animal, AnimalMotion> = {
     beatMs: 480,
     drift: null,
     breathMs: 4000,
-    note: 'brush sweeps up and down',
+    // Facing forward there is no brush to sweep, and the ears are what a fox has that the
+    // dog does not. One at a time, through the resting pose: both at once is a shrug.
+    note: 'one ear flicks, then the other',
   },
   whale: {
     beatMs: 560,

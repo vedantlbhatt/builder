@@ -35,8 +35,12 @@ import { colors, type Scheme } from '../src/theme';
  * The subtlety budget: how many of the 256 cells may change between one frame of a loop
  * and the next, the wrap back to frame 0 included.
  *
- * MEASURED over the shipping frames — crab 6, octopus 8, dog 4, cat 3, owl 8, fox 8,
- * whale 6, bee 6 — so the worst change in the pack is 8 cells and the ceiling is 10.
+ * MEASURED over the shipping frames — crab 6, octopus 8, dog 2, cat 3, owl 8, fox 2,
+ * whale 6, bee 4 — so the worst change in the pack is 8 cells and the ceiling is 10.
+ *
+ * The dog and the fox are the smallest in the pack because they turned to face forward:
+ * a side view has to move a whole tail or a whole brush, and head on the same gesture is
+ * a tail tip past one flank or a single ear folding.
  * The number is the whole point of the rule: whole-body movement belongs in
  * `ANIMAL_MOTION.drift`, and a loop that starts repainting the animal has stopped being
  * an idle. If this ever fails, look at the contact sheet before raising it.
@@ -146,6 +150,73 @@ describe('the pack', () => {
       });
     });
   }
+
+  /**
+   * The cat, and only the cat, is not mirror-symmetric at rest.
+   *
+   * It sits facing you with its tail curled out to one side, which is the pose that says
+   * "cat" and the one thing it has that the owl does not. Everything else in the pack is
+   * square on, so its resting frame reflects exactly.
+   */
+  const ASYMMETRIC_BY_DESIGN = new Set<Animal>(['cat']);
+
+  /** Cells that differ between a frame and its own mirror image. */
+  function asymmetry(frame: Frame): number {
+    let n = 0;
+    for (let y = 0; y < GRID; y++) {
+      for (let x = 0; x < GRID / 2; x++) if (frame[y]?.[x] !== frame[y]?.[GRID - 1 - x]) n += 1;
+    }
+    return n;
+  }
+
+  test('every animal faces forward: the resting frame reflects', () => {
+    // This is what "facing forward" means to a test. The pack shipped with four animals
+    // in profile — a dog and a fox seen from the side, a whale swimming left, a bee with
+    // its stinger to the right — and beside the four head-on ones they read as a
+    // different icon set. Each of those scored 40 to 80 cells here before the redraw.
+    for (const animal of ANIMALS) {
+      if (ASYMMETRIC_BY_DESIGN.has(animal)) continue;
+      const rest = framesForAnimal(animal)[0]!;
+      expect(asymmetry(rest), `${animal}\n${ascii(rest)}`).toBe(0);
+    }
+    // Named, so removing the cat's tail does not quietly satisfy a rule it is exempt from.
+    expect(asymmetry(framesForAnimal('cat')[0]!)).toBeGreaterThan(0);
+  });
+
+  test('a gesture breaks the symmetry by a few cells, never a redraw', () => {
+    // A one-sided gesture is exactly what the moving frames are for: the dog's tail tip
+    // past one flank, one of the fox's ears folding, the owl turning its head. MEASURED:
+    // dog 2, fox 2, owl 6, everything else 0. A frame that swung past this would be
+    // turning the animal, not moving part of it.
+    for (const animal of ANIMALS) {
+      if (ASYMMETRIC_BY_DESIGN.has(animal)) continue;
+      for (const frame of framesForAnimal(animal)) {
+        expect(asymmetry(frame), `${animal}\n${ascii(frame)}`).toBeLessThanOrEqual(6);
+      }
+    }
+  });
+
+  test('the dog and the fox are told apart by their ears, not their colours', () => {
+    // Two pointy-faced animals of a similar size, head on, at 16 px. The ears are the
+    // whole difference: the fox's stand up into the top row, the dog's hang past its jaw.
+    // If either ever borrows the other's, the pack has two of the same animal in it.
+    const fox = framesForAnimal('fox')[0]!;
+    const dog = framesForAnimal('dog')[1]!; // the resting pose, tail hidden
+    const drawnRow = (f: Frame, y: number) => [...(f[y] ?? '')].filter((c) => c !== EMPTY).length;
+
+    expect(drawnRow(fox, 0), 'the fox has ear tips in the top row').toBeGreaterThan(0);
+    expect(drawnRow(dog, 0), 'the dog does not').toBe(0);
+
+    // The dog's ears hang past the jaw: the outermost drawn cells low on the head are the
+    // ACCENT, which is what an ear is drawn in.
+    const jaw = 8;
+    const dogJaw = dog[jaw] ?? '';
+    const first = [...dogJaw].findIndex((c) => c !== EMPTY);
+    expect(dogJaw[first]).toBe('d');
+    // The fox has nothing out there at all at that height: its ears are up.
+    const foxJaw = fox[jaw] ?? '';
+    expect(foxJaw[first]).toBe(EMPTY);
+  });
 
   test('the worst change anywhere in the pack is the measured one', () => {
     // Documented so a redraw that doubles the movement shows up as a number, not a vibe.

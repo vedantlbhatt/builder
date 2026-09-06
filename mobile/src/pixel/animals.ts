@@ -11,13 +11,24 @@
  * `runsFor`, `mirror` and the whole renderer work here unchanged. `d` is the ACCENT
  * role, not necessarily the darker one — a grey cat has amber eyes (`palette.ts`).
  *
- * Two rules keep the pack subtle, and both are tested:
+ * EVERY ANIMAL FACES FORWARD. The pack shipped with four head-on (crab, octopus, cat,
+ * owl) and four in profile (dog, fox, whale, bee), and side by side the profiles read as a
+ * different set of icons: no eye contact, no symmetry, and a silhouette that changes
+ * meaning depending on which way it happens to point. The four were redrawn head-on. It
+ * costs the obvious side-view gestures — a tail wagging across the frame, a brush
+ * sweeping — and buys a pack that looks like one pack, which is the entire job of an icon
+ * set. The gestures that replaced them are in the per-animal notes below.
+ *
+ * Three rules keep the pack subtle, and all three are tested:
  *
  *   1. A loop is 2 to 4 frames. Anything longer stops reading as one gesture.
  *   2. Consecutive frames differ by a handful of pixels — the tip of a tail, one claw,
  *      a pair of eyelids. Whole-body movement is NOT drawn into the frames; it is the
  *      renderer's 1-pixel `drift` (`ANIMAL_MOTION` in `motion.ts`), so a crab sidesteps
  *      and a bee hovers without every frame change repainting the animal.
+ *   3. Two animals must not share a silhouette. The dog's ears hang and the fox's stand
+ *      up; that one difference is what tells them apart head-on at 16 px, so neither is
+ *      free to borrow the other's.
  *
  * A transparent pixel inside a body reads as the background — that is how eyes and the
  * gaps between a bee's stripes are drawn, and it costs no third colour.
@@ -164,62 +175,68 @@ const OCTO_2: Frame = [
 ];
 
 // ─── dog ─────────────────────────────────────────────────────────────────────────────
-// Side view, facing left. Only the tail moves: down, mid, up. Ear, nose and paws carry
-// the accent so the head reads without a face.
+// Front on. Long accent ears hanging past the jaw are the whole silhouette: the fox's
+// ears go UP and the dog's go DOWN, which is the only thing that reliably separates two
+// pointy-faced animals at 16 px. Eyes and the gap under the muzzle are holes in the body.
+//
+// The tail is what moves, and head on you never see the tail, only its TIP appearing past
+// one flank and then the other. Two pixels a beat.
 
 const DOG_0: Frame = [
   '................',
-  '................',
-  '.dd.............',
-  '.bbb.........bb.',
-  'bbbbb.......bb..',
-  'b.bbb.......b...',
-  'bbbbbbbbbbbbbb..',
-  'dbbbbbbbbbbbbb..',
-  '.bbbbbbbbbbbbb..',
-  '.bbbbbbbbbbbbb..',
-  '..bbbbbbbbbbb...',
-  '..bb.....bbb....',
-  '..bb.....bbb....',
-  '..dd.....ddd....',
+  '.....bbbbbb.....',
+  '..ddbbbbbbbbdd..',
+  '..ddb.bbbb.bdd..',
+  '..ddb.bbbb.bdd..',
+  '..ddbbbbbbbbdd..',
+  '..ddbbddddbbdd..',
+  '..dd.bbbbbb.dd..',
+  '...d.bbbbbb.d...',
+  '.....bbbbbb.....',
+  '....bbbbbbbb....',
+  '...bbbbbbbbbb...',
+  '..bbbbbbbbbbbb..',
+  '..dd.bbbbbb.dd..',
   '................',
   '................',
 ];
 
+/** The tail tip swings out past the near flank. */
 const DOG_1: Frame = [
   '................',
-  '................',
-  '.dd.............',
-  '.bbb........bb..',
-  'bbbbb.......bb..',
-  'b.bbb.......b...',
-  'bbbbbbbbbbbbbb..',
-  'dbbbbbbbbbbbbb..',
-  '.bbbbbbbbbbbbb..',
-  '.bbbbbbbbbbbbb..',
-  '..bbbbbbbbbbb...',
-  '..bb.....bbb....',
-  '..bb.....bbb....',
-  '..dd.....ddd....',
+  '.....bbbbbb.....',
+  '..ddbbbbbbbbdd..',
+  '..ddb.bbbb.bdd..',
+  '..ddb.bbbb.bdd..',
+  '..ddbbbbbbbbdd..',
+  '..ddbbddddbbdd..',
+  '..dd.bbbbbb.dd..',
+  '...d.bbbbbb.d...',
+  '.....bbbbbb.....',
+  '....bbbbbbbb....',
+  '...bbbbbbbbbb...',
+  'ddbbbbbbbbbbbb..',
+  '..dd.bbbbbb.dd..',
   '................',
   '................',
 ];
 
+/** And then the far one. */
 const DOG_2: Frame = [
   '................',
-  '................',
-  '.dd.............',
-  '.bbb.......bb...',
-  'bbbbb......bb...',
-  'b.bbb.......b...',
-  'bbbbbbbbbbbbbb..',
-  'dbbbbbbbbbbbbb..',
-  '.bbbbbbbbbbbbb..',
-  '.bbbbbbbbbbbbb..',
-  '..bbbbbbbbbbb...',
-  '..bb.....bbb....',
-  '..bb.....bbb....',
-  '..dd.....ddd....',
+  '.....bbbbbb.....',
+  '..ddbbbbbbbbdd..',
+  '..ddb.bbbb.bdd..',
+  '..ddb.bbbb.bdd..',
+  '..ddbbbbbbbbdd..',
+  '..ddbbddddbbdd..',
+  '..dd.bbbbbb.dd..',
+  '...d.bbbbbb.d...',
+  '.....bbbbbb.....',
+  '....bbbbbbbb....',
+  '...bbbbbbbbbb...',
+  '..bbbbbbbbbbbbdd',
+  '..dd.bbbbbb.dd..',
   '................',
   '................',
 ];
@@ -347,66 +364,92 @@ const OWL_2: Frame = [
 ];
 
 // ─── fox ─────────────────────────────────────────────────────────────────────────────
-// Side view, facing left, the brush sweeping behind. Bone accent on the tail tip, the
-// chest and the ear insides — the only white a fox needs.
+// Front on. Tall pointed ears carry the whole read, so they carry the motion too: one tip
+// folds and the ear leans, then the other. Bone marks the three places a red fox is white
+// and nowhere else — the ear insides, the muzzle and the chest bib.
+//
+// No tail. Cheek ruffs were tried and dropped: flared at the sides they put two bone nubs
+// on the silhouette and the face read as a raccoon's mask.
 
 const FOX_0: Frame = [
-  '................',
-  '................',
-  '.b.....b........',
-  '.bd...db.....bb.',
-  '.bbbbbbb....bbdd',
-  'bbbbbbbb...bbbdd',
-  'bbbbbbbbbbbbbb..',
-  'dbbbbbbbbbbbb...',
-  '.dbbbbbbbbbbb...',
-  '..bbbbbbbbbbb...',
-  '..bbbbbbbbbbb...',
-  '..bb.....bbb....',
-  '..bb.....bbb....',
-  '..bb.....bbb....',
+  '...b........b...',
+  '..bb........bb..',
+  '..bdb......bdb..',
+  '..bdbb....bbdb..',
+  '...bbbbbbbbbb...',
+  '...b..bbbb..b...',
+  '...bbbbbbbbbb...',
+  '...bbbbddbbbb...',
+  '....bbddddbb....',
+  '.....bbbbbb.....',
+  '....bbbbbbbb....',
+  '....bbddddbb....',
+  '...bbbddddbbb...',
+  '...bbbbbbbbbb...',
   '................',
   '................',
 ];
 
+/** The near ear flicks. */
 const FOX_1: Frame = [
+  '............b...',
+  '.bbb........bb..',
+  '..bdb......bdb..',
+  '..bdbb....bbdb..',
+  '...bbbbbbbbbb...',
+  '...b..bbbb..b...',
+  '...bbbbbbbbbb...',
+  '...bbbbddbbbb...',
+  '....bbddddbb....',
+  '.....bbbbbb.....',
+  '....bbbbbbbb....',
+  '....bbddddbb....',
+  '...bbbddddbbb...',
+  '...bbbbbbbbbb...',
   '................',
   '................',
-  '.b.....b........',
-  '.bd...db........',
-  '.bbbbbbb.....bb.',
-  'bbbbbbbb....bbdd',
-  'bbbbbbbbbbbbbbdd',
-  'dbbbbbbbbbbbb...',
-  '.dbbbbbbbbbbb...',
-  '..bbbbbbbbbbb...',
-  '..bbbbbbbbbbb...',
-  '..bb.....bbb....',
-  '..bb.....bbb....',
-  '..bb.....bbb....',
+];
+
+/** The far one answers. */
+const FOX_2: Frame = [
+  '...b............',
+  '..bb........bbb.',
+  '..bdb......bdb..',
+  '..bdbb....bbdb..',
+  '...bbbbbbbbbb...',
+  '...b..bbbb..b...',
+  '...bbbbbbbbbb...',
+  '...bbbbddbbbb...',
+  '....bbddddbb....',
+  '.....bbbbbb.....',
+  '....bbbbbbbb....',
+  '....bbddddbb....',
+  '...bbbddddbbb...',
+  '...bbbbbbbbbb...',
   '................',
   '................',
 ];
 
 // ─── whale ───────────────────────────────────────────────────────────────────────────
-// Facing left, fluke up at the right. The spout puffs: nothing, a bud, a full plume. The
-// gentle bob is the renderer's drift.
+// Head on at the surface: a broad rounded head, eyes as holes at the corners, pectoral
+// flippers spread the full width, and a bone mouth line. The spout puffs above the
+// blowhole — nothing, a bud, a full plume — and the gentle bob is the renderer's drift.
 
 const WHALE_0: Frame = [
   '................',
   '................',
   '................',
   '................',
-  '................',
-  '....bbbbbb......',
-  '..bbbbbbbbbb..b.',
-  '.bbbbbbbbbbbb.bb',
-  '.b.bbbbbbbbbbbbb',
-  '.bbbbbbbbbbbb.bb',
-  '..bbbbbbbbbb..b.',
-  '...dddddddd.....',
-  '................',
-  '................',
+  '.....bbbbbb.....',
+  '...bbbbbbbbbb...',
+  '..bbbbbbbbbbbb..',
+  '..b..bbbbbb..b..',
+  '..bbbbbbbbbbbb..',
+  'bbbbbbbbbbbbbbbb',
+  '.bbbbbbbbbbbbbb.',
+  '..bbbbbbbbbbbb..',
+  '...dddddddddd...',
+  '....bbbbbbbb....',
   '................',
   '................',
 ];
@@ -415,59 +458,61 @@ const WHALE_1: Frame = [
   '................',
   '................',
   '................',
-  '................',
-  '......d.........',
-  '....bbbbbb......',
-  '..bbbbbbbbbb..b.',
-  '.bbbbbbbbbbbb.bb',
-  '.b.bbbbbbbbbbbbb',
-  '.bbbbbbbbbbbb.bb',
-  '..bbbbbbbbbb..b.',
-  '...dddddddd.....',
-  '................',
-  '................',
+  '.......dd.......',
+  '.....bbbbbb.....',
+  '...bbbbbbbbbb...',
+  '..bbbbbbbbbbbb..',
+  '..b..bbbbbb..b..',
+  '..bbbbbbbbbbbb..',
+  'bbbbbbbbbbbbbbbb',
+  '.bbbbbbbbbbbbbb.',
+  '..bbbbbbbbbbbb..',
+  '...dddddddddd...',
+  '....bbbbbbbb....',
   '................',
   '................',
 ];
 
 const WHALE_2: Frame = [
   '................',
-  '................',
-  '.....d.d........',
-  '.....ddd........',
-  '......d.........',
-  '....bbbbbb......',
-  '..bbbbbbbbbb..b.',
-  '.bbbbbbbbbbbb.bb',
-  '.b.bbbbbbbbbbbbb',
-  '.bbbbbbbbbbbb.bb',
-  '..bbbbbbbbbb..b.',
-  '...dddddddd.....',
-  '................',
-  '................',
+  '......d..d......',
+  '.......dd.......',
+  '.......dd.......',
+  '.....bbbbbb.....',
+  '...bbbbbbbbbb...',
+  '..bbbbbbbbbbbb..',
+  '..b..bbbbbb..b..',
+  '..bbbbbbbbbbbb..',
+  'bbbbbbbbbbbbbbbb',
+  '.bbbbbbbbbbbbbb.',
+  '..bbbbbbbbbbbb..',
+  '...dddddddddd...',
+  '....bbbbbbbb....',
   '................',
   '................',
 ];
 
 // ─── bee ─────────────────────────────────────────────────────────────────────────────
-// Wings up, wings blurred flat: two frames at a fast beat, plus the hover drift. Stripes
-// are transparent gaps, so the body stays one colour and the bee stays two.
+// Head on and hovering: wings out to both sides, eyes as holes, and stripes drawn as
+// transparent gaps that stop short of the edges so the body stays one connected shape.
+// The beat is the wings losing their top row, which is what a blur looks like when you
+// only have two frames, and the hover is the renderer's 2 px drift.
 
 const BEE_0: Frame = [
   '................',
   '................',
-  '................',
-  '................',
-  '................',
-  '.....dd..dd.....',
-  '....ddd..ddd....',
+  '..dd........dd..',
+  '.dddd......dddd.',
+  '..dd...bb...dd..',
+  '.....bbbbbb.....',
+  '....b.bbbb.b....',
+  '....b.bbbb.b....',
   '....bbbbbbbb....',
-  '..bbbbb.bbb.bb..',
-  '..b.bbb.bbb.bbd.',
-  '..bbbbb.bbb.bb..',
+  '....b......b....',
   '....bbbbbbbb....',
-  '................',
-  '................',
+  '....b......b....',
+  '....bbbbbbbb....',
+  '.....bbbbbb.....',
   '................',
   '................',
 ];
@@ -476,17 +521,17 @@ const BEE_1: Frame = [
   '................',
   '................',
   '................',
-  '................',
-  '................',
-  '................',
-  '...dddd..dddd...',
+  '.dddd......dddd.',
+  '..dd...bb...dd..',
+  '.....bbbbbb.....',
+  '....b.bbbb.b....',
+  '....b.bbbb.b....',
   '....bbbbbbbb....',
-  '..bbbbb.bbb.bb..',
-  '..b.bbb.bbb.bbd.',
-  '..bbbbb.bbb.bb..',
+  '....b......b....',
   '....bbbbbbbb....',
-  '................',
-  '................',
+  '....b......b....',
+  '....bbbbbbbb....',
+  '.....bbbbbb.....',
   '................',
   '................',
 ];
@@ -499,11 +544,14 @@ export const ANIMAL_FRAMES: Record<Animal, Frame[]> = {
   // out · straight · in · out the loop's wrap is a two-step swing (12 pixels) where
   // every other change is one (8) — the tentacles would snap back once a loop.
   octopus: [OCTO_0, OCTO_1, OCTO_2, OCTO_1],
-  // Same reason: a wag that only ever goes one way is a propeller.
-  dog: [DOG_0, DOG_1, DOG_2, DOG_1],
+  // Back through the resting pose between swings, for the octopus's reason: a wag that
+  // only ever goes one way is a propeller.
+  dog: [DOG_0, DOG_1, DOG_0, DOG_2],
   cat: [CAT_0, CAT_1, CAT_2],
   owl: [OWL_0, OWL_1, OWL_2],
-  fox: [FOX_0, FOX_1],
+  // One ear at a time, through the resting pose, for the octopus's reason: a loop that
+  // flicked both at once would read as a shrug.
+  fox: [FOX_0, FOX_1, FOX_0, FOX_2],
   whale: [WHALE_0, WHALE_1, WHALE_2],
   bee: [BEE_0, BEE_1],
 };
