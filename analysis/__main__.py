@@ -44,6 +44,11 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    bg = sub.add_parser(
+        "cards", help="the postable cards: what this corpus gives you to put in a feed"
+    )
+    bg.add_argument("path", nargs="?", default="~/.claude/projects")
+    bg.add_argument("--all", action="store_true", help="show the ones that scored too low too")
     pr = sub.add_parser("probe", help="read-only shape report over a file or directory")
     pr.add_argument(
         "path",
@@ -68,6 +73,9 @@ def main() -> int:
             return 0
         print(json.dumps(prof, indent=1, default=str))
         return 0
+
+    if a.cmd == "cards":
+        return _cards(a)
 
     if a.cmd == "narrative":
         return _narrative(a)
@@ -105,30 +113,49 @@ def main() -> int:
     return 0
 
 
-def _narrative(a) -> int:
-    """profile + findings -> `claude -p` -> the page, printed or written.
+def _cards(a) -> int:
+    """Every postable card this corpus can honestly produce, most postable first."""
+    from . import brag
+    from . import patterns as pat
+    from . import profile as pf_mod
 
-    Everything here reads the machine's own transcripts. `--findings-only` is the honest
-    dry run: it prints exactly what the model would be shown about the person's habits,
-    costs nothing, and is the fastest way to see WHY a page says what it says.
-    """
+    facts, sessions = _narrative_inputs(pathlib.Path(a.path).expanduser())
+    prof = pf_mod.corpus_profile(facts)
+    found = pat.findings(sessions)
+    made = brag.cards(prof, found)
+    if not made:
+        sys.stderr.write(
+            f"nothing postable yet from {len(facts)} session(s). A card needs a finding "
+            f"that cleared its bars, or a priced model comparison.\n"
+        )
+        return 0
+    for c in made:
+        print(f"[{c.postability:.2f} {c.kind:>10}]  {c.headline}")
+        if c.detail:
+            print(f"{'':>19}{c.detail}")
+        print()
+    return 0
+
+
+def _narrative_inputs(root: pathlib.Path):
+    """(facts, session events) for the whole corpus: the one place both commands cut it."""
     import datetime as _dt
 
     from capture import sessions as cap
 
-    from . import narrative as nar
     from . import patterns as pat
+
+    facts, kept = _corpus_facts(root)
+    tz = _dt.datetime.now().astimezone().tzinfo
+    from . import pricing as pr_mod
     from . import profile as pf_mod
 
-    facts, kept = _corpus_facts(pathlib.Path(a.path).expanduser())
-    tz = _dt.datetime.now().astimezone().tzinfo
-    sessions = []
-    for s in kept:
-        offset = _dt.datetime.fromtimestamp(s.started_at, tz).utcoffset() or _dt.timedelta(0)
-        # See capture/cli.py: the ledger, not a sum over the events.
+    events = []
+    for f, s in zip(facts, kept, strict=True):
         ledger = cap.token_ledger(s.records)
-        cost, dominant = pf_mod.pricing.priced_session(ledger, pf_mod.DOMINANT_SHARE)
-        sessions.append(
+        cost, dominant = pr_mod.priced_session(ledger, pf_mod.DOMINANT_SHARE)
+        offset = _dt.datetime.fromtimestamp(s.started_at, tz).utcoffset() or _dt.timedelta(0)
+        events.append(
             pat.SessionEvents(
                 session_id=s.client_session_id,
                 started_at=s.started_at,
@@ -144,6 +171,21 @@ def _narrative(a) -> int:
                 dominant_model=dominant,
             )
         )
+    return facts, events
+
+
+def _narrative(a) -> int:
+    """profile + findings -> `claude -p` -> the page, printed or written.
+
+    Everything here reads the machine's own transcripts. `--findings-only` is the honest
+    dry run: it prints exactly what the model would be shown about the person's habits,
+    costs nothing, and is the fastest way to see WHY a page says what it says.
+    """
+    from . import narrative as nar
+    from . import patterns as pat
+    from . import profile as pf_mod
+
+    facts, sessions = _narrative_inputs(pathlib.Path(a.path).expanduser())
     found = pat.findings(sessions)
 
     if a.findings_only:
