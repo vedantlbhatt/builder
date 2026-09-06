@@ -13,6 +13,7 @@ sentences, not arithmetic.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import pathlib
@@ -28,7 +29,9 @@ SCHEMA_PATH = HERE / "narrative_schema.json"
 PROMPT_PATH = HERE / "narrative_prompt.txt"
 
 #: Bumped when the shape or the rules change, so a stored narrative says which it is.
-NARRATIVE_VERSION = 1
+#: Read from the generated schema rather than declared here: spec/narrative.v1.json is
+#: the one place the version lives, and a second copy would eventually disagree with it.
+NARRATIVE_VERSION = json.loads((HERE / "narrative_schema.json").read_text())["x-version"]
 
 #: Numbers this small are ordinary English ("one experiment", "3 of 14") and are not worth
 #: checking against the input. Above it, a number in the prose has to have come from
@@ -50,7 +53,11 @@ _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 
 def load_schema() -> dict:
     schema = json.loads(SCHEMA_PATH.read_text())
-    schema.pop("$schema", None)
+    # The CLI resolves `$schema` as a reference and has no draft-2020-12 meta-schema
+    # registered, so it rejects the whole document (analysis/run.py). `x-version` and
+    # `$comment` are ours, not the decoder's.
+    for k in ("$schema", "$comment", "x-version"):
+        schema.pop(k, None)
     return schema
 
 
@@ -153,6 +160,30 @@ def numbers_in(text: str) -> set[str]:
     return out
 
 
+def known_numbers(source: str) -> set[str]:
+    """Every number the model is allowed to write, given what it was shown.
+
+    Two things count as known, and the second is here because of a MEASURED false
+    positive. The input states shares as fractions (`night_commit_share: 0.44`) and the
+    natural English for a share is a percentage, so a narrative that said "44% of your
+    commits" had a correct, sourced sentence deleted for saying 0.44 out loud. Every known
+    value in [0, 1] therefore also licenses its percentage, exact and rounded.
+
+    The cost is stated plainly: this widens the allowed set by at most one integer under
+    101 per fraction in the input, so a fabricated small percentage can now slip through.
+    That is the right trade. The claims worth catching are the ones with a magnitude
+    nobody could check by eye (1,211 tool calls, 4,089 lines, a 484-call run), and a check
+    that deletes correct sentences is worse than no check at all (CLAUDE.md).
+    """
+    known = numbers_in(source)
+    for tok in list(known):
+        value = float(tok)
+        if 0.0 <= value <= 1.0:
+            known.add(f"{value * 100:.10g}")
+            known.add(str(round(value * 100)))
+    return known
+
+
 def verify(narrative: dict, source: str) -> tuple[dict, list[str]]:
     """Drop any sentence carrying a number the input did not contain.
 
@@ -161,7 +192,7 @@ def verify(narrative: dict, source: str) -> tuple[dict, list[str]]:
     number in a sentence about somebody's own habits is the most believable wrong thing
     the app could print. Returns (narrative, the dropped strings).
     """
-    known = numbers_in(source)
+    known = known_numbers(source)
     dropped: list[str] = []
 
     def ok(text: str) -> bool:
@@ -209,7 +240,15 @@ def write(
     # trade (analysis/run.py).
     doc, dashes = rn.dedash(doc)
     doc["narrative_version"] = NARRATIVE_VERSION
-    doc["model"] = envelope.get("model") or model
+    # The envelope lists every model the CLI touched, including a small bookkeeping one;
+    # the analyst is the one that wrote the output tokens (analysis/run.py).
+    usage = envelope.get("modelUsage") or {}
+    doc["model"] = (
+        max(usage, key=lambda k: usage[k].get("outputTokens", 0))
+        if usage
+        else (envelope.get("model") or model)
+    )
+    doc["generated_at"] = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     doc["dashes_rewritten"] = dashes
     doc["invented_numbers_dropped"] = len(dropped)
     return doc

@@ -52,7 +52,7 @@ import datetime as dt
 import math
 import re
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
 PROFILE_VERSION = 1
 
@@ -368,6 +368,44 @@ def _active_by_hour(sessions: Sequence[SessionFact]) -> dict[int, float]:
             chunk_end = min(s.ended_at, next_hour)
             out[hour] += (chunk_end - t) * scale
             t = chunk_end
+    return out
+
+
+def attribute_commits(
+    facts: Sequence[SessionFact],
+    roots: Sequence[str | None],
+    lister: Callable[[str | None, float, float], Sequence[tuple[str, float]]],
+) -> list[SessionFact]:
+    """Re-stamp each fact with the commits `git log` says landed in its own window.
+
+    `roots[i]` is the repository directory for `facts[i]`, or None; `lister` is what runs
+    git (`capture.repo.commits_in`, injected so this module keeps its zero dependencies
+    and so a test can hand it a list).
+
+    A commit goes to the FIRST session whose window contains it. Windows overlap: several
+    agents run at once in one repository and every window reaches `COMMIT_ATTRIBUTION_SEC`
+    back before its start, so without the first-claim rule the per-session counts add up to
+    more commits than the repository has. That is the same failure `_corpus_commits`
+    refuses a total for, caught one step earlier.
+
+    Shared, not copied: `python -m analysis narrative` and `python -m capture narrative`
+    describe the same corpus, and two commands that disagree about how many commits a
+    person landed is the same bug as one wrong number.
+    """
+    out = list(facts)
+    claimed: set[str] = set()
+    for i, (fact, root) in enumerate(zip(out, roots, strict=True)):
+        if not root:
+            continue
+        since, until = fact.started_at - COMMIT_ATTRIBUTION_SEC, fact.ended_at
+        mine = [c for c in lister(root, since, until) if c[0] not in claimed]
+        claimed.update(sha for sha, _ in mine)
+        out[i] = dataclasses.replace(
+            fact,
+            commit_count=len(mine),
+            commit_basis=COMMITS_GIT_LOG,
+            commit_times=tuple(ts for _, ts in mine),
+        )
     return out
 
 

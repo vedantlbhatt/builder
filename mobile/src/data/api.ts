@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
+import type { BuilderNarrative } from '../generated/narrative';
 import type { Archetype, Dimension, SessionAnalysis } from '../generated/analysis';
 
 /**
@@ -343,6 +344,16 @@ export interface BuilderProfileResponse {
   min_sessions: number;
   window_days: number;
   corpus: CorpusProfile | null;
+  /**
+   * The "how you work" page: the only prose on this screen, and the only part of the
+   * profile a model wrote. Null means nobody has run `python -m capture narrative` for
+   * this account, which is the normal state until they do; the shape is generated from
+   * the same spec the server validates against (`generated/narrative.ts`).
+   *
+   * Optional on READ: a server older than 0016 omits the key entirely, and the screen
+   * then shows what it always showed rather than an empty section.
+   */
+  narrative?: BuilderNarrative | null;
 }
 
 // ------------------------------------------------------------------ social

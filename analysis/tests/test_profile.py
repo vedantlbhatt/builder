@@ -481,3 +481,63 @@ class WhereEachSessionStands(unittest.TestCase):
         self.assertEqual(p['session_rank'][0]['attended_seconds'], 3_000)
         # The robot still counted toward the hours; it just cannot hold a record.
         self.assertGreater(p['totals']['total_hours'], 8)
+
+
+class AttributeCommits(unittest.TestCase):
+    """`git log` per session window, first-claim across the overlaps.
+
+    The lister is injected, so these cases are about the attribution rule and not about
+    git. The rule exists because several agents run at once in one repository and every
+    window reaches `COMMIT_ATTRIBUTION_SEC` back before its start.
+    """
+
+    @staticmethod
+    def lister(commits):
+        def fn(root, since, until):
+            return [(sha, ts) for sha, ts in commits if since <= ts <= until]
+
+        return fn
+
+    def facts(self, *windows):
+        return [
+            session(
+                [],
+                session_id=f"s{i}",
+                start=T0 + start,
+                end=T0 + end,
+                attended=float(end - start),
+            )
+            for i, (start, end) in enumerate(windows)
+        ]
+
+    def test_a_commit_in_two_overlapping_windows_is_counted_once(self):
+        # Two sessions running at the same time in one repo, one commit in the overlap.
+        facts = self.facts((0, 2 * HOUR), (HOUR, 3 * HOUR))
+        out = pf.attribute_commits(
+            facts, ["/repo", "/repo"], self.lister([("a" * 40, T0 + 1.5 * HOUR)])
+        )
+        self.assertEqual([f.commit_count for f in out], [1, 0])
+        self.assertEqual(sum(f.commit_count for f in out), 1)
+
+    def test_every_fact_is_restamped_with_the_git_log_basis(self):
+        out = pf.attribute_commits(self.facts((0, HOUR)), ["/repo"], self.lister([]))
+        self.assertEqual(out[0].commit_basis, pf.COMMITS_GIT_LOG)
+        self.assertEqual(out[0].commit_times, ())
+
+    def test_a_session_with_no_repository_is_left_alone(self):
+        before = self.facts((0, HOUR))[0]
+        out = pf.attribute_commits([before], [None], self.lister([("a" * 40, T0)]))
+        self.assertEqual(out[0].commit_basis, before.commit_basis)
+        self.assertEqual(out[0].commit_count, before.commit_count)
+
+    def test_the_lookback_reaches_before_the_session_started(self):
+        # A commit 10 minutes before the first prompt is this session's work.
+        out = pf.attribute_commits(
+            self.facts((0, HOUR)), ["/repo"], self.lister([("a" * 40, T0 - 600)])
+        )
+        self.assertEqual(out[0].commit_count, 1)
+        self.assertGreater(pf.COMMIT_ATTRIBUTION_SEC, 600)
+
+    def test_a_mismatched_roots_list_is_an_error_not_a_silent_misattribution(self):
+        with self.assertRaises(ValueError):
+            pf.attribute_commits(self.facts((0, HOUR), (HOUR, 2 * HOUR)), ["/repo"], self.lister([]))

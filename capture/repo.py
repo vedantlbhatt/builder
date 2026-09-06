@@ -139,6 +139,37 @@ class WindowStats:
     files_changed: int = 0
 
 
+def commits_in(common_root: str | None, since: float, until: float) -> list[tuple[str, float]]:
+    """(sha, unix time) for every commit in the window, vendored files excluded.
+
+    `window_stats` answers "how much landed here", which is a per-session question and
+    the one the payload asks. This answers "WHICH commits", which is the only way to add
+    two overlapping sessions up without counting the same commit twice: two agents running
+    at once in one repository both see every commit in the overlap, and the sum of two
+    correct per-session numbers is then wrong (analysis/profile.py, COMMITS_OVERLAPPING).
+    """
+    if not common_root or not os.path.isdir(common_root):
+        return []
+    out = _git(
+        [
+            "log",
+            f"--since=@{since:.0f}",
+            f"--until=@{until:.0f}",
+            "--pretty=format:%H %ct",
+            "--no-merges",
+            "--",
+            *GIT_EXCLUDE_PATHSPECS,
+        ],
+        common_root,
+    )
+    rows = []
+    for line in (out or "").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            rows.append((parts[0], float(parts[1])))
+    return rows
+
+
 def window_stats(common_root: str | None, since: float, until: float) -> WindowStats:
     """`RepoResolver.stats`: commits and line deltas inside a window, vendored files
     excluded. Binary files report `-\t-`; the file is counted, the lines are not."""

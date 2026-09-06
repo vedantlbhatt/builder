@@ -230,6 +230,10 @@ def test_revoked_and_unknown_keys_are_the_same_401(client, paired):
         ("GET", "/v1/sessions", None),
         ("GET", "/v1/sessions/live", None),
         ("GET", "/v1/profile", None),
+        # 0016: the narrative's WRITE side is on `current_uploader` deliberately, so it is
+        # absent from this list. Its READ side is not, and that is the property being
+        # checked: a key can write the page and still not read it.
+        ("GET", "/v1/profile/builder", None),
         ("GET", "/v1/feed", None),
         ("POST", "/v1/posts", {"session_id": str(uuid.uuid4()), "visibility": "public"}),
         ("GET", "/v1/capture-keys", None),
@@ -267,6 +271,30 @@ def test_a_key_is_refused_everywhere_but_sync(client, paired, method, path, body
     assert control.status_code != 404 or path in past_auth_404, (
         f"{method} {path} does not exist; the refusal above proved nothing"
     )
+
+
+def test_a_key_may_write_the_narrative_and_still_not_read_it(client, paired):
+    """The one deliberate widening of a key's scope since 0011, with its control.
+
+    The narrative is produced where the transcripts are and a headless container holds a
+    key rather than a rotating device token (0011), so the PUT is on `current_uploader`
+    like the session upload. The guarantee that has not moved is the one that matters: the
+    same key gets a 401 reading the page it just wrote, and the owner's device token sees
+    it.
+    """
+    from test_narrative_route import doc
+
+    _, headers = paired
+    made = _mint(client, headers)
+    kh = _key_headers(made["key"])
+
+    assert client.put("/v1/profile/narrative", json=doc(), headers=kh).status_code == 200
+    refused = client.get("/v1/profile/builder", headers=kh)
+    assert refused.status_code == 401
+    assert "capture key" in refused.json()["detail"]
+
+    owner = client.get("/v1/profile/builder", headers=headers).json()["narrative"]
+    assert owner is not None and owner["narrative_version"] == 1
 
 
 def test_a_key_cannot_read_back_what_it_uploaded(client, paired):

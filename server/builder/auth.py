@@ -339,12 +339,20 @@ def _device_from_capture_key(raw: str) -> CurrentDevice:
 
 
 def current_uploader(request: Request) -> CurrentDevice:
-    """The sync routes' dependency: a device token OR a capture key.
+    """The WRITE-ONLY routes' dependency: a device token OR a capture key.
 
     This is the ONLY place a capture key is accepted. Every other route depends on
-    `current_device`, which refuses the prefix outright, so a leaked key can upload
-    sessions under its owner's account and do nothing else — not read them back, not post,
-    not mint another key.
+    `current_device`, which refuses the prefix outright, so a leaked key can write what a
+    machine with the transcripts writes and nothing else — it cannot read any of it back,
+    post, or mint another key.
+
+    The narrative PUT (0016) is on this dependency for exactly the reason the session
+    upload is: the document is produced where the transcripts are, and a headless
+    container authenticates with a key because the device flow rotates its refresh token
+    and a fleet of containers would break each other (0011). It is the same trust class as
+    the `analysis` prose a key already uploads with every session. What a key still cannot
+    do is READ, and that is the property this split exists to keep: the GET side of the
+    profile stays on `current_device`.
     """
     token = _bearer(request)
     if token.startswith(CAPTURE_KEY_PREFIX):

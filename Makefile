@@ -26,6 +26,7 @@ gen:
 	@python3 scripts/gen_strip.py
 	@python3 scripts/gen_tokens.py
 	@python3 scripts/gen_analysis.py
+	@python3 scripts/gen_narrative.py
 	@python3 scripts/gen_fixtures.py
 
 # The exact command the backend job runs, with the version CI pins. Three pushes went red

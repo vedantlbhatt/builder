@@ -335,6 +335,14 @@ class Client:
         known = r.get("known")
         return known if isinstance(known, dict) else {}
 
+    def put_narrative(self, doc: dict) -> dict:
+        """PUT /v1/profile/narrative: the "how you work" page this machine just wrote.
+
+        One document per person, replaced rather than appended: a narrative describes the
+        corpus as it stands, and the server keeps no history of ones that no longer do.
+        """
+        return self._authenticated("PUT", "/v1/profile/narrative", doc)
+
     def upload(self, sessions: list[dict], chunk_size: int = 200) -> dict:
         """POST /v1/sync/sessions:batch in chunks of 200, as the Mac does."""
         accepted = unchanged = 0

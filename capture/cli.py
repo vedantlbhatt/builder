@@ -164,12 +164,14 @@ def _analysis_for(s: sessions.Session, state: dict, quiet: bool) -> dict | None:
     return res["analysis"]
 
 
-def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[list[dict], dict]:
-    """Discover, sessionize, and build every uploadable payload. Returns (payloads, stats)."""
-    root = pathlib.Path(a.root).expanduser()
-    tz = _tz(a.tz)
-    now = time.time() if now is None else now
-    transcripts = iter_root_transcripts(root)
+def discover_sources(a: argparse.Namespace) -> tuple[list, list, list]:
+    """Every transcript this machine holds, loaded. Returns (sources, root transcripts, other stores).
+
+    Shared by `sync` and `narrative` so the two cannot cut different corpora. A page that
+    described a set of sessions the phone never received would be the same class of bug as
+    a wrong number, and harder to see.
+    """
+    transcripts = iter_root_transcripts(pathlib.Path(a.root).expanduser())
     sources = [sessions.load_source(t) for t in transcripts]
     # Every other tool on this machine, through the same records and the same cut
     # (`capture/harnesses.py`). Opt-out rather than opt-in: a person who installed Builder
@@ -197,6 +199,15 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
         except Exception as e:  # noqa: BLE001 - one bad store must not stop the sync
             if not getattr(a, "quiet", False):
                 print(f"  skipped {store.harness} {store.path.name}: {e}", file=sys.stderr)
+    return sources, transcripts, other
+
+
+def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[list[dict], dict]:
+    """Discover, sessionize, and build every uploadable payload. Returns (payloads, stats)."""
+    root = pathlib.Path(a.root).expanduser()
+    tz = _tz(a.tz)
+    now = time.time() if now is None else now
+    sources, transcripts, other = discover_sources(a)
     fit_report: dict = {}
     cut = sessions.sessionize_sources(
         sources, tz, now=now, finalize_open=a.finalize, tau=getattr(a, "tau", "auto"),
@@ -245,6 +256,103 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
             stats["with_analysis"] += 1
         payloads.append(p)
     return payloads, {"state": state, **stats}
+
+
+def cmd_narrative(a: argparse.Namespace) -> int:
+    """Write the "how you work" page from this machine's transcripts and upload it.
+
+    It is its own command rather than a flag on `sync` because it costs a model call and
+    describes the whole corpus: running it on every sync would pay for a document that has
+    not changed. `--dry-run` prints it and sends nothing, which is also the only way to
+    read it without a server.
+
+    The work itself lives in `analysis`, not here: this command sessionizes with the same
+    reference cut `sync` uses, hands the sessions to `analysis.patterns` and
+    `analysis.profile`, and posts what `analysis.narrative` returns.
+    """
+    key = cl.capture_key(a.key)
+    tz = _tz(a.tz)
+    now = time.time()
+
+    from analysis import narrative as nar
+    from analysis import patterns as pat
+    from analysis import profile as pf
+
+    sources, _, _ = discover_sources(a)
+    cut = [
+        s
+        for s in sessions.sessionize_sources(sources, tz, now=now, tau=getattr(a, "tau", "auto"))
+        if s.state == "final"
+    ]
+    facts, events, roots = [], [], []
+    for s in cut:
+        offset = dt.datetime.fromtimestamp(s.started_at, tz).utcoffset() or dt.timedelta(0)
+        minutes = int(offset.total_seconds() // 60)
+        roots.append(s.repo.common_root if s.repo else None)
+        facts.append(
+            pf.session_fact_from_events(
+                session_id=s.client_session_id,
+                events=s.events,
+                started_at=s.started_at,
+                ended_at=s.ended_at,
+                attended_seconds=s.attended,
+                autonomous_seconds=s.autonomous,
+                tz_offset_minutes=minutes,
+                output_tokens_by_model={},
+                unattended=s.presence == 0,
+            )
+        )
+        events.append(
+            pat.SessionEvents(
+                session_id=s.client_session_id,
+                started_at=s.started_at,
+                ended_at=s.ended_at,
+                active_seconds=s.attended + s.autonomous,
+                attended_seconds=s.attended,
+                tz_offset_minutes=minutes,
+                events=s.events,
+            )
+        )
+
+    # Commits from `git log` over each session's own window, first-claim across the
+    # overlaps, exactly as `python -m analysis narrative` does it. Without this the two
+    # commands describe the same corpus with different commit numbers, which is the same
+    # bug as one wrong number.
+    facts = pf.attribute_commits(facts, roots, repo.commits_in)
+
+    found = pat.findings(events)
+    if not a.quiet:
+        print(
+            f"{len(cut)} final session(s), {len(found)} comparative finding(s) cleared "
+            f"both bars (both sides need {pat.MIN_GROUP}, the gap needs {pat.MIN_LIFT}x).",
+            file=sys.stderr,
+        )
+
+    kw = {"model": a.model} if a.model else {}
+    doc = nar.write(profile=pf.corpus_profile(facts), findings=found, **kw)
+
+    if a.dry_run:
+        print(json.dumps(doc, indent=1, ensure_ascii=False))
+        print(
+            "\ndry run: nothing was sent. This document is prose about YOU, written on "
+            "this machine from your own transcripts; read it before you upload it.",
+            file=sys.stderr,
+        )
+        return 0
+
+    c = cl.Client(_server(a.server), key=key)
+    if key is None and cl.load_credentials() is None:
+        if not a.quiet:
+            print("Not paired. Run `python -m capture pair --server URL` first.")
+        return 3
+    c.put_narrative(doc)
+    if not a.quiet:
+        dropped = doc["invented_numbers_dropped"]
+        print(
+            "Uploaded your builder narrative."
+            + (f" {dropped} claim(s) were dropped for citing a number nobody measured." if dropped else "")
+        )
+    return 0
 
 
 def cmd_sync(a: argparse.Namespace) -> int:
@@ -393,6 +501,25 @@ def make_parser() -> argparse.ArgumentParser:
     )
     s.add_argument("--quiet", action="store_true", help="only print rejections and errors")
     s.set_defaults(fn=cmd_sync)
+
+    n = sub.add_parser(
+        "narrative",
+        help="write the 'how you work' page from this machine's transcripts and upload it",
+    )
+    n.add_argument("--root", default=DEFAULT_ROOT, help=f"transcript root (default {DEFAULT_ROOT})")
+    n.add_argument("--server", help="API base URL (or BUILDER_API_URL)")
+    n.add_argument("--key", help="capture key (or BUILDER_CAPTURE_KEY); replaces pairing")
+    n.add_argument("--tz", help="IANA zone for the 04:00 day rule (or BUILDER_TZ / TZ)")
+    n.add_argument("--tau", default="auto", help="idle-gap threshold; see `sync --tau`")
+    n.add_argument("--model", default=None, help="model for `claude -p` (default: sonnet)")
+    n.add_argument("--dry-run", action="store_true", help="print the page; send nothing")
+    n.add_argument(
+        "--no-other-harnesses",
+        action="store_true",
+        help="Claude Code only: skip Codex, Gemini CLI, Cline, opencode and Aider",
+    )
+    n.add_argument("--quiet", action="store_true", help="only print errors")
+    n.set_defaults(fn=cmd_narrative)
     return ap
 
 

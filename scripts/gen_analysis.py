@@ -158,7 +158,11 @@ def description(s: dict, f: dict) -> str:
     if t == "list":
         if f["item"] == "string" and ml is not None:
             hints.append(f"each max {ml} chars")
-        hints.append(f"max {f['max_items']} items")
+        hints.append(
+            f"{f['min_items']} to {f['max_items']} items"
+            if f.get("min_items")
+            else f"max {f['max_items']} items"
+        )
     b = numeric_bounds(f)
     if b is not None and not RANGE_DOC.match(doc):
         lo, hi = b
@@ -498,6 +502,8 @@ def json_prop(s: dict, f: dict) -> dict:
             if item == "string" and ml is not None:
                 items["maxLength"] = ml
         sch = {"type": "array", "items": items, "maxItems": f["max_items"]}
+        if f.get("min_items"):
+            sch["minItems"] = f["min_items"]
     elif t == "map":
         # Keyed by an enum, so it is an object with one optional property per legal key.
         # `additionalProperties` must be exactly false for a constrained decoder, and an

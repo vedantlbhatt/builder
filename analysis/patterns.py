@@ -188,8 +188,8 @@ def _the_opening_prompt(sessions: Sequence[SessionEvents]) -> Finding | None:
     return Finding(
         id="the_opening_prompt",
         text=(
-            f"You front-load. The prompt that opens a session averages {round(fa)} characters "
-            f"and every one after it averages {round(ra)}, which is {_lift(fa, ra)}x shorter. "
+            f"You front-load. The prompt that opens a session averages {round(fa)} characters, "
+            f"and the ones after it average {round(ra)}: {_lift(fa, ra)}x shorter. "
             f"The brief goes in once and the rest of the sitting is steering."
         ),
         left={"group": "first prompt of a session", "n": len(first), "mean_chars": round(fa)},

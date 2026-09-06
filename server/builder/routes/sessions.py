@@ -3,16 +3,19 @@ import base64
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
-from ..auth import CurrentDevice, current_device
+from ..auth import CurrentDevice, current_device, current_uploader
 from ..builder_profile import (
     DEFAULT_WINDOW_DAYS,
     MAX_WINDOW_DAYS,
     MIN_SESSIONS,
+    builder_narrative,
     builder_profile,
     corpus_metrics,
+    put_builder_narrative,
 )
 from ..contract import ENUM_VALUES
 from ..db import db_session
+from ..narrative_spec import BuilderNarrative
 
 router = APIRouter(prefix="/v1", tags=["sessions"])
 
@@ -374,10 +377,39 @@ def profile_builder(device: CurrentDevice = Depends(current_device), window_days
     with db_session(viewer_id=uid) as db:
         builder, analysed = builder_profile(db, uid, window_days)
         corpus = corpus_metrics(db, uid, window_days)
+        narrative = builder_narrative(db, uid)
     return {
         "builder_profile": builder,
         "sessions_analysed": analysed,
         "min_sessions": MIN_SESSIONS,
         "window_days": window_days,
         "corpus": corpus,
+        "narrative": narrative,
     }
+
+
+@router.put("/profile/narrative")
+def put_narrative(doc: BuilderNarrative, device: CurrentDevice = Depends(current_uploader)):
+    """Store the "how you work" page this account's own machine wrote.
+
+    The server cannot produce this document and does not try. It rests on prompt text and
+    the events around it, which never leave the machine (privacy/upload-contract.json), so
+    it is written where the transcripts are, by the user's own `claude`, under
+    spec/narrative.v1.json. What arrives here is validated against the Pydantic half of
+    that same spec, which is where the string bounds are actually enforced: the constrained
+    decoder that produced it honours `required` and `additionalProperties` and nothing
+    about lengths.
+
+    PUT, not POST: there is one narrative per person and this replaces it. A person whose
+    corpus has moved on does not want two.
+
+    `current_uploader`, not `current_device`: a headless container holds a capture key,
+    because the device flow's rotating refresh token cannot be shared by a fleet (0011),
+    and this is the same write a machine with the transcripts already does when it attaches
+    an `analysis` to a session. The GET side stays on `current_device`, so a leaked key can
+    still read nothing at all.
+    """
+    uid = str(device.user_id)
+    with db_session(viewer_id=uid) as db:
+        put_builder_narrative(db, uid, doc.model_dump(mode="json"))
+    return {"ok": True, "narrative_version": doc.narrative_version}

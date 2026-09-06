@@ -32,6 +32,18 @@ def main() -> int:
     )
     pf.add_argument("path", nargs="?", default="~/.claude/projects")
     pf.add_argument("--facts-only", action="store_true")
+    nr = sub.add_parser(
+        "narrative",
+        help="the 'how you work' page: profile + comparative findings through `claude -p`",
+    )
+    nr.add_argument("path", nargs="?", default="~/.claude/projects")
+    nr.add_argument("--out")
+    nr.add_argument("--model", default=None)
+    nr.add_argument(
+        "--findings-only",
+        action="store_true",
+        help="print the comparative findings and stop, without calling a model",
+    )
     pr = sub.add_parser("probe", help="read-only shape report over a file or directory")
     pr.add_argument(
         "path",
@@ -48,13 +60,17 @@ def main() -> int:
     if a.cmd == "profile":
         from . import profile as pf_mod
 
-        prof = pf_mod.corpus_profile(_corpus_facts(pathlib.Path(a.path).expanduser()))
+        facts, _ = _corpus_facts(pathlib.Path(a.path).expanduser())
+        prof = pf_mod.corpus_profile(facts)
         if a.facts_only:
             for f in prof["facts"]:
                 print(f"[{f['unusualness']:5.2f}] {f['text']}")
             return 0
         print(json.dumps(prof, indent=1, default=str))
         return 0
+
+    if a.cmd == "narrative":
+        return _narrative(a)
 
     if a.cmd == "probe":
         from . import probe as pb
@@ -89,24 +105,79 @@ def main() -> int:
     return 0
 
 
-def _corpus_facts(root: pathlib.Path) -> list:
-    """Sessionize a whole `~/.claude/projects` tree and turn each session into facts.
+def _narrative(a) -> int:
+    """profile + findings -> `claude -p` -> the page, printed or written.
+
+    Everything here reads the machine's own transcripts. `--findings-only` is the honest
+    dry run: it prints exactly what the model would be shown about the person's habits,
+    costs nothing, and is the fastest way to see WHY a page says what it says.
+    """
+    import datetime as _dt
+
+    from . import narrative as nar
+    from . import patterns as pat
+    from . import profile as pf_mod
+
+    facts, kept = _corpus_facts(pathlib.Path(a.path).expanduser())
+    tz = _dt.datetime.now().astimezone().tzinfo
+    sessions = []
+    for s in kept:
+        offset = _dt.datetime.fromtimestamp(s.started_at, tz).utcoffset() or _dt.timedelta(0)
+        sessions.append(
+            pat.SessionEvents(
+                session_id=s.client_session_id,
+                started_at=s.started_at,
+                ended_at=s.ended_at,
+                active_seconds=s.attended + s.autonomous,
+                attended_seconds=s.attended,
+                tz_offset_minutes=int(offset.total_seconds() // 60),
+                events=s.events,
+            )
+        )
+    found = pat.findings(sessions)
+
+    if a.findings_only:
+        if not found:
+            sys.stderr.write(
+                f"no finding cleared the bars over {len(sessions)} sessions "
+                f"(both sides need {pat.MIN_GROUP}, the gap needs {pat.MIN_LIFT}x)\n"
+            )
+            return 0
+        for f in found:
+            print(f"[{f.lift:>6}x] {f.text}")
+            print(f"          left  {f.left}")
+            print(f"          right {f.right}\n")
+        return 0
+
+    prof = pf_mod.corpus_profile(facts)
+    kw = {"model": a.model} if a.model else {}
+    doc = nar.write(profile=prof, findings=found, **kw)
+    text = json.dumps(doc, indent=1, ensure_ascii=False)
+    if a.out:
+        pathlib.Path(a.out).write_text(text)
+        sys.stderr.write(f"wrote {a.out}\n")
+    else:
+        print(text)
+    return 0
+
+
+def _corpus_facts(root: pathlib.Path) -> tuple[list, list]:
+    """Sessionize a whole `~/.claude/projects` tree: (facts, the sessions they came from).
+
+    The sessions travel back beside the facts because the comparative findings
+    (analysis/patterns.py) need the EVENTS, prompt wording included, and a `SessionFact`
+    is deliberately a summary. Nothing that reads the sessions may upload them.
 
     The sessionizer is `capture`, which is the reference cut (v3 lineage pooling, fitted
     tau) rather than a second implementation of the boundary rules. Live sessions are
     excluded: their numbers move every minute, so a profile that included them would
     disagree with itself between two runs.
     """
-    import dataclasses
     import datetime as _dt
 
     from capture import discover
     from capture import sessions as cap
-    from capture.tuning import (
-        COUNTED_MIN_ACTIVE_SEC,
-        COUNTED_MIN_MEANINGFUL_EVENTS,
-        TAU_COMMIT_ATTRIBUTION_SEC,
-    )
+    from capture.tuning import COUNTED_MIN_ACTIVE_SEC, COUNTED_MIN_MEANINGFUL_EVENTS
 
     from . import profile as pf_mod
 
@@ -156,50 +227,14 @@ def _corpus_facts(root: pathlib.Path) -> list:
     # (three sessions ran inside one 17:15-18:31 stretch, and every window reaches
     # `tauCommitAttributionSec` back before its start), so summing per-session counts
     # reported 92 commits where the repository had 68.
-    claimed: set[str] = set()
-    for i, s in enumerate(kept):
-        if s.repo is None:
-            continue
-        since, until = s.started_at - TAU_COMMIT_ATTRIBUTION_SEC, s.ended_at
-        mine = [c for c in _commits_in(s.repo.common_root, since, until) if c[0] not in claimed]
-        claimed.update(sha for sha, _ in mine)
-        facts[i] = dataclasses.replace(
-            facts[i],
-            commit_count=len(mine),
-            commit_basis=pf_mod.COMMITS_GIT_LOG,
-            commit_times=tuple(ts for _, ts in mine),
-        )
-    return facts
-
-
-def _commits_in(common_root: str | None, since: float, until: float) -> list[tuple[str, float]]:
-    """(sha, unix time) for every commit in the window, from capture's own git runner and
-    the same vendored-file exclusions the uploader's counts use."""
     from capture import repo as cap_repo
-    from capture.tuning import GIT_EXCLUDE_PATHSPECS
 
-    if not common_root:
-        return []
-    out = cap_repo._git(
-        [
-            "log",
-            f"--since=@{since:.0f}",
-            f"--until=@{until:.0f}",
-            "--pretty=format:%H %ct",
-            "--no-merges",
-            "--",
-            *GIT_EXCLUDE_PATHSPECS,
-        ],
-        common_root,
+    facts = pf_mod.attribute_commits(
+        facts,
+        [s.repo.common_root if s.repo else None for s in kept],
+        cap_repo.commits_in,
     )
-    if not out:
-        return []
-    rows = []
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) == 2 and parts[1].isdigit():
-            rows.append((parts[0], float(parts[1])))
-    return rows
+    return facts, kept
 
 
 if __name__ == "__main__":

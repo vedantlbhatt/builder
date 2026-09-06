@@ -32,6 +32,7 @@ one-line facts and the archetype the rules chose. Two consequences worth stating
 
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 from collections import Counter
@@ -329,4 +330,54 @@ def _session_fact(ap, r):
         prompts=None,
         test_runs=None,
         unattended=r.unattended,
+    )
+
+
+# ---------------------------------------------------------------------- narrative
+def builder_narrative(db, user_id: str) -> dict | None:
+    """The stored "how you work" page, or None if this person has never generated one.
+
+    None is not an error and not an empty page: it means the machine-side step that writes
+    it (`python -m analysis narrative`) has not run for this account yet, which is the
+    normal state for someone who has only ever used the phone.
+    """
+    row = db.execute(
+        text("SELECT body FROM builder_narrative WHERE user_id = :u"),
+        {"u": user_id},
+    ).first()
+    return row.body if row else None
+
+
+def put_builder_narrative(db, user_id: str, doc: dict) -> None:
+    """Replace this person's narrative with `doc`, which the caller has already validated.
+
+    One row per user, upserted: a narrative describes the corpus as it stands, and keeping
+    the one it replaced would only let a screen show a description of a corpus that no
+    longer exists. `invented_numbers_dropped` is lifted out of the body into its own column
+    for one reason: a row where it is not zero is one somebody should read, and finding
+    those has to be a WHERE clause rather than a full scan of the prose.
+    """
+    db.execute(
+        text(
+            """
+            INSERT INTO builder_narrative
+              (user_id, narrative_version, model, generated_at, invented_numbers_dropped, body)
+            VALUES (:u, :v, :m, :g, :d, CAST(:b AS jsonb))
+            ON CONFLICT (user_id) DO UPDATE SET
+              narrative_version = EXCLUDED.narrative_version,
+              model = EXCLUDED.model,
+              generated_at = EXCLUDED.generated_at,
+              invented_numbers_dropped = EXCLUDED.invented_numbers_dropped,
+              body = EXCLUDED.body,
+              updated_at = now()
+            """
+        ),
+        {
+            "u": user_id,
+            "v": doc["narrative_version"],
+            "m": doc.get("model"),
+            "g": doc["generated_at"],
+            "d": doc.get("invented_numbers_dropped", 0),
+            "b": json.dumps(doc),
+        },
     )

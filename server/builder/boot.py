@@ -79,6 +79,9 @@ def assert_policies_present() -> None:
         # 0014. Raw transcript bytes from the hook channel — the conversation itself,
         # held until the session is final. Owner-only.
         "transcript_chunks",
+        # 0016. Prose about the PERSON, not about a session. Owner-only with no public
+        # policy at all, so a deployment where the migration never ran must not serve it.
+        "builder_narrative",
     }
     with engine().connect() as conn:
         rows = conn.execute(
