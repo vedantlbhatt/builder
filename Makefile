@@ -1,10 +1,11 @@
 SWIFT_PKG := Packages/BuilderKit
 
-.PHONY: help gen icons check-gen build test scan watch doctor share clean measure measure-gaps analyze fixtures capture-test
+.PHONY: help gen icons lint check-gen build test scan watch doctor share clean measure measure-gaps analyze fixtures capture-test
 
 help:
 	@echo "gen        regenerate everything from privacy/, spec/ and design/"
 	@echo "icons      re-render the store icons from the mascot frame and design/tokens.json"
+	@echo "lint       the server lint EXACTLY as CI runs it (pinned ruff)"
 	@echo "check-gen  regenerate and fail if anything changed (this is the CI gate)"
 	@echo "build      swift build"
 	@echo "test       swift test — the ground-truth regression suite"
@@ -26,6 +27,13 @@ gen:
 	@python3 scripts/gen_tokens.py
 	@python3 scripts/gen_analysis.py
 	@python3 scripts/gen_fixtures.py
+
+# The exact command the backend job runs, with the version CI pins. Three pushes went red
+# on an import-sort finding nobody had run locally, which is the cheapest possible way to
+# waste a CI cycle. `ruff format --check` drifts between releases, so the version is part
+# of the gate.
+lint:
+	@uvx ruff@0.16.6 check server && uvx ruff@0.16.6 format --check server
 
 # NOT part of `make gen`, and deliberately not a CI gate: a zlib-compressed PNG is not
 # guaranteed byte-identical across zlib builds, so `git diff --exit-code` on one would

@@ -7,8 +7,8 @@ half: even a hostile or stale client must not be able to push a field into Postg
 
 import base64
 import json
-from datetime import UTC, datetime, timedelta
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
