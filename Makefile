@@ -1,9 +1,10 @@
 SWIFT_PKG := Packages/BuilderKit
 
-.PHONY: help gen check-gen build test scan watch doctor share clean measure measure-gaps analyze fixtures capture-test
+.PHONY: help gen icons check-gen build test scan watch doctor share clean measure measure-gaps analyze fixtures capture-test
 
 help:
 	@echo "gen        regenerate everything from privacy/, spec/ and design/"
+	@echo "icons      re-render the store icons from the mascot frame and design/tokens.json"
 	@echo "check-gen  regenerate and fail if anything changed (this is the CI gate)"
 	@echo "build      swift build"
 	@echo "test       swift test — the ground-truth regression suite"
@@ -25,6 +26,12 @@ gen:
 	@python3 scripts/gen_tokens.py
 	@python3 scripts/gen_analysis.py
 	@python3 scripts/gen_fixtures.py
+
+# NOT part of `make gen`, and deliberately not a CI gate: a zlib-compressed PNG is not
+# guaranteed byte-identical across zlib builds, so `git diff --exit-code` on one would
+# fail a healthy runner. Run it when the accent or the mascot's resting pose changes.
+icons:
+	@python3 scripts/gen_app_icons.py
 
 # Fastest gate in CI, so it runs first. If this fails, someone hand-edited a generated
 # file — including, potentially, a generated file that defines what may leave the machine.

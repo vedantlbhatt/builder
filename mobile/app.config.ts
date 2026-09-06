@@ -17,6 +17,16 @@ const config: ExpoConfig = {
   userInterfaceStyle: 'dark',
   newArchEnabled: true,
 
+  // Bit's resting pose, rendered from the same sixteen strings the app animates and the
+  // same `design/tokens.json` amber. `make icons` re-renders all four from
+  // `scripts/gen_app_icons.py`, so the store icon cannot drift from the mascot on screen.
+  icon: './assets/icon.png',
+  splash: {
+    image: './assets/splash-icon.png',
+    resizeMode: 'contain',
+    backgroundColor: '#141210',
+  },
+
   ios: {
     // Grouped under the primary App ID in the Sign in with Apple pane, or Apple scopes
     // the `sub` claim per App ID and the same person gets two accounts.
@@ -27,6 +37,21 @@ const config: ExpoConfig = {
       NSCameraUsageDescription:
         'Builder uses the camera only to scan the pairing code shown by the Mac agent.',
     },
+  },
+
+  android: {
+    package: 'com.vedantlbhatt.Builder',
+    adaptiveIcon: {
+      // Transparent foreground on the app's own background. Android masks this to the
+      // launcher's shape inside the middle 66% of the canvas, which is why the generator
+      // draws the character smaller here than in the iOS icon.
+      foregroundImage: './assets/adaptive-icon.png',
+      backgroundColor: '#141210',
+    },
+  },
+
+  web: {
+    favicon: './assets/favicon.png',
   },
 
   plugins: [
