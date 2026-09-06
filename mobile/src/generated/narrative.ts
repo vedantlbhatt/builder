@@ -21,7 +21,7 @@ export interface NarrativeClaim {
 export interface BuilderNarrative {
   /** what this person's archetype means for THEM, naming the measurement that earned it. Never a definition of the archetype in general. Empty when the check took it back. (max 220 chars) */
   archetype_line: string;
-  /** the shape of their working day: how they open a session, how much rope they give the agent, when they step in, how they verify. Every paragraph cites at least one number from the input. (each max 400 chars, 2 to 4 items) */
+  /** how they actually work, one paragraph per comparative finding: what they do, and what it costs them or gains them. A paragraph whose only content is a ratio or a share is a paragraph to delete. (each max 400 chars, 2 to 3 items) */
   how_you_work: string[];
   /** what they are good at, each with the measurement under it. (1 to 3 items) */
   strengths: NarrativeClaim[];

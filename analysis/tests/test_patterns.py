@@ -1,7 +1,7 @@
-"""Comparative findings: the sentence, and the bars that stop it being written.
+"""Findings that name a cost, and the bars that stop one being written.
 
-Every case is small enough to check by hand. The refusals matter more than the values:
-a "pattern" over three prompts against four is exactly the plausible wrong number this
+Every case is small enough to check by hand. The refusals matter more than the values: a
+"pattern" over three sessions against four is exactly the plausible wrong number this
 codebase exists to refuse, so most of these tests assert that nothing was said.
 """
 
@@ -17,11 +17,27 @@ from analysis.digest import Ev
 T0 = dt.datetime(2026, 9, 1, 9, 0, tzinfo=dt.UTC).timestamp()
 
 
-def ev(n, ts, kind, text="", tool=None, added=None, path=None):
-    return Ev(n, ts, kind, text, tool=tool, added=added, path=path)
+def ev(n, ts, kind, text="", tool=None, added=None, path=None, ok=True):
+    return Ev(n, ts, kind, text, tool=tool, added=added, path=path, ok=ok)
 
 
-def sess(events, *, sid="s", start=T0, active=3600.0, tz=0):
+def write(n, ts, path="/repo/a.py", added=3):
+    return ev(n, ts, "tool", "", tool="Edit", added=added, path=path)
+
+
+def a_test(n, ts):
+    return ev(n, ts, "tool", "pytest -q", tool="Bash")
+
+
+def commit(n, ts):
+    return ev(n, ts, "tool", "git commit -m x", tool="Bash")
+
+
+def idle(n, ts, cmd="ls"):
+    return ev(n, ts, "tool", cmd, tool="Bash")
+
+
+def sess(events, *, sid="s", start=T0, active=3600.0, tz=0, tokens=None):
     return pt.SessionEvents(
         session_id=sid,
         started_at=start,
@@ -30,6 +46,7 @@ def sess(events, *, sid="s", start=T0, active=3600.0, tz=0):
         attended_seconds=active,
         tz_offset_minutes=tz,
         events=events,
+        output_tokens=tokens,
     )
 
 
@@ -37,14 +54,277 @@ def by_id(found, fid):
     return next((f for f in found if f.id == fid), None)
 
 
-class ShortPrompts(unittest.TestCase):
-    """A short prompt followed by a correction, against a long one that lands.
+class NoJargon(unittest.TestCase):
+    """Rule 2 of the module: no word the reader would have to look up.
 
-    One prompt per session, because a follow-up prompt is itself a prompt: writing the
-    correction as another `prompt` event would put it in one of the two groups being
-    compared and quietly move the number this test is checking. An interrupt is the
-    steering signal here, and a session that just ends is a prompt that landed.
+    Internal metric names belong in `left`/`right`, where a screen can show the working.
+    A sentence that says "your steer rate is 0.433" has told the reader nothing, and this
+    is the test that keeps that sentence out of the product.
     """
+
+    BANNED = (
+        "steer_rate",
+        "steer rate",
+        "autonomy_score",
+        "autonomy score",
+        "front-load",
+        "front load",
+        "planning_ratio",
+        "short_prompt_share",
+        "night_share",
+        "lift",
+        "MIN_GROUP",
+    )
+
+    def corpus(self):
+        # Wide enough that several finders fire at once.
+        out = []
+        for i in range(8):
+            out.append(
+                sess(
+                    [
+                        ev(0, T0, "prompt", "please do the whole thing properly this time ok"),
+                        idle(1, T0 + 10),
+                        write(2, T0 + 20),
+                        a_test(3, T0 + 30),
+                        commit(4, T0 + 40),
+                    ],
+                    sid=f"s{i}",
+                    start=T0 + i * 86400,
+                    tokens=1000,
+                )
+            )
+        for i in range(8):
+            out.append(
+                sess(
+                    [ev(0, T0, "prompt", "fix it")] + [idle(j + 1, T0 + j * 10) for j in range(40)],
+                    sid=f"q{i}",
+                    start=T0 + i * 86400,
+                    tokens=9000,
+                )
+            )
+        return out
+
+    def test_no_finding_says_a_word_from_the_codebase(self):
+        found = pt.findings(self.corpus())
+        self.assertGreater(len(found), 0, "the fixture must produce findings to be a test")
+        for f in found:
+            for word in self.BANNED:
+                self.assertNotIn(word.lower(), f.text.lower(), f"{f.id} says {word!r}")
+
+    def test_no_finding_uses_a_dash_as_punctuation(self):
+        for f in pt.findings(self.corpus()):
+            self.assertNotRegex(f.text, r"[—–―−]")
+
+    def test_every_finding_keeps_its_working(self):
+        for f in pt.findings(self.corpus()):
+            self.assertIn("n", f.left)
+            self.assertIn("group", f.left)
+            self.assertIn("group", f.right)
+
+
+class ShippingSessions(unittest.TestCase):
+    """The opening message against whether the sitting ended with anything landing."""
+
+    @staticmethod
+    def one(text, shipped, i):
+        events = [ev(0, T0, "prompt", text), write(1, T0 + 60)]
+        if shipped:
+            events.append(commit(2, T0 + 120))
+        return sess(events, sid=f"s{i}", start=T0 + i * 86400)
+
+    def corpus(self, long_shipped, short_shipped, n=6):
+        out = []
+        for i in range(n):
+            out.append(self.one("x" * 400, long_shipped, i))
+        for i in range(n):
+            out.append(self.one("go", short_shipped, n + i))
+        return out
+
+    def test_a_real_gap_is_reported_with_both_counts(self):
+        f = by_id(pt.findings(self.corpus(True, False)), "what_a_shipping_session_looks_like")
+        self.assertIsNotNone(f)
+        self.assertEqual(f.left["shipped"], 6)
+        self.assertEqual(f.right["shipped"], 0)
+        self.assertIn("6 sessions you opened with the most detail, 6 ended with a commit", f.text)
+
+    def test_no_gap_says_nothing(self):
+        found = pt.findings(self.corpus(True, True))
+        self.assertIsNone(by_id(found, "what_a_shipping_session_looks_like"))
+
+    def test_nine_sessions_is_refused_however_wide_the_gap(self):
+        # Ten openers is the floor: five a side.
+        corpus = self.corpus(True, False, n=6)[:9]
+        self.assertIsNone(
+            by_id(pt.findings(corpus), "what_a_shipping_session_looks_like")
+        )
+
+    def test_a_session_with_no_typed_prompt_is_not_counted_as_a_short_one(self):
+        # A fully autonomous continuation has no opener at all. Filing it under "dived
+        # straight in" would blame the person for a session they never opened.
+        corpus = self.corpus(True, False) + [
+            sess([write(0, T0)], sid=f"auto{i}") for i in range(6)
+        ]
+        f = by_id(pt.findings(corpus), "what_a_shipping_session_looks_like")
+        self.assertEqual(f.left["n"] + f.right["n"], 12)
+
+
+class TheSpin(unittest.TestCase):
+    """The stretches with nothing to show, and the guard that refuses to guess at them."""
+
+    def corpus(self, spin_len, spins=2, normal=8):
+        out = []
+        for i in range(spins):
+            events = [idle(j, T0 + j * 30) for j in range(spin_len)]
+            events.append(write(spin_len, T0 + spin_len * 30))
+            out.append(sess(events, sid=f"spin{i}"))
+        for i in range(normal):
+            out.append(
+                sess([idle(0, T0), idle(1, T0 + 10), write(2, T0 + 20)], sid=f"ok{i}")
+            )
+        return out
+
+    def test_a_long_stretch_is_reported_with_what_it_cost(self):
+        f = by_id(pt.findings(self.corpus(40)), "the_spin")
+        self.assertIsNotNone(f)
+        self.assertEqual(f.left["worst_tool_calls"], 40)
+        self.assertEqual(f.right["median_tool_calls"], 2)
+        self.assertIn("cost you", f.text)
+
+    def test_a_stretch_under_the_bar_is_ordinary_work(self):
+        # 20 calls is reading before editing, not spinning.
+        self.assertIsNone(by_id(pt.findings(self.corpus(20)), "the_spin"))
+
+    def test_a_test_run_counts_as_progress_not_as_nothing(self):
+        # Otherwise a session that ran the suite forty times reads as forty wasted calls.
+        events = [idle(j, T0 + j * 30) for j in range(20)]
+        events.append(a_test(20, T0 + 600))
+        events += [idle(20 + j, T0 + 700 + j * 30) for j in range(20)]
+        corpus = [sess(events, sid=f"t{i}") for i in range(6)]
+        self.assertIsNone(by_id(pt.findings(corpus), "the_spin"))
+
+    def test_a_corpus_where_no_progress_is_visible_is_refused_not_estimated(self):
+        """The guard. A session whose edits went through a script the parser cannot read
+        would otherwise be reported as one long stretch of wasted time."""
+        blind = [sess([idle(j, T0 + j * 30) for j in range(60)], sid=f"b{i}") for i in range(8)]
+        self.assertIsNone(by_id(pt.findings(blind), "the_spin"))
+
+
+class StuckInALoop(unittest.TestCase):
+    """Consecutive failures, where a failure is the error event AFTER the call."""
+
+    @staticmethod
+    def loop(n_fail, sid="s"):
+        events, n, t = [], 0, T0
+        for _ in range(n_fail):
+            events.append(idle(n, t, "make test"))
+            events.append(ev(n + 1, t + 5, "result_error", "boom", ok=False))
+            n, t = n + 2, t + 30
+        events.append(idle(n, t, "make test"))
+        return sess(events, sid=sid)
+
+    def test_a_run_of_failures_is_reported_with_its_length(self):
+        f = by_id(pt.findings([self.loop(7), self.loop(5, "b")]), "stuck_in_a_loop")
+        self.assertIsNotNone(f)
+        self.assertEqual(f.left["longest_run"], 7)
+        self.assertEqual(f.left["n"], 2)
+
+    def test_three_failures_is_not_a_loop(self):
+        self.assertIsNone(by_id(pt.findings([self.loop(3), self.loop(3, "b")]), "stuck_in_a_loop"))
+
+    def test_a_success_between_failures_breaks_the_run(self):
+        events, n, t = [], 0, T0
+        for _ in range(6):
+            events.append(idle(n, t, "make test"))
+            events.append(ev(n + 1, t + 5, "result_error", "boom", ok=False))
+            events.append(idle(n + 2, t + 10, "make test"))
+            n, t = n + 3, t + 30
+        self.assertIsNone(by_id(pt.findings([sess(events)]), "stuck_in_a_loop"))
+
+    def test_a_loop_that_runs_to_the_end_of_the_session_still_counts(self):
+        events, n, t = [], 0, T0
+        for _ in range(6):
+            events.append(idle(n, t, "make test"))
+            events.append(ev(n + 1, t + 5, "result_error", "boom", ok=False))
+            n, t = n + 2, t + 30
+        f = by_id(pt.findings([sess(events)]), "stuck_in_a_loop")
+        self.assertIsNotNone(f)
+        self.assertEqual(f.left["longest_run"], 6)
+
+
+class FightingOneFile(unittest.TestCase):
+    @staticmethod
+    def touch(n, path, times, start=T0):
+        return [write(n + i, start + i * 60, path=path) for i in range(times)]
+
+    def test_the_worst_file_is_named_with_its_count_and_its_time(self):
+        events = self.touch(0, "/repo/parser.py", 7)
+        for i, name in enumerate("abcde"):
+            events += self.touch(20 + i, f"/repo/{name}.py", 1)
+        f = by_id(pt.findings([sess(events)]), "fighting_one_file")
+        self.assertIsNotNone(f)
+        self.assertIn("parser.py", f.text)
+        self.assertIn("7 times", f.text)
+        self.assertEqual(f.left["count"], 1)
+        self.assertEqual(f.right["count"], 5)
+
+    def test_three_passes_is_not_a_fight(self):
+        events = []
+        for i, name in enumerate("abcdef"):
+            events += self.touch(i * 10, f"/repo/{name}.py", 3)
+        self.assertIsNone(by_id(pt.findings([sess(events)]), "fighting_one_file"))
+
+    def test_a_read_is_not_a_write(self):
+        events = [
+            ev(i, T0 + i * 60, "tool", "", tool="Read", added=None, path="/repo/parser.py")
+            for i in range(9)
+        ]
+        self.assertIsNone(by_id(pt.findings([sess(events)]), "fighting_one_file"))
+
+
+class WhenTheWorkLands(unittest.TestCase):
+    @staticmethod
+    def corpus(late_lines, day_lines, n=5):
+        night_start = T0 + 14 * 3600  # 23:00 UTC
+        out = []
+        for i in range(n):
+            out.append(
+                sess(
+                    [write(0, night_start, added=late_lines)],
+                    sid=f"n{i}",
+                    start=night_start + i * 86400,
+                )
+            )
+            out.append(sess([write(0, T0, added=day_lines)], sid=f"d{i}", start=T0 + i * 86400))
+        return out
+
+    def test_a_worse_late_rate_is_reported_as_a_cost(self):
+        f = by_id(pt.findings(self.corpus(40, 200)), "when_the_work_lands")
+        self.assertIsNotNone(f)
+        self.assertIn("expensive", f.text)
+        self.assertEqual(f.left["lines_per_active_hour"], 40.0)
+
+    def test_a_better_late_rate_is_reported_as_a_strength(self):
+        f = by_id(pt.findings(self.corpus(200, 40)), "when_the_work_lands")
+        self.assertIn("best", f.text)
+
+    def test_four_late_sessions_is_refused(self):
+        self.assertIsNone(by_id(pt.findings(self.corpus(40, 200, n=4)), "when_the_work_lands"))
+
+    def test_a_short_sitting_cannot_swing_the_rate(self):
+        # Five minutes with one write is 12 lines an hour or 1,200, depending on rounding
+        # nobody should trust. Sessions under five minutes are dropped.
+        corpus = self.corpus(40, 200) + [
+            sess([write(0, T0, added=500)], sid=f"blip{i}", start=T0 + i * 86400, active=60.0)
+            for i in range(5)
+        ]
+        f = by_id(pt.findings(corpus), "when_the_work_lands")
+        self.assertEqual(f.right["n"], 5)
+
+
+class ShortPrompts(unittest.TestCase):
+    """One prompt per session: a correction written as another prompt would land in one of
+    the two groups being compared and move the number under test."""
 
     SHORT = "fix it"
     LONG = "please refactor the parser so that it reads the trailing line safely and fast"
@@ -53,238 +333,113 @@ class ShortPrompts(unittest.TestCase):
         out = []
         for group, text in ((shorts, self.SHORT), (longs, self.LONG)):
             for i, corrected in enumerate(group):
-                events = [ev(0, T0, "prompt", text), ev(1, T0 + 60, "tool", "ls", tool="Bash")]
+                events = [ev(0, T0, "prompt", text), idle(1, T0 + 60)]
                 if corrected:
                     events.append(ev(2, T0 + 120, "interrupt"))
                 out.append(sess(events, sid=f"{text[:5]}{i}"))
         return out
 
     def test_a_wide_gap_is_reported_with_both_counts(self):
-        # 5 short prompts, 4 corrected; 5 long prompts, 0 corrected.
-        found = by_id(
+        f = by_id(
             pt.findings(self.build([True] * 4 + [False], [False] * 5)),
             "short_prompts_get_corrected",
         )
-        self.assertIsNotNone(found)
-        self.assertEqual(found.left["n"], 5)
-        self.assertEqual(found.left["corrected"], 4)
-        self.assertIn("4 of 5", found.text)
+        self.assertIsNotNone(f)
+        self.assertEqual(f.left["corrected"], 4)
+        self.assertIn("round trip", f.text)
 
     def test_four_against_four_is_refused_however_wide_the_gap(self):
-        # The gap is total. The sample is one below the bar, so nothing is said.
-        found = pt.findings(self.build([True] * 4, [False] * 4))
-        self.assertIsNone(by_id(found, "short_prompts_get_corrected"))
+        self.assertIsNone(
+            by_id(pt.findings(self.build([True] * 4, [False] * 4)), "short_prompts_get_corrected")
+        )
 
     def test_a_narrow_gap_over_a_big_sample_is_refused(self):
-        # 10 v 10, one more correction on the short side: 10 points, under the 15 bar.
         found = pt.findings(self.build([True] * 2 + [False] * 8, [True] + [False] * 9))
         self.assertIsNone(by_id(found, "short_prompts_get_corrected"))
 
 
-class OpeningPrompt(unittest.TestCase):
-    @staticmethod
-    def corpus(first_len, rest_len, sessions=5):
-        return [
-            sess(
-                [
-                    ev(0, T0, "prompt", "a" * first_len),
-                    ev(1, T0 + 60, "prompt", "b" * rest_len),
-                    ev(2, T0 + 120, "prompt", "c" * rest_len),
-                ],
-                sid=f"s{i}",
-            )
-            for i in range(sessions)
-        ]
-
-    def test_a_front_loaded_brief_is_reported(self):
-        found = by_id(pt.findings(self.corpus(400, 100)), "the_opening_prompt")
-        self.assertIsNotNone(found)
-        self.assertEqual(found.left["mean_chars"], 400)
-        self.assertEqual(found.right["mean_chars"], 100)
-        self.assertEqual(found.lift, 4.0)
-
-    def test_an_opening_prompt_barely_longer_is_not_a_pattern(self):
-        # 1.3x, under MIN_LIFT.
-        self.assertIsNone(by_id(pt.findings(self.corpus(130, 100)), "the_opening_prompt"))
-
-    def test_four_sessions_is_refused(self):
-        self.assertIsNone(
-            by_id(pt.findings(self.corpus(400, 100, sessions=4)), "the_opening_prompt")
-        )
-
-
-class TheLeash(unittest.TestCase):
-    def test_the_longest_run_is_reported_against_the_median(self):
-        events, n, t = [], 0, T0
-        for calls in (2, 2, 2, 2, 2, 40):
-            events.append(ev(n, t, "prompt", "go"))
-            n, t = n + 1, t + 60
-            for _ in range(calls):
-                events.append(ev(n, t, "tool", "ls", tool="Bash"))
-                n, t = n + 1, t + 10
-        found = by_id(pt.findings([sess(events)]), "the_leash")
-        self.assertIsNotNone(found)
-        self.assertEqual(found.right["tool_calls"], 2)
-        self.assertEqual(found.left["tool_calls"], 40)
-        self.assertIn("40 calls in a row", found.text)
-
-    def test_an_even_leash_is_not_a_finding(self):
-        events, n, t = [], 0, T0
-        for _ in range(8):
-            events.append(ev(n, t, "prompt", "go"))
-            n, t = n + 1, t + 60
-            for _ in range(3):
-                events.append(ev(n, t, "tool", "ls", tool="Bash"))
-                n, t = n + 1, t + 10
-        self.assertIsNone(by_id(pt.findings([sess(events)]), "the_leash"))
-
-
-class NightSessions(unittest.TestCase):
-    @staticmethod
-    def corpus(night_minutes, day_minutes, *, n=5):
-        # tz 0: 23:00 UTC is night, 09:00 UTC is day.
-        night_start = T0 + 14 * 3600
-        return [
-            sess([], sid=f"n{i}", start=night_start + i * 86400, active=night_minutes * 60)
-            for i in range(n)
-        ] + [
-            sess([], sid=f"d{i}", start=T0 + i * 86400, active=day_minutes * 60) for i in range(n)
-        ]
-
-    def test_longer_nights_are_reported(self):
-        found = by_id(pt.findings(self.corpus(120, 40)), "night_sessions")
-        self.assertIsNotNone(found)
-        self.assertEqual(found.left["mean_minutes"], 120)
-        self.assertIn("longer", found.text)
-
-    def test_shorter_nights_are_reported_the_other_way(self):
-        found = by_id(pt.findings(self.corpus(30, 120)), "night_sessions")
-        self.assertIsNotNone(found)
-        self.assertIn("shorter", found.text)
-        self.assertLess(found.lift, 1.0)
-
-    def test_four_nights_is_refused(self):
-        self.assertIsNone(by_id(pt.findings(self.corpus(120, 40, n=4)), "night_sessions"))
-
-    def test_the_local_hour_decides_not_the_utc_one(self):
-        # The same instants read in UTC-8: 23:00 UTC becomes 15:00 local (daylight) and
-        # 09:00 UTC becomes 01:00 local (before the 04:00 day boundary, so night). The
-        # two groups swap wholesale, which is the point: a timezone bug here would report
-        # somebody's mornings back to them as their late nights.
-        shifted = [
-            pt.SessionEvents(
-                session_id=s.session_id,
-                started_at=s.started_at,
-                ended_at=s.ended_at,
-                active_seconds=s.active_seconds,
-                attended_seconds=s.attended_seconds,
-                tz_offset_minutes=-480,
-                events=s.events,
-            )
-            for s in self.corpus(120, 40)
-        ]
-        utc = by_id(pt.findings(self.corpus(120, 40)), "night_sessions")
-        local = by_id(pt.findings(shifted), "night_sessions")
-        self.assertEqual(utc.left["mean_minutes"], 120)
-        self.assertEqual(local.left["mean_minutes"], 40)
-        self.assertEqual(local.right["mean_minutes"], 120)
-
-
 class VerificationHabit(unittest.TestCase):
-    def test_a_tested_corpus_reports_its_share(self):
-        # 6 bursts, each written then tested, in six separate sessions.
-        sessions = [
-            sess(
-                [
-                    ev(0, T0, "tool", "", tool="Edit", added=3, path="a.py"),
-                    ev(1, T0 + 10, "tool", "pytest -q", tool="Bash"),
-                ],
-                sid=f"s{i}",
-            )
-            for i in range(6)
+    @staticmethod
+    def corpus(tested, untested):
+        out = [
+            sess([write(0, T0), a_test(1, T0 + 10)], sid=f"t{i}") for i in range(tested)
         ]
-        found = by_id(pt.findings(sessions), "verification_habit")
-        self.assertIsNotNone(found)
-        self.assertEqual(found.left["count"], 6)
-        self.assertIn("100%", found.text)
+        out += [sess([write(0, T0)], sid=f"u{i}") for i in range(untested)]
+        return out
 
-    def test_an_untested_burst_at_the_end_of_a_session_counts_against(self):
-        sessions = [
-            sess(
-                [
-                    ev(0, T0, "tool", "", tool="Edit", added=3, path="a.py"),
-                    ev(1, T0 + 10, "tool", "pytest -q", tool="Bash"),
-                ],
-                sid=f"s{i}",
-            )
-            for i in range(3)
-        ] + [
-            sess([ev(0, T0, "tool", "", tool="Edit", added=3, path="b.py")], sid=f"x{i}")
-            for i in range(3)
-        ]
-        found = by_id(pt.findings(sessions), "verification_habit")
-        self.assertIsNotNone(found)
-        self.assertEqual(found.left["count"], 3)
-        self.assertEqual(found.right["count"], 3)
-        self.assertIn("3 of 6", found.text)
+    def test_a_disciplined_corpus_is_told_so(self):
+        f = by_id(pt.findings(self.corpus(6, 0)), "verification_habit")
+        self.assertIsNotNone(f)
+        self.assertIn("100%", f.text)
+        self.assertIn("strongest thing", f.text)
+
+    def test_an_undisciplined_corpus_is_told_what_it_costs(self):
+        f = by_id(pt.findings(self.corpus(1, 5)), "verification_habit")
+        self.assertIn("rework", f.text)
+        self.assertEqual(f.left["count"], 1)
 
     def test_four_bursts_is_refused(self):
-        sessions = [
-            sess(
-                [
-                    ev(0, T0, "tool", "", tool="Edit", added=3, path="a.py"),
-                    ev(1, T0 + 10, "tool", "pytest -q", tool="Bash"),
-                ],
-                sid=f"s{i}",
-            )
-            for i in range(4)
-        ]
-        self.assertIsNone(by_id(pt.findings(sessions), "verification_habit"))
+        self.assertIsNone(by_id(pt.findings(self.corpus(4, 0)), "verification_habit"))
 
 
-class Rework(unittest.TestCase):
+class QuietSessionsCost(unittest.TestCase):
     @staticmethod
-    def touch(n, path, times):
-        return [ev(n + i, T0 + i * 60, "tool", "", tool="Edit", added=2, path=path) for i in range(times)]
+    def corpus(quiet_tokens, shipped_tokens, n=5, tokens_known=True):
+        out = []
+        for i in range(n):
+            out.append(
+                sess(
+                    [idle(0, T0)],
+                    sid=f"q{i}",
+                    tokens=quiet_tokens if tokens_known else None,
+                )
+            )
+            out.append(
+                sess(
+                    [write(0, T0), commit(1, T0 + 60)],
+                    sid=f"s{i}",
+                    tokens=shipped_tokens if tokens_known else None,
+                )
+            )
+        return out
 
-    def test_the_most_reworked_file_is_named_with_its_count(self):
-        events = self.touch(0, "/repo/parser.py", 7) + self.touch(10, "/repo/a.py", 1)
-        events += self.touch(20, "/repo/b.py", 1) + self.touch(30, "/repo/c.py", 1)
-        events += self.touch(40, "/repo/d.py", 1) + self.touch(50, "/repo/e.py", 1)
-        found = by_id(pt.findings([sess(events)]), "rework")
-        self.assertIsNotNone(found)
-        self.assertIn("parser.py", found.text)
-        self.assertIn("7 times", found.text)
-        self.assertEqual(found.left["count"], 1)
-        self.assertEqual(found.right["count"], 5)
+    def test_the_bill_for_sessions_that_shipped_nothing(self):
+        f = by_id(pt.findings(self.corpus(40000, 10000)), "what_the_quiet_sessions_cost")
+        self.assertIsNotNone(f)
+        self.assertEqual(f.left["output_tokens"], 200000)
+        self.assertIn("200,000", f.text)
+        self.assertIn("80%", f.text)
 
-    def test_twice_is_not_rework(self):
-        events = self.touch(0, "/repo/a.py", 2) + self.touch(10, "/repo/b.py", 2)
-        events += self.touch(20, "/repo/c.py", 2) + self.touch(30, "/repo/d.py", 2)
-        events += self.touch(40, "/repo/e.py", 2) + self.touch(50, "/repo/f.py", 2)
-        self.assertIsNone(by_id(pt.findings([sess(events)]), "rework"))
+    def test_it_reports_the_total_and_never_the_average(self):
+        """MEASURED: on the reference corpus the sessions that shipped nothing averaged
+        36,214 output tokens each against 148,932 for the ones that did. A sentence built
+        on the averages would say "your quiet sessions are the cheap ones", which is true
+        and points away from the number that matters."""
+        # Quiet sessions a third the size of the ones that shipped: cheaper each, still
+        # a quarter of the bill.
+        f = by_id(pt.findings(self.corpus(30000, 90000)), "what_the_quiet_sessions_cost")
+        self.assertIsNotNone(f)
+        self.assertIn("25%", f.text)
+        self.assertNotIn("average", f.text)
+        self.assertNotIn("each", f.text)
+        self.assertNotIn("mean", f.left)
 
-    def test_a_read_is_not_a_write(self):
-        # `added is None` means the tool reported no line count: Read, Grep, `sed -i`.
-        events = [
-            ev(i, T0 + i * 60, "tool", "", tool="Read", added=None, path="/repo/parser.py")
-            for i in range(9)
-        ]
-        self.assertIsNone(by_id(pt.findings([sess(events)]), "rework"))
+    def test_a_corpus_with_no_token_counts_is_refused_not_zeroed(self):
+        """`Ev.tok_out` reports 39,487 output tokens for 21 real hours. Absent is a
+        refusal; zero would be a lie."""
+        found = pt.findings(self.corpus(40000, 10000, tokens_known=False))
+        self.assertIsNone(by_id(found, "what_the_quiet_sessions_cost"))
 
+    def test_a_trivial_share_is_not_worth_a_sentence(self):
+        # 1,000 against 99,000 a side: 1% of the bill. True, and not worth a paragraph.
+        self.assertIsNone(
+            by_id(pt.findings(self.corpus(1000, 99000)), "what_the_quiet_sessions_cost")
+        )
 
-class Ordering(unittest.TestCase):
-    def test_the_most_striking_finding_comes_first(self):
-        events, n, t = [], 0, T0
-        for calls in (1, 1, 1, 1, 1, 200):
-            events.append(ev(n, t, "prompt", "a" * 400 if n == 0 else "b" * 100))
-            n, t = n + 1, t + 60
-            for _ in range(calls):
-                events.append(ev(n, t, "tool", "ls", tool="Bash"))
-                n, t = n + 1, t + 10
-        found = pt.findings([sess(events, sid=f"s{i}") for i in range(5)])
-        self.assertGreaterEqual(len(found), 2)
-        self.assertEqual(found[0].id, "the_leash")
+    def test_four_quiet_sessions_is_refused(self):
+        self.assertIsNone(
+            by_id(pt.findings(self.corpus(40000, 10000, n=4)), "what_the_quiet_sessions_cost")
+        )
 
 
 class Empty(unittest.TestCase):

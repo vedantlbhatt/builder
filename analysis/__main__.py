@@ -114,6 +114,8 @@ def _narrative(a) -> int:
     """
     import datetime as _dt
 
+    from capture import sessions as cap
+
     from . import narrative as nar
     from . import patterns as pat
     from . import profile as pf_mod
@@ -123,6 +125,8 @@ def _narrative(a) -> int:
     sessions = []
     for s in kept:
         offset = _dt.datetime.fromtimestamp(s.started_at, tz).utcoffset() or _dt.timedelta(0)
+        # See capture/cli.py: the ledger, not a sum over the events.
+        ledger = cap.token_ledger(s.records)
         sessions.append(
             pat.SessionEvents(
                 session_id=s.client_session_id,
@@ -132,6 +136,9 @@ def _narrative(a) -> int:
                 attended_seconds=s.attended,
                 tz_offset_minutes=int(offset.total_seconds() // 60),
                 events=s.events,
+                output_tokens=(
+                    ledger.buckets["output"] if ledger.reported and ledger.buckets else None
+                ),
             )
         )
     found = pat.findings(sessions)

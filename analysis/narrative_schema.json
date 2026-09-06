@@ -12,13 +12,13 @@
       "maxLength": 220
     },
     "how_you_work": {
-      "description": "the shape of their working day: how they open a session, how much rope they give the agent, when they step in, how they verify. Every paragraph cites at least one number from the input. (each max 400 chars, 2 to 4 items)",
+      "description": "how they actually work, one paragraph per comparative finding: what they do, and what it costs them or gains them. A paragraph whose only content is a ratio or a share is a paragraph to delete. (each max 400 chars, 2 to 3 items)",
       "type": "array",
       "items": {
         "type": "string",
         "maxLength": 400
       },
-      "maxItems": 4,
+      "maxItems": 3,
       "minItems": 2
     },
     "strengths": {

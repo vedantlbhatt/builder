@@ -77,7 +77,30 @@ def build_input(
     lines: list[str] = []
     add = lines.append
 
-    add("ARCHETYPE")
+    # THE FINDINGS COME FIRST, and the metrics are demoted to a reference block at the
+    # bottom. FOUND BY READING THE OUTPUT: with the metrics at the top, three of four
+    # paragraphs were built out of them and read "your prompts skew planning to execution
+    # 2.33 to 1" and "36.5% of your time is spent with it running on its own", which are
+    # true, jargon free, and still say nothing a person can act on. The findings are the
+    # only material in here guaranteed to carry a cost or a move, so they are what the
+    # page should be made of, and the ORDER of the input turns out to be a stronger
+    # instruction than a rule in the prompt.
+    add("WHAT THE COMPARISONS FOUND. Build the page out of THESE.")
+    if findings:
+        add("Each one already cleared a sample size bar and an effect bar, and each one")
+        add("already names a cost or a move. Say them in your own words, keep the numbers.")
+        for f in findings:
+            add("")
+            add(f"  {f.text}")
+            add(f"    left  {f.left}")
+            add(f"    right {f.right}")
+    else:
+        add("  Nothing cleared the bars: not enough sessions yet to compare two groups of")
+        add("  them honestly. Do not invent a comparison. Write a shorter page from the")
+        add("  archetype and the background numbers below, and say less.")
+
+    add("")
+    add("THE ARCHETYPE THE RULES CHOSE")
     if arch.get("name"):
         add(f"  {arch['name']}, confidence {arch.get('confidence')}")
         add(f"  chosen by: {arch.get('rule')}")
@@ -90,17 +113,28 @@ def build_input(
     else:
         add(f"  none: {arch.get('reason')}")
 
-    totals = profile.get("totals") or {}
-    add("")
-    add("TOTALS")
-    for k, v in totals.items():
-        add(f"  {k}: {v}")
+    if session_headlines:
+        add("")
+        add("RECENT SESSIONS, as previously summarised")
+        for h in session_headlines:
+            add(f"  {h}")
 
     add("")
-    add("METRICS")
+    add("BACKGROUND NUMBERS. Support, never subject.")
+    add("A sentence whose only content is one of these is a sentence to delete: they say")
+    add("what is true, not what it cost or what to do about it.")
+
+    totals = profile.get("totals") or {}
+    add("")
+    add("  totals")
+    for k, v in totals.items():
+        add(f"    {k}: {v}")
+
+    add("")
+    add("  metrics")
     for name, m in (profile.get("metrics") or {}).items():
         if m.get("value") is None:
-            add(f"  {name}: REFUSED, {m.get('reason')}")
+            add(f"    {name}: REFUSED, {m.get('reason')}")
         else:
             extra = {
                 k: v
@@ -108,35 +142,21 @@ def build_input(
                 if k not in ("value", "unit", "n", "basis", "reason") and v is not None
             }
             tail = f"  ({', '.join(f'{k}={v}' for k, v in extra.items())})" if extra else ""
-            add(f"  {name}: {m['value']} {m['unit']}, over n={m['n']}{tail}")
+            add(f"    {name}: {m['value']} {m['unit']}, over n={m['n']}{tail}")
 
     tools = profile.get("top_tools") or []
     if tools:
         add("")
-        add("TOOLS YOU REACH FOR")
+        add("  tools reached for")
         for t in tools:
-            add(f"  {t['tool']}: {t['calls']} calls, {round(t['share'] * 100)}%")
+            add(f"    {t['tool']}: {t['calls']} calls, {round(t['share'] * 100)}%")
 
     models = profile.get("model_mix") or []
     if models:
         add("")
-        add("MODELS")
+        add("  models")
         for m in models:
-            add(f"  {m['model']}: {round(m['share'] * 100)}% of output tokens")
-
-    if findings:
-        add("")
-        add("COMPARATIVE FINDINGS, each already checked for sample size and effect")
-        for f in findings:
-            add(f"  {f.text}")
-            add(f"    left  {f.left}")
-            add(f"    right {f.right}")
-
-    if session_headlines:
-        add("")
-        add("RECENT SESSIONS, as previously summarised")
-        for h in session_headlines:
-            add(f"  {h}")
+            add(f"    {m['model']}: {round(m['share'] * 100)}% of output tokens")
 
     return "\n".join(lines)
 

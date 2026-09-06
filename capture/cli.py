@@ -302,6 +302,12 @@ def cmd_narrative(a: argparse.Namespace) -> int:
                 unattended=s.presence == 0,
             )
         )
+        # Output tokens from the LEDGER (deduped on `(source_id, message.id)`, sidechains
+        # excluded), never summed off the events: `Ev.tok_out` is set only on the assistant
+        # records that happen to carry usage and MEASURED it reports 39,487 output tokens
+        # for 21 hours of real work. None when the harness reports none, which is a refusal
+        # rather than a zero (Cursor writes {0, 0} on all 14,565 of its message rows).
+        ledger = sessions.token_ledger(s.records)
         events.append(
             pat.SessionEvents(
                 session_id=s.client_session_id,
@@ -311,6 +317,9 @@ def cmd_narrative(a: argparse.Namespace) -> int:
                 attended_seconds=s.attended,
                 tz_offset_minutes=minutes,
                 events=s.events,
+                output_tokens=(
+                    ledger.buckets["output"] if ledger.reported and ledger.buckets else None
+                ),
             )
         )
 

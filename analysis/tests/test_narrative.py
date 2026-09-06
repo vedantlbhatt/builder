@@ -160,10 +160,25 @@ class Schema(unittest.TestCase):
             {"archetype_line", "how_you_work", "strengths", "watch_outs", "one_experiment"},
         )
 
-    def test_the_prompt_bans_the_two_things_that_would_make_this_worthless(self):
+    def test_the_prompt_bans_the_three_things_that_would_make_this_worthless(self):
+        """A fabricated number, a fact with no consequence, and a word nobody knows.
+
+        The first is caught by `verify` as well. The other two cannot be: a true sentence
+        that leads nowhere and a sentence that says "steer_rate 0.433" both pass every
+        automated check there is and are exactly why a profile gets called useless.
+        """
         text = nr.PROMPT_PATH.read_text()
         self.assertIn("NEVER INVENT A NUMBER", text)
-        self.assertIn("EVERY CLAIM CARRIES ITS NUMBER", text)
+        self.assertIn("EVERY SENTENCE HAS SOMETHING ON THE END OF IT", text)
+        self.assertIn("NO WORD THE READER WOULD HAVE TO LOOK UP", text)
+
+    def test_the_prompt_names_the_jargon_it_bans_and_what_to_say_instead(self):
+        # A ban with no replacement gets ignored: the model still has to say the thing.
+        text = nr.PROMPT_PATH.read_text()
+        for name in ("steer_rate", "autonomy_score", "planning_ratio", "front-loading"):
+            self.assertIn(name, text)
+            after = text.split(name, 1)[1].split("\n", 1)[0]
+            self.assertIn("->", after, f"{name} is banned with nothing offered in its place")
 
 
 class Write(unittest.TestCase):

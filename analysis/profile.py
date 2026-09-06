@@ -129,6 +129,11 @@ MIN_LINES_FOR_VELOCITY = 200
 MIN_TOOL_CALLS_FOR_DIVERSITY = 5
 MIN_SESSIONS_FOR_DIVERSITY = 3
 
+#: A "share of sessions" needs enough sessions that one of them cannot move it by a third.
+#: Eight puts a single sitting at 12.5 points, which is under the smallest gap this
+#: codebase is willing to call a difference (patterns.MIN_SHARE_GAP).
+MIN_SESSIONS_FOR_SHARE = 8
+
 
 # --------------------------------------------------------------------------- input
 @dataclasses.dataclass(frozen=True)
@@ -682,6 +687,35 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
             "test runs are not counted server side"
             if not tests_known
             else f"{round(active)}s of active time, {round(MIN_ACTIVE_SEC_FOR_VELOCITY)}s needed",
+        )
+
+    # ---- ships_rate: the share of sittings that ended with something landing
+    #
+    # The one number a person can act on without knowing anything about how the app works.
+    # It rests on `commit_count`, so it is refused wholesale when the commit basis is not
+    # `git log`: counting `git commit` shell calls off a truncated command line is 3.5x
+    # low (MEASURED: 19 of 68 survive the 160-character cut), and a "you ship 28% of the
+    # time" built on that would be a plausible wrong number about the thing people care
+    # about most.
+    committed_known = [s for s in ss if s.commit_basis == COMMITS_GIT_LOG]
+    if len(committed_known) >= MIN_SESSIONS_FOR_SHARE:
+        shipped = sum(1 for s in committed_known if s.commit_count > 0)
+        m["ships_rate"] = _metric(
+            round(shipped / len(committed_known), 3),
+            "share of sessions that ended with a commit",
+            len(committed_known),
+            COMMITS_GIT_LOG,
+            shipped_sessions=shipped,
+        )
+    else:
+        m["ships_rate"] = _metric(
+            None,
+            "share of sessions that ended with a commit",
+            len(committed_known),
+            COMMITS_GIT_LOG if committed_known else "absent",
+            "commits are counted from truncated shell text, which runs 3.5x low"
+            if not committed_known
+            else f"{len(committed_known)} sessions, {MIN_SESSIONS_FOR_SHARE} needed",
         )
 
     # ---- night, peak hour

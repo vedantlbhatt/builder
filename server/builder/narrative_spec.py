@@ -49,7 +49,7 @@ class BuilderNarrative(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     archetype_line: str = Field(max_length=220)
-    how_you_work: list[Annotated[str, Field(max_length=400)]] = Field(max_length=4)
+    how_you_work: list[Annotated[str, Field(max_length=400)]] = Field(max_length=3)
     strengths: list[NarrativeClaim] = Field(max_length=3)
     watch_outs: list[NarrativeClaim] = Field(max_length=3)
     one_experiment: str = Field(max_length=260)

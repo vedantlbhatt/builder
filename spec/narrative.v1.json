@@ -56,8 +56,8 @@
       "item": "string",
       "max": "para",
       "min_items": 2,
-      "max_items": 4,
-      "doc": "the shape of their working day: how they open a session, how much rope they give the agent, when they step in, how they verify. Every paragraph cites at least one number from the input."
+      "max_items": 3,
+      "doc": "how they actually work, one paragraph per comparative finding: what they do, and what it costs them or gains them. A paragraph whose only content is a ratio or a share is a paragraph to delete."
     },
     {
       "name": "strengths",
