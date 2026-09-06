@@ -497,13 +497,21 @@ interface Cell {
   fill: string;
 }
 
-/** One Rect per run of identical non-transparent pixels in a row. */
-export function cellsFor(frame: Frame, palette: SpritePalette): Cell[] {
+/**
+ * One Rect per run of identical non-transparent pixels in a row.
+ *
+ * The palette is any glyph → colour map, not `SpritePalette` specifically: the animal
+ * pack draws the same frames with a two-role palette (`animalPalette`). A glyph the
+ * palette does not name is SKIPPED rather than drawn in a fallback colour — a sprite with
+ * a hole in it is a bug someone reports; a sprite with a stray magenta pixel is one
+ * someone ships.
+ */
+export function cellsFor(frame: Frame, palette: Record<string, string | undefined>): Cell[] {
   const cells: Cell[] = [];
   frame.forEach((row, y) => {
     for (const run of runsFor(row)) {
       if (run.ch === EMPTY) continue;
-      const fill = palette[run.ch as keyof SpritePalette];
+      const fill = palette[run.ch];
       if (!fill) continue;
       cells.push({ x: run.start, y, w: run.length, fill });
     }
@@ -516,7 +524,15 @@ export function cellsFor(frame: Frame, palette: SpritePalette): Cell[] {
  * device pixels and anti-aliasing draws hairline seams between every pixel of the body;
  * at whole-point scales there is nothing to anti-alias.
  */
-function FrameSvg({ frame, drawn, palette }: { frame: Frame; drawn: number; palette: SpritePalette }) {
+export function FrameSvg({
+  frame,
+  drawn,
+  palette,
+}: {
+  frame: Frame;
+  drawn: number;
+  palette: Record<string, string | undefined>;
+}) {
   const cells = useMemo(() => cellsFor(frame, palette), [frame, palette]);
   return (
     <Svg width={drawn} height={drawn} viewBox={`0 0 ${GRID} ${GRID}`}>

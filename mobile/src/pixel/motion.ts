@@ -10,6 +10,7 @@
  * `MOTION` so the table in the review is the table in the code.
  */
 
+import { ANIMAL_FRAMES, type Animal } from './animals';
 import { BODY_GLYPHS, EMPTY, GRID, type Frame } from './frames';
 import { SPRITES, type SpriteState } from './sprites';
 
@@ -576,4 +577,115 @@ export function components(pixels: Pixel[]): Pixel[][] {
 /** Body pixel count, for the invariant that decomposition never touches the character. */
 export function bodyCount(frame: Frame): number {
   return pixelsOf(frame, (_x, _y, ch) => (BODY_GLYPHS as readonly string[]).includes(ch)).length;
+}
+
+// ─── the animal pack ─────────────────────────────────────────────────────────────────
+
+/**
+ * A whole-sprite drift: the ONE thing an animal does that its frames do not draw.
+ *
+ * A crab that sidestepped by being redrawn one column over would repaint every pixel of
+ * its shell twice a second — the cross-fade would dip the whole body (see `splitFrames`)
+ * and the subtlety budget in `animals.ts` would be blown by a movement that is not even
+ * a change of pose. So the pose is in the frames and the travel is a transform, exactly
+ * as the mascot's breath and impact already are.
+ *
+ * `cells` is in SPRITE pixels, so it scales with the sprite: 1 cell of a 64 pt animal is
+ * 4 pt. One or two, never more — past that it stops being an idle and becomes a journey.
+ */
+export interface Drift {
+  axis: 'x' | 'y';
+  cells: number;
+  /** One full there-and-back. */
+  periodMs: number;
+}
+
+export interface AnimalMotion {
+  /**
+   * How long one frame is held. 300–600 ms: under 300 a two-frame loop flickers, over
+   * 600 it reads as a slideshow of two pictures rather than one creature moving.
+   */
+  beatMs: number;
+  /**
+   * Per-frame multipliers on `beatMs`, when a loop is not metronomic. The owl's blink is
+   * the only one: a real blink is ~120 ms (`MOTION.blink.closedMs`), so holding the shut
+   * frame for a beat would make the owl look asleep rather than blinking.
+   */
+  holds?: number[];
+  drift: Drift | null;
+  /** Breath period, ms. The same 1.03 scale the mascot uses. */
+  breathMs: number;
+  /** What the loop IS, in one line, for the contact sheet and for review. */
+  note: string;
+}
+
+export const ANIMAL_MOTION: Record<Animal, AnimalMotion> = {
+  crab: {
+    beatMs: 420,
+    // Two beats to the step, so the claw snip lands on the turn of the sidestep.
+    drift: { axis: 'x', cells: 1, periodMs: 1680 },
+    breathMs: 4200,
+    note: 'sidesteps one pixel, claws snip',
+  },
+  octopus: {
+    beatMs: 380,
+    drift: { axis: 'y', cells: 1, periodMs: 3400 },
+    breathMs: 4600,
+    note: 'tentacles wiggle out and back, hangs in the water',
+  },
+  dog: {
+    beatMs: 300,
+    drift: null,
+    breathMs: 3600,
+    note: 'tail wags, three positions, both ways',
+  },
+  cat: {
+    beatMs: 600,
+    drift: null,
+    breathMs: 4800,
+    note: 'tail flicks, then an ear twitch',
+  },
+  owl: {
+    beatMs: 520,
+    // 0.28 x 520 = 146 ms shut. See `holds`.
+    holds: [1, 0.28, 1],
+    drift: null,
+    breathMs: 5000,
+    note: 'blinks, then turns its head a pixel',
+  },
+  fox: {
+    beatMs: 480,
+    drift: null,
+    breathMs: 4000,
+    note: 'brush sweeps up and down',
+  },
+  whale: {
+    beatMs: 560,
+    drift: { axis: 'y', cells: 1, periodMs: 4200 },
+    breathMs: 5200,
+    note: 'spout puffs, bobs on the swell',
+  },
+  bee: {
+    beatMs: 300,
+    // The fastest drift in the pack, and the only 2-cell one: a bee that hovers gently
+    // is a moth.
+    drift: { axis: 'y', cells: 2, periodMs: 900 },
+    breathMs: 3000,
+    note: 'wings blur, hovers up and down',
+  },
+};
+
+/** The looping frame timeline of an animal at a given tempo, holds applied. */
+export function animalTimeline(animal: Animal, tempo = 1): Beat[] {
+  const rate = clampTempo(tempo);
+  const m = ANIMAL_MOTION[animal];
+  return ANIMAL_FRAMES[animal].map((_, i) => ({
+    frame: i,
+    ms: Math.round((m.beatMs * (m.holds?.[i] ?? 1)) / rate),
+  }));
+}
+
+/** Breath period for an animal, shortened by tempo — the mascot's rule, per animal. */
+export function animalBreathMs(animal: Animal, tempo = 1): number {
+  return Math.round(ANIMAL_MOTION[animal].breathMs / clampTempo(tempo));
 }

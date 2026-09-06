@@ -115,13 +115,15 @@ export default function ProfileScreen() {
       </Section>
 
       <Section title="Projects">
-        {profile.projects.map((p) => (
+        {profile.projects.map((p, i) => (
           <View
             key={p.key}
             style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}
           >
             <Text style={{ color: c.text, fontSize: 14 }} numberOfLines={1}>
-              {p.name ?? `private · ${p.key}`}
+              {/* A private repo's key is a hash. Showing it reads as a bug; a letter per
+                  repo tells them apart, which is the only job the label has. */}
+              {p.name ?? `Private repo ${String.fromCharCode(65 + i)}`}
             </Text>
             <Text style={{ color: c.textDim, fontSize: 13 }}>
               {duration(p.active_seconds)} · {p.sessions}
