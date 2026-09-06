@@ -46,6 +46,12 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    co = sub.add_parser(
+        "contributions",
+        help="your commits by day, split by whether an agent was in the room",
+    )
+    co.add_argument("path", nargs="?", default="~/.claude/projects")
+    co.add_argument("--days", type=int, default=60, help="how far back to look (default 60)")
     tr = sub.add_parser(
         "trends", help="how you build now against how you built before, you against you"
     )
@@ -122,6 +128,9 @@ def main() -> int:
         print(json.dumps(prof, indent=1, default=str))
         return 0
 
+    if a.cmd == "contributions":
+        return _contributions(a)
+
     if a.cmd == "trends":
         return _trends(a)
 
@@ -173,6 +182,62 @@ def main() -> int:
         sys.stderr.write(f"wrote {a.out}  cost ${res['cost_usd']}  {res['duration_ms']} ms\n")
     else:
         print(text)
+    return 0
+
+
+def _contributions(a) -> int:
+    """The graph, and the number underneath it that GitHub cannot answer."""
+    import datetime as _dt
+
+    from capture import repo as cap_repo
+
+    from . import contributions as co_mod
+
+    facts, _ = _narrative_inputs(pathlib.Path(a.path).expanduser())
+    cutoff = time.time() - a.days * 86400
+    facts = [f for f in facts if f.ended_at >= cutoff]
+    if not facts:
+        sys.stderr.write(f"no sittings in the last {a.days} days.\n")
+        return 0
+
+    # Every commit in every repository this machine's own transcripts resolved to. Not a
+    # guess at where somebody keeps code, and not an API round trip that would know less.
+    roots = sorted({f.repo for f in facts if f.repo})
+    commits: list[float] = []
+    for root in roots:
+        commits += [ts for _sha, ts in cap_repo.commits_in(root, cutoff, time.time())]
+    if not commits:
+        sys.stderr.write(
+            f"no commits in the last {a.days} days across {len(roots)} repositor(y/ies).\n"
+        )
+        return 0
+
+    offset = facts[-1].tz_offset_minutes
+    graph = co_mod.split(commits, [(f.started_at, f.ended_at) for f in facts], offset)
+    share = graph.assisted_share
+
+    print(
+        f"{graph.total} commits over {graph.active_days} days in "
+        f"{len(roots)} repositor{'y' if len(roots) == 1 else 'ies'}."
+    )
+    if share is not None:
+        print(
+            f"{graph.assisted} landed while an agent was working ({round(share * 100)}%), "
+            f"{graph.alone} you committed on your own."
+        )
+    else:
+        print(
+            f"{graph.assisted} with an agent, {graph.alone} on your own. "
+            f"Too few to call a share yet ({co_mod.MIN_COMMITS} needed)."
+        )
+    print(
+        f"Longest run of days you shipped: {graph.longest_streak}. "
+        f"Currently on {graph.current_streak}.\n"
+    )
+    for d in graph.days[-21:]:
+        bar = "#" * min(d.assisted, 40) + "." * min(d.alone, 40)
+        print(f"  {d.day}  {bar:<42} {d.total:>3}")
+    print("\n  # landed with an agent, . you committed on your own")
     return 0
 
 
