@@ -924,10 +924,16 @@ struct GeminiParserTests {
         #expect(Harness.cline.displayName == "Cline")
 
         // Every Harness case is a legal wire value, and vice versa — a case that is not in
-        // the contract is a 422 on the user's first sync; a value that is not a case cannot
-        // be produced.
+        // the contract is a 422 on the user's first sync; a value that is not a case is a
+        // decode failure on a session the user can see on their phone. The set stays
+        // BIDIRECTIONAL even for harnesses this build has no parser for: `opencode` and
+        // `aider` are uploaded by `python -m capture` (capture/harnesses.py) and arrive
+        // here through the same wire, so `isImplemented` is what says the Mac cannot read
+        // them, not a missing case.
         let wire = Set(UploadContract.enumValues["harness"] ?? [])
         #expect(wire == Set(Harness.allCases.map(\.rawValue)))
         #expect(wire.contains("gemini_cli") && wire.contains("cline"))
+        #expect(!Harness.opencode.isImplemented && !Harness.aider.isImplemented)
+        #expect(!Harness.opencode.reportsTokens && !Harness.aider.reportsTokens)
     }
 }

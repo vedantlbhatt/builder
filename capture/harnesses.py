@@ -36,6 +36,8 @@ from __future__ import annotations
 import dataclasses
 import pathlib
 
+from collections.abc import Iterable
+
 from analysis import digest
 
 from . import identity
@@ -53,7 +55,21 @@ DEFAULT_ROOTS: dict[str, tuple[str, ...]] = {
         "~/.cline/data",
     ),
     "opencode": ("~/.local/share/opencode",),
-    "aider": ("~/src", "~/code", "~/projects", "~/work"),
+    #: AIDER HAS NO DEFAULT ROOT, on purpose. Every other tool here owns a directory:
+    #: `~/.codex`, `~/.gemini`, the extension's globalStorage, opencode's data dir. Aider
+    #: writes `.aider.chat.history.md` into the REPOSITORY you ran it in, so there is no
+    #: place to look that is not a guess about where somebody keeps their code.
+    #:
+    #: The first version of this guessed `~/src`, `~/code`, `~/projects`, `~/work` and
+    #: walked them recursively. On a CI runner `~/work` IS the checkout, so it walked the
+    #: repository and discovered this project's own Aider FIXTURES as if they were the
+    #: user's sessions: two extra "final" sessions in a test that had built two. A guess
+    #: that reads other people's files is not a default.
+    #:
+    #: Instead `discover` takes `repo_roots`: the repositories this machine's transcripts
+    #: already resolved to. That is knowledge, not a guess, and it covers the case that
+    #: actually happens (you use Aider in the repos you already work in).
+    "aider": (),
 }
 
 #: `analysis` names two harnesses differently from the upload contract. The contract's
@@ -98,7 +114,10 @@ _CONTAINER_RANK = {"sqlite": 3, "json_dir": 2, "export_json": 1}
 _SUFFIX_RANK = {".jsonl": 2, ".json": 1}
 
 
-def discover(roots: dict[str, list[str]] | None = None) -> list[Store]:
+def discover(
+    roots: dict[str, list[str]] | None = None,
+    repo_roots: Iterable[str] = (),
+) -> list[Store]:
     """Every non-Claude-Code session on this machine, with its lineage and its cwd.
 
     Discovery itself is `analysis.probe._walk`, which already knows every store's shape,
@@ -116,11 +135,17 @@ def discover(roots: dict[str, list[str]] | None = None) -> list[Store]:
     loose: list[Store] = []
     for harness, defaults in DEFAULT_ROOTS.items():
         wanted = roots.get(harness) if roots else None
-        for raw in wanted if wanted is not None else defaults:
-            root = pathlib.Path(raw).expanduser()
+        chosen = [(pathlib.Path(r).expanduser(), False) for r in (wanted or defaults)]
+        # Aider's sessions live in repositories, so the repositories this machine already
+        # knows about are its roots. Marked `exact` so only `<repo>/.aider.chat.history.md`
+        # is read: a recursive walk of a checkout finds other projects' fixtures, which is
+        # how this discovered its own test data on a CI runner.
+        if harness == "aider" and wanted is None:
+            chosen += [(pathlib.Path(r).expanduser(), True) for r in repo_roots if r]
+        for root, exact in chosen:
             if not root.exists():
                 continue
-            for path in probe._walk(root):
+            for path in _paths_under(root, harness, exact):
                 found = _store_for(path, harness)
                 if found is None:
                     continue
@@ -134,6 +159,23 @@ def discover(roots: dict[str, list[str]] | None = None) -> list[Store]:
     out = [s for _, s in best.values()] + loose
     out.sort(key=lambda s: (s.harness, s.pool_dir, str(s.path)))
     return out
+
+
+def _paths_under(root: pathlib.Path, harness: str, exact: bool) -> list[pathlib.Path]:
+    """Session paths under one root.
+
+    `exact` means this root is a repository somebody works in, not a store the tool owns:
+    read only its own `.aider.chat.history.md`, never walk it. A repository can contain
+    anything, including another project's fixtures.
+    """
+    from analysis import aider, probe
+
+    if not exact:
+        return probe._walk(root)
+    chat = root / aider.CHAT_FILE
+    if not chat.is_file():
+        return []
+    return [chat / s.id for s in aider.list_sessions(chat)]
 
 
 def _store_for(path: pathlib.Path, expected: str) -> tuple[Store, int] | None:

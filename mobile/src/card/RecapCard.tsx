@@ -145,6 +145,8 @@ const HARNESS_LABEL: Record<string, string> = {
   codex: 'Codex',
   gemini_cli: 'Gemini CLI',
   cline: 'Cline',
+  opencode: 'opencode',
+  aider: 'Aider',
 };
 
 interface Props {

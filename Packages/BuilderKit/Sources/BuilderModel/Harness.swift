@@ -19,6 +19,13 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     /// Declared ahead of its parser, like `cursorAgent`: the contract, the Postgres enum
     /// and this case land together so the parser is later a code change, not a migration.
     case cline = "cline"
+    /// Uploaded by `python -m capture` (capture/harnesses.py), which reads every store on
+    /// the machine, and read by no Swift parser: this build has no reason to open a SQLite
+    /// database in `~/.local/share/opencode` or a markdown chat log in somebody's repo.
+    /// The case exists because the WIRE carries these values, and a value the enum cannot
+    /// name is a decode failure on a session the user can see on their phone.
+    case opencode = "opencode"
+    case aider = "aider"
 
     /// The label the menu bar, the card and the CLI print for this harness.
     public var displayName: String {
@@ -29,6 +36,8 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
         case .codex: return "Codex"
         case .geminiCLI: return "Gemini CLI"
         case .cline: return "Cline"
+        case .opencode: return "opencode"
+        case .aider: return "Aider"
         }
     }
 
@@ -48,7 +57,12 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     public var reportsTokens: Bool {
         switch self {
         case .claudeCode, .codex, .geminiCLI, .cline: return true
-        case .cursorIDE, .cursorAgent: return false
+        // opencode's `step-finish` parts and Aider's rounded `Tokens: 8.2k sent` lines are
+        // both real, but `capture/harnesses.py` uploads these sessions with
+        // `tokens_reported: false` because neither maps onto the per-message ledger without
+        // becoming a number that is not comparable with the one printed beside it. Absent,
+        // not zero, exactly as for Cursor.
+        case .cursorIDE, .cursorAgent, .opencode, .aider: return false
         }
     }
 
@@ -63,7 +77,9 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     public var reportsModel: Bool {
         switch self {
         case .claudeCode, .codex, .geminiCLI, .cline: return true
-        case .cursorIDE, .cursorAgent: return false
+        // Both stores name a model per message, but this build never reads them, and the
+        // uploader that does cannot state a per-model token share without token counts.
+        case .cursorIDE, .cursorAgent, .opencode, .aider: return false
         }
     }
 
@@ -79,7 +95,8 @@ public enum Harness: String, Sendable, CaseIterable, Codable {
     public var isImplemented: Bool {
         switch self {
         case .claudeCode, .cursorIDE, .codex, .geminiCLI: return true
-        case .cursorAgent, .cline: return false
+        // opencode and Aider are read by `python -m capture`, never by this build.
+        case .cursorAgent, .cline, .opencode, .aider: return false
         }
     }
 }

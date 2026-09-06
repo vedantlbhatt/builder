@@ -175,3 +175,31 @@ class Payloads(unittest.TestCase):
     def test_tokens_are_reported_absent(self):
         for p in self.payloads:
             self.assertFalse(p["tokens_reported"], p["harness"])
+
+
+class AiderHasNoDefaultRoot(unittest.TestCase):
+    """Aider writes into the repository you ran it in, so there is nowhere to guess.
+
+    FOUND ON CI, 2026-09-06. The first version of `DEFAULT_ROOTS` guessed `~/src`,
+    `~/code`, `~/projects` and `~/work` and walked them recursively. On a GitHub runner
+    `~/work` IS the checkout, so discovery walked this repository and reported its own
+    Aider FIXTURES as the user's sessions: a dry-run test that had built two sessions got
+    four. A default that reads directories nobody named is not a default.
+    """
+
+    def test_no_roots_means_nothing_is_discovered(self):
+        self.assertEqual(harnesses.DEFAULT_ROOTS["aider"], ())
+        # No repo roots, no explicit roots: nothing, however the machine is laid out.
+        self.assertEqual([s for s in harnesses.discover() if s.harness == "aider"], [])
+
+    def test_a_known_repository_is_read_but_never_walked(self):
+        # `spec/fixtures/aider` holds a chat file at its root AND another in `real/`. A
+        # repo root reads only its own; a recursive walk would find both, which is exactly
+        # how the CI failure happened.
+        found = [s for s in harnesses.discover(repo_roots=[str(FIX / "aider")]) if s.harness == "aider"]
+        self.assertEqual(len(found), 3)
+        self.assertTrue(all(s.pool_dir == str(FIX / "aider") for s in found))
+        self.assertNotIn("real", {p for s in found for p in s.path.parts})
+
+    def test_a_repository_with_no_chat_file_contributes_nothing(self):
+        self.assertEqual(harnesses.discover(repo_roots=[str(ROOT)]), [])

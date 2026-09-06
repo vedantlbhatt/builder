@@ -175,7 +175,22 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
     # (`capture/harnesses.py`). Opt-out rather than opt-in: a person who installed Builder
     # to see their sessions means all of them, and a store that is not there costs a
     # `Path.exists()`. One unreadable session is skipped, never fatal.
-    other = [] if getattr(a, "no_other_harnesses", False) else harnesses.discover()
+    # Aider writes into the REPOSITORY you ran it in, so the repositories this machine's
+    # own transcripts resolved to are where to look. A guess at where somebody keeps code
+    # (`~/src`, `~/work`) walks directories nobody asked us to read.
+    repo_roots = sorted(
+        {
+            ident.common_root
+            for src in sources
+            for r in src.records
+            if (ident := repo.identity_for(r.get("cwd"))) is not None and ident.common_root
+        }
+    )
+    other = (
+        []
+        if getattr(a, "no_other_harnesses", False)
+        else harnesses.discover(repo_roots=repo_roots)
+    )
     for store in other:
         try:
             sources.append(harnesses.load(store))

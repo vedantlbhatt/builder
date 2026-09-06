@@ -215,6 +215,16 @@ because parallel agent sessions overlapped and one ran entirely inside another. 
 total is refused (`overlapping_session_windows`) rather than reported 31% high, and null is
 not zero: the phone drops the row instead of claiming nothing was committed.
 
+**A default root that guesses reads files nobody offered.** Every tool but one owns a
+directory: `~/.codex`, `~/.gemini`, the extension's globalStorage, opencode's data dir.
+Aider writes `.aider.chat.history.md` into the REPOSITORY you ran it in, and the first
+version of `capture/harnesses.py` guessed `~/src`, `~/code`, `~/projects`, `~/work` and
+walked them recursively. On a CI runner `~/work` IS the checkout, so discovery walked this
+repository and reported its own Aider FIXTURES as the user's sessions. Aider now has no
+default root at all; `discover(repo_roots=...)` reads only `<repo>/.aider.chat.history.md`
+in repositories this machine's own transcripts already resolved to, which is knowledge
+rather than a guess.
+
 **The density floor is a design constant, not a detail.** At 0.45 the identity amber
 rendered as muddy brown across most of a real strip, because a 71-minute session is 4.2s
 per column and most columns land in the lowest bucket. Density should modulate the colour,
@@ -250,11 +260,11 @@ prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/
 
 | suite | n | protects |
 |---|---|---|
-| `swift test` | 136 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
+| `swift test` | 138 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
 | `bun test` | 389 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes and per-frame change ceiling; the profile screen's archetype wording and its closest-rule fallback |
 | `pytest` | 125 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
 | `unittest` (analysis/) | 164 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
-| `make capture-test` | 71 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth, and that every other harness discovers, dedupes and uploads |
+| `make capture-test` | 74 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth, and that every other harness discovers, dedupes and uploads |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 
 CI runs on `main`, on `claude/**` branches and on demand. The macOS job is the only Swift
