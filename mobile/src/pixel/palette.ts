@@ -107,6 +107,12 @@ function parse(hex: string): [number, number, number] | null {
  * colour only has to say "a different one". So the bodies spread across the hue circle
  * the tokens allow — two ambers of different weight, a gold, a grey, a bone, a teal and a
  * sage — and where two bodies are close their accents are not.
+ *
+ * The crab and the bee are both the plain accent amber, deliberately: they are both amber
+ * creatures, and forcing one off the token to make a table of eight unique bodies would
+ * have bought a uniqueness nobody looks for with a colour nobody would pick. They are
+ * told apart by their accents (rust against grey) and, at 16 px, overwhelmingly by shape.
+ * What the tests do enforce is that the PAIRS are all distinct.
  */
 const ANIMAL_COLOURS: Record<Animal, { body: Recipe; accent: Recipe }> = {
   /** Amber shell, dark rust eyes and pincer line — the Claude crab's own reading. */
