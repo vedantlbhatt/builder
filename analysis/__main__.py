@@ -46,6 +46,19 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    ag = sub.add_parser(
+        "agents",
+        help="several agents at once: who ran, overlapping or one after another, and what landed",
+    )
+    ag.add_argument("path", nargs="?", default="~/.claude/projects")
+    ag.add_argument("--days", type=int, default=30, help="how far back to look (default 30)")
+    pb = sub.add_parser(
+        "playbook",
+        help="your own prompts that landed, against the ones that cost a round trip",
+    )
+    pb.add_argument("path", nargs="?", default="~/.claude/projects")
+    pb.add_argument("--days", type=int, default=30, help="how far back to look (default 30)")
+    pb.add_argument("--top", type=int, default=5, help="how many of each to show")
     ru = sub.add_parser(
         "rules",
         help="the same mistake, made again: recurring failures turned into rules-file lines",
@@ -104,6 +117,12 @@ def main() -> int:
         print(json.dumps(prof, indent=1, default=str))
         return 0
 
+    if a.cmd == "agents":
+        return _agents(a)
+
+    if a.cmd == "playbook":
+        return _playbook(a)
+
     if a.cmd == "rules":
         return _rules(a)
 
@@ -147,6 +166,112 @@ def main() -> int:
     else:
         print(text)
     return 0
+
+
+def _agents(a) -> int:
+    """The delegations: how many agents, running at once or in a chain, and what landed.
+
+    NEVER a token, a line or a commit: the parent's `Agent` tool result already reports a
+    subagent's work in aggregate, and counting the sidecars again is the globbing revert
+    in CLAUDE.md happening a second time. This reads them to describe the DELEGATION.
+    """
+    import datetime as _dt
+
+    from capture import discover
+    from capture import sessions as cap
+
+    from . import agents as ag_mod
+
+    root = pathlib.Path(a.path).expanduser()
+    cutoff = time.time() - a.days * 86400
+    total_agents = total_seconds = 0
+    peak = 0
+    kinds: collections.Counter[str] = collections.Counter()
+    produced = 0
+    rows = []
+
+    for t in discover.iter_root_transcripts(root):
+        spans = ag_mod.spans(t.path)
+        if not spans:
+            continue
+        if max(s.ended_at for s in spans) < cutoff:
+            continue
+        wall = max(s.ended_at for s in spans) - min(s.started_at for s in spans)
+        fo = ag_mod.fanout(spans, wall)
+        total_agents += fo.agents
+        total_seconds += fo.agent_seconds
+        peak = max(peak, fo.max_concurrent)
+        produced += fo.produced
+        kinds.update(fo.by_type)
+        rows.append((t.path.stem, fo))
+
+    if not rows:
+        sys.stderr.write(
+            f"no subagents in the last {a.days} days. Every sitting was you and one agent.\n"
+        )
+        return 0
+
+    hours = total_seconds / 3600
+    print(
+        f"{total_agents} agents across {len(rows)} sittings, {hours:.1f} hours of agent work.\n"
+        f"{produced} of them produced something. The most running at once was {peak}.\n"
+    )
+    for name, fo in sorted(rows, key=lambda r: -r[1].agents)[:6]:
+        print(
+            f"  {name[:8]}  {fo.agents} agents, up to {fo.max_concurrent} at once, "
+            f"{fo.agent_seconds / 60:.0f} agent-minutes in a {fo.wall_seconds / 60:.0f} minute "
+            f"stretch ({fo.parallelism}x)"
+        )
+        for sp in sorted(fo.spans, key=lambda s: -s.landed)[:3]:
+            print(
+                f"      {(sp.agent_type or 'unknown'):<17} {sp.seconds / 60:5.1f}m  "
+                f"{sp.landed:2} landed  {(sp.asked or 'no brief recorded')[:56]}"
+            )
+        print()
+    if kinds:
+        print("  by kind: " + ", ".join(f"{k} {v}" for k, v in kinds.most_common()))
+    return 0
+
+
+def _playbook(a) -> int:
+    """Your own two piles, side by side. No model call: this is all measurement."""
+    from . import playbook as pb_mod
+
+    facts, sessions = _narrative_inputs(pathlib.Path(a.path).expanduser())
+    cutoff = time.time() - a.days * 86400
+    picked = [s for f, s in zip(facts, sessions, strict=True) if f.started_at >= cutoff]
+    tried = pb_mod.attempts(picked)
+    stats = pb_mod.summary(tried)
+    if stats["value"] is None:
+        sys.stderr.write(
+            f"not enough to compare yet: {stats['reason']}, over {stats['n']} prompt(s).\n"
+        )
+        return 0
+
+    worked, cost = pb_mod.split(tried)
+    print(
+        f"{stats['worked']} of {stats['n']} prompts landed something without you having to "
+        f"take it back. That is {round(stats['value'] * 100)}%.\n"
+    )
+    print("THESE LANDED, AND YOU NEVER TOUCHED THE WHEEL")
+    for at in worked[: a.top]:
+        print(f"\n  {at.landed} things landed over {at.tool_calls} tool calls")
+        print(f"  {_wrap(at.text)}")
+    print("\n\nTHESE COST YOU A ROUND TRIP")
+    for at in cost[: a.top]:
+        why = "you corrected it" if at.corrected else (
+            "it ran a long way with nothing landing" if at.stalled else "nothing landed"
+        )
+        print(f"\n  {why}, after {at.tool_calls} tool calls")
+        print(f"  {_wrap(at.text)}")
+    print()
+    return 0
+
+
+def _wrap(text: str, width: int = 92) -> str:
+    import textwrap
+
+    return textwrap.fill(text[:400], width=width, subsequent_indent="  ")
 
 
 def _rules(a) -> int:

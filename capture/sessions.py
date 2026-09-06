@@ -141,6 +141,23 @@ def _extra(r: dict, line: int) -> dict:
         "model": model,
         "subtype": r.get("subtype") if isinstance(r.get("subtype"), str) else None,
         "sidechain": bool(r.get("isSidechain")),
+        # WHICH AGENT wrote this record. Claude Code stamps a stable `agentId` per agent
+        # instance and an `attributionAgent` naming its TYPE (general-purpose,
+        # workflow-subagent, Explore). MEASURED on this container: 119 distinct agent ids
+        # across 12,236 sidechain records. Everything downstream that counts tokens still
+        # excludes sidechains, because the parent's Agent tool result already reports them
+        # in aggregate (CLAUDE.md); these two fields are how the DELEGATION can be
+        # described without double counting the work.
+        "agent_id": r.get("agentId") if isinstance(r.get("agentId"), str) else None,
+        "agent_type": (
+            r.get("attributionAgent") if isinstance(r.get("attributionAgent"), str) else None
+        ),
+        # Links a subagent's records back to the Agent tool call that spawned it.
+        "spawned_by": (
+            r.get("sourceToolAssistantUUID")
+            if isinstance(r.get("sourceToolAssistantUUID"), str)
+            else None
+        ),
     }
 
 
