@@ -62,7 +62,6 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
   const [model, setModel] = useState<CardModel | null>(null);
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [sharing, setSharing] = useState(false);
-  const [composing, setComposing] = useState(false);
   const [recapOpen, setRecapOpen] = useState(false);
   const [post, setPost] = useState<FeedItem | null>(null);
   // Whether a post exists for this session, as far as the phone knows: seeded from the
@@ -166,7 +165,6 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
   const landed = (p: FeedItem, thenOpen: boolean) => {
     setPost(p);
     setShared(true);
-    setComposing(false);
     setRecapOpen(false);
     const next = detailAfterPost(session, p);
     setSession(next);
@@ -181,7 +179,6 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
    */
   const alreadyPosted = () => {
     setShared(true);
-    setComposing(false);
     setRecapOpen(false);
     if (id && id !== 'sample') {
       void api
@@ -204,31 +201,6 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
       <View ref={cardRef} collapsable={false} style={{ borderRadius: 14, overflow: 'hidden' }}>
         <RecapCard model={model} width={contentWidth} />
       </View>
-
-      <Pressable
-        onPress={async () => {
-          setSharing(true);
-          try {
-            await shareCard(cardRef, model);
-          } finally {
-            setSharing(false);
-          }
-        }}
-        style={({ pressed }) => [
-          {
-            backgroundColor: c.accent,
-            borderRadius: 12,
-            paddingVertical: space.md,
-            alignItems: 'center',
-            marginTop: space.md,
-          },
-          pressed && { opacity: 0.8 },
-        ]}
-      >
-        <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 16 }}>
-          {sharing ? 'Preparing…' : 'Share this session'}
-        </Text>
-      </Pressable>
 
       {/* Sharing to the feed is an act, never automatic, and only for a finished session:
           a live card's numbers keep moving and a recap that moves is not a recap. */}
@@ -299,24 +271,52 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
             <Pressable
               onPress={() => setRecapOpen(true)}
               accessibilityRole="button"
-              style={({ pressed }) => [postedBox, { alignItems: 'center' }, pressed && { opacity: 0.8 }]}
+              style={({ pressed }) => [
+                {
+                  backgroundColor: c.accent,
+                  borderRadius: 12,
+                  paddingVertical: space.md,
+                  alignItems: 'center',
+                  marginTop: space.md,
+                },
+                pressed && { opacity: 0.8 },
+              ]}
             >
-              <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }}>Finish & share</Text>
-              <Text style={{ color: c.textDim, fontSize: 12, marginTop: 2 }}>
-                Add photos and a caption, then post, or keep it private.
+              <Text style={{ color: c.onAccent, fontWeight: '700', fontSize: 16 }}>
+                Post to the feed
               </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setComposing(true)}
-              accessibilityRole="button"
-              hitSlop={hitSlopToReach(20)}
-              style={({ pressed }) => [{ alignItems: 'center', paddingVertical: space.sm }, pressed && { opacity: 0.6 }]}
-            >
-              <Text style={{ color: c.textDim, fontSize: 13 }}>Quick post without the recap</Text>
+              <Text style={{ color: c.onAccent, fontSize: 12, marginTop: 2, opacity: 0.75 }}>
+                Photos, a caption, and who sees it
+              </Text>
             </Pressable>
           </>
         )
       )}
+
+      {/* Exporting the card as an image and posting it to the feed are different acts, and
+          calling both of them "share" made the screen read as three buttons for one thing.
+          The image export is the quiet one: it names the file it produces. */}
+      <Pressable
+        onPress={async () => {
+          setSharing(true);
+          try {
+            await shareCard(cardRef, model);
+          } finally {
+            setSharing(false);
+          }
+        }}
+        accessibilityRole="button"
+        hitSlop={hitSlopToReach(24)}
+        style={({ pressed }) => [
+          { alignItems: 'center', paddingVertical: space.sm, marginTop: space.sm },
+          pressed && { opacity: 0.6 },
+        ]}
+      >
+        <Text style={{ color: c.textDim, fontWeight: '600', fontSize: 13 }}>
+          {sharing ? 'Preparing the image…' : 'Save this card as an image'}
+        </Text>
+      </Pressable>
+
 
       <RecapSheet
         visible={recapOpen}
@@ -327,15 +327,6 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
         onPosted={(p) => landed(p, true)}
         onAlreadyPosted={alreadyPosted}
         onRetryConnection={() => void load()}
-      />
-
-      <ComposeModal
-        visible={composing}
-        sessionId={session.id}
-        hasAnalysis={Boolean(session.analysis)}
-        onClose={() => setComposing(false)}
-        onPosted={(p) => landed(p, false)}
-        onAlreadyPosted={alreadyPosted}
       />
 
       <Section title="Timeline">
@@ -415,200 +406,6 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
   );
 }
 
-/**
- * Visibility, a caption, whether the whole analysis travels with the post (the feed shows
- * headline + summary either way), up to six photos and one voice note.
- *
- * Two phases. `compose` is the form. Post creates the row first — the post exists the
- * moment the server answers, media or not — then the upload phase (`useUploadFlow`,
- * shared with the recap) runs the plan against it one object at a time and shows each
- * line's state. A failed line can be retried; a presign 503 (object storage not
- * configured on this server) is said once, in plain words, and the post stands without
- * its media rather than being rolled back.
- */
-function ComposeModal({
-  visible,
-  sessionId,
-  hasAnalysis,
-  onClose,
-  onPosted,
-  onAlreadyPosted,
-}: {
-  visible: boolean;
-  sessionId: string;
-  hasAnalysis: boolean;
-  onClose: () => void;
-  onPosted: (post: FeedItem) => void;
-  /** The server answered 409 "already shared": the session has a post this sheet cannot see. */
-  onAlreadyPosted: () => void;
-}) {
-  const [visibility, setVisibility] = useState<Visibility>('followers');
-  const [caption, setCaption] = useState('');
-  const [shareAnalysis, setShareAnalysis] = useState(false);
-  const [photos, setPhotos] = useState<PickedPhoto[]>([]);
-  const [audio, setAudio] = useState<RecordedAudio | null>(null);
-  const [posting, setPosting] = useState(false);
-  const flow = useUploadFlow(onPosted);
-  const { reset } = flow;
-
-  // The sheet stays mounted between openings. Reopening it (after deleting the post, say)
-  // must start a fresh compose, not land in the previous post's upload list.
-  useEffect(() => {
-    if (!visible) return;
-    setPhotos([]);
-    setAudio(null);
-    setPosting(false);
-    reset();
-  }, [visible, reset]);
-
-  const busy = posting || flow.busy;
-
-  const submit = async () => {
-    if (busy) return;
-    const planned = planMedia(photos, audio);
-    if (!planned.ok) {
-      Alert.alert('Check the media', planned.message);
-      return;
-    }
-    setPosting(true);
-    let p: FeedItem;
-    try {
-      p = await api.createPost({
-        session_id: sessionId,
-        caption: caption.trim() || null,
-        visibility,
-        share_analysis: shareAnalysis,
-      });
-    } catch (e) {
-      setPosting(false);
-      if (isAlreadySharedConflict(e)) {
-        Alert.alert('Already posted', 'This session is on the feed already.');
-        onAlreadyPosted();
-        return;
-      }
-      Alert.alert('Could not post', e instanceof Error ? e.message : 'try again');
-      return;
-    }
-    setPosting(false);
-    flow.start(p, planned.jobs);
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={() => (flow.uploading ? void flow.finish() : onClose())}
-    >
-      <ScrollView
-        style={{ flex: 1, backgroundColor: c.bg }}
-        contentContainerStyle={{ padding: space.md, paddingBottom: space.xxl }}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: space.lg }}>
-          {flow.uploading ? (
-            <View style={{ width: 48 }} />
-          ) : (
-            <Pressable onPress={onClose} hitSlop={8} disabled={busy}>
-              <Text style={{ color: c.textDim, fontSize: 15 }}>Cancel</Text>
-            </Pressable>
-          )}
-          <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center' }}>
-            {flow.uploading ? 'Uploading' : 'Post session'}
-          </Text>
-          {flow.uploading ? (
-            <Pressable onPress={() => void flow.finish()} disabled={busy} hitSlop={8}>
-              <Text style={{ color: c.accent, fontSize: 15, fontWeight: '700', opacity: busy ? 0.5 : 1 }}>
-                Done
-              </Text>
-            </Pressable>
-          ) : (
-            <Pressable onPress={() => void submit()} disabled={busy} hitSlop={8}>
-              <Text style={{ color: c.accent, fontSize: 15, fontWeight: '700', opacity: busy ? 0.5 : 1 }}>
-                {busy ? 'Posting…' : 'Post'}
-              </Text>
-            </Pressable>
-          )}
-        </View>
-
-        {flow.uploading ? (
-          <UploadList rows={flow.rows} busy={flow.busy} retryable={flow.retryable} onRetry={flow.retry} />
-        ) : (
-          <>
-            <Text style={composeLabel}>WHO CAN SEE IT</Text>
-            <View style={{ flexDirection: 'row', backgroundColor: c.card, borderRadius: 10, padding: 3 }}>
-              {VISIBILITIES.map((v) => (
-                <Pressable
-                  key={v}
-                  onPress={() => setVisibility(v)}
-                  style={{
-                    flex: 1,
-                    paddingVertical: space.sm,
-                    borderRadius: 8,
-                    alignItems: 'center',
-                    backgroundColor: v === visibility ? c.accent : 'transparent',
-                  }}
-                >
-                  <Text style={{ color: v === visibility ? c.onAccent : c.text, fontWeight: '600', fontSize: 14 }}>
-                    {visibilityLabel(v)}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <Text style={[composeLabel, { marginTop: space.lg }]}>CAPTION</Text>
-            <TextInput
-              value={caption}
-              onChangeText={(t) => setCaption(t.slice(0, CAPTION_MAX))}
-              placeholder="What did you build?"
-              placeholderTextColor={c.textDim}
-              multiline
-              style={{
-                color: c.text,
-                backgroundColor: c.card,
-                borderRadius: 10,
-                padding: space.md,
-                minHeight: 96,
-                fontSize: 15,
-                textAlignVertical: 'top',
-              }}
-            />
-            <Text style={{ color: c.textDim, fontSize: 11, textAlign: 'right', marginTop: 4 }}>
-              {caption.length}/{CAPTION_MAX}
-            </Text>
-
-            <View style={{ marginTop: space.lg }}>
-              <MediaPicker
-                photos={photos}
-                onPhotos={setPhotos}
-                audio={audio}
-                onAudio={setAudio}
-                disabled={busy}
-              />
-            </View>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: space.lg, backgroundColor: c.card, borderRadius: 10, padding: space.md }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: c.text, fontSize: 15 }}>Include full analysis</Text>
-                <Text style={{ color: c.textDim, fontSize: 12, marginTop: 2 }}>
-                  {hasAnalysis
-                    ? 'Off shares only the headline and summary.'
-                    : 'This session has no analysis yet.'}
-                </Text>
-              </View>
-              <Switch
-                value={shareAnalysis}
-                onValueChange={setShareAnalysis}
-                disabled={!hasAnalysis}
-                trackColor={{ true: c.accent }}
-              />
-            </View>
-          </>
-        )}
-      </ScrollView>
-    </Modal>
-  );
-}
 
 const postedBox = {
   backgroundColor: c.card,

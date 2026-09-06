@@ -1,6 +1,6 @@
 import { StripClass } from '../generated/strip';
 import { colors, type Scheme } from '../theme';
-import type { Animal } from './animals';
+import type { Animal, AnimalGlyph } from './animals';
 import type { Glyph } from './frames';
 
 /**
@@ -45,10 +45,7 @@ export function scale(hex: string, factor: number): string {
  * `SpritePalette` — an animal has two roles and only two, and giving it the mascot's six
  * would let a sixth colour into a frame without a test noticing.
  */
-export interface AnimalPalette {
-  b: string;
-  d: string;
-}
+export type AnimalPalette = Record<AnimalGlyph, string>;
 
 /**
  * The four hues an animal may be built from. Each is a SEMANTIC token, so each already
