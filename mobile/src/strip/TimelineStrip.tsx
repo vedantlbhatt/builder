@@ -11,8 +11,43 @@ export type Preset = 'sparkline' | 'row' | 'hero';
 const TRACK_HEIGHT: Record<Preset, number> = {
   sparkline: 8,
   row: 12,
-  hero: 28,
+  hero: 72,
 };
+
+/** Hero geometry: a thin lane of your moves, a gap, then the agent's activity. */
+const HERO = {
+  moves: 12,
+  gap: 5,
+  activity: 46,
+  baseline: 1,
+  labels: 8,
+  bar: 3,
+} as const;
+
+/**
+ * How tall an activity bar stands, per density bucket.
+ *
+ * The old hero painted every non-idle column full height and varied only the alpha, so a
+ * 72-minute session was a solid amber block with a few slightly paler stripes: nothing to
+ * read. Height carries the density instead, idle draws nothing at all, and the rhythm of
+ * the session (burst, pause, burst) is the shape you see.
+ */
+const DENSITY_HEIGHT = [0.34, 0.58, 0.8, 1.0];
+
+interface Band {
+  x: number;
+  w: number;
+  y: number;
+  h: number;
+  fill: string;
+  opacity: number;
+}
+
+interface Drawn {
+  rects: Band[];
+  markRects: Band[];
+  label: string;
+}
 
 const CORNER: Record<Preset, number> = { sparkline: 2, row: 3, hero: 6 };
 
@@ -51,7 +86,7 @@ export function TimelineStrip({
 }: Props) {
   const height = TRACK_HEIGHT[preset];
 
-  const { rects, markRects, label } = useMemo(() => {
+  const { rects, markRects, label } = useMemo<Drawn>(() => {
     let bytes: Uint8Array;
     try {
       bytes = decodeStrip(cols);
@@ -63,25 +98,53 @@ export function TimelineStrip({
     // One rect per pixel column would be ~400 SVG nodes per row. Runs of the same colour
     // are merged instead, which on a real session is an order of magnitude fewer: the
     // strip is mostly long stretches of agent work broken by idle.
-    const columns = resampleColumns(bytes, Math.max(1, Math.round(width)));
+    // One bar per pixel turns an hour of steady work into visual noise: neighbouring
+    // columns differ by one density bucket and the eye reads static. The hero averages
+    // into bars about `HERO.bar` px wide, which is what makes the burst/pause rhythm
+    // legible; the row and sparkline presets stay per-pixel, where they are only ever a
+    // texture.
+    const target =
+      preset === 'hero'
+        ? Math.max(1, Math.round(width / HERO.bar))
+        : Math.max(1, Math.round(width));
+    const columns = resampleColumns(bytes, target);
     const colWidth = width / columns.length;
 
-    const merged: { x: number; w: number; fill: string; opacity: number }[] = [];
+    const hero = preset === 'hero';
+    const activityTop = HERO.moves + HERO.gap;
+    const activityH = HERO.activity;
+
+    const merged: Band[] = [];
     for (let i = 0; i < columns.length; i++) {
       const col = columns[i]!;
+      // Idle is the absence of work. On the hero it draws nothing, so a pause is a real
+      // gap above the baseline rather than a darker shade of busy.
+      if (hero && col.klass === StripClass.idle) continue;
+
       const fill = colors(scheme).strip[col.klass];
-      const opacity =
-        col.klass === StripClass.idle
+      const opacity = hero
+        ? 1
+        : col.klass === StripClass.idle
           ? 1
           : DENSITY_ALPHAS[
               preset === 'sparkline' ? (col.density >= 2 ? DENSITY_ALPHAS.length - 1 : 0) : col.density
             ] ?? 1;
 
+      // On the hero a prompting column is a full-height tick: seconds of typing next to
+      // an hour of agent work would otherwise round away to nothing.
+      const frac = hero
+        ? col.klass === StripClass.prompting
+          ? 1
+          : DENSITY_HEIGHT[col.density] ?? 1
+        : 1;
+      const h = hero ? Math.max(2, activityH * frac) : height;
+      const y = hero ? activityTop + (activityH - h) : 0;
+
       const last = merged[merged.length - 1];
-      if (last && last.fill === fill && last.opacity === opacity) {
+      if (last && last.fill === fill && last.opacity === opacity && last.y === y && last.h === h) {
         last.w += colWidth;
       } else {
-        merged.push({ x: i * colWidth, w: colWidth, fill, opacity });
+        merged.push({ x: i * colWidth, w: colWidth, y, h, fill, opacity });
       }
     }
 
@@ -90,11 +153,16 @@ export function TimelineStrip({
         ? []
         : layoutMarks(marks, spanMs, width, MARK_DEDUPE_MIN_PX);
 
-    const markWidth = preset === 'hero' ? 2.5 : 1.5;
-    const markRects = laid.map((m) => ({
+    // Your moves ride in their own lane above the activity, so a prompt is never buried
+    // under the agent run it started.
+    const markWidth = hero ? 3 : 1.5;
+    const markRects: Band[] = laid.map((m) => ({
       x: Math.max(0, Math.min(width - markWidth, m.x - markWidth / 2)),
       w: markWidth,
+      y: 0,
+      h: hero ? HERO.moves : height,
       fill: colors(scheme).mark[m.kind],
+      opacity: 1,
     }));
 
     const share = classShare(columns);
@@ -110,7 +178,10 @@ export function TimelineStrip({
 
   return (
     <View
-      style={[{ width, height, borderRadius: CORNER[preset], overflow: 'hidden' }, style]}
+      style={[
+        { width, height, borderRadius: CORNER[preset], overflow: 'hidden' },
+        style,
+      ]}
       accessible
       accessibilityRole="image"
       accessibilityLabel={label}
@@ -120,16 +191,28 @@ export function TimelineStrip({
           <Rect
             key={`c${i}`}
             x={r.x}
-            y={0}
+            y={r.y}
             width={r.w + 0.5}
-            height={height}
+            height={r.h}
+            rx={preset === 'hero' ? 1 : 0}
             fill={r.fill}
             opacity={r.opacity}
           />
         ))}
         {markRects.map((m, i) => (
-          <Rect key={`m${i}`} x={m.x} y={0} width={m.w} height={height} fill={m.fill} />
+          <Rect key={`m${i}`} x={m.x} y={m.y} width={m.w} height={m.h} rx={1} fill={m.fill} />
         ))}
+        {preset === 'hero' && (
+          // The floor the activity stands on. Without it a long pause reads as a missing
+          // strip rather than as quiet.
+          <Rect
+            x={0}
+            y={HERO.moves + HERO.gap + HERO.activity}
+            width={width}
+            height={HERO.baseline}
+            fill={colors(scheme).strip[StripClass.idle]}
+          />
+        )}
       </Svg>
     </View>
   );

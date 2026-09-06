@@ -303,7 +303,7 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
             >
               <Text style={{ color: c.text, fontWeight: '700', fontSize: 15 }}>Finish & share</Text>
               <Text style={{ color: c.textDim, fontSize: 12, marginTop: 2 }}>
-                Add photos and a caption, then post — or keep it private.
+                Add photos and a caption, then post, or keep it private.
               </Text>
             </Pressable>
             <Pressable
@@ -667,7 +667,11 @@ function LegendItem({
   label: string;
   share: Record<StripClass, number> | null;
 }) {
-  const pct = share ? Math.round(share[klass] * 100) : null;
+  // A percentage that rounds to zero reads as "this never happened". Ten typed prompts
+  // inside 72 minutes really are under half a percent of the strip, so the legend says
+  // "under 1%" rather than claiming none.
+  const raw = share ? share[klass] * 100 : null;
+  const pct = raw === null ? null : raw > 0 && raw < 1 ? '<1' : String(Math.round(raw));
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
       <View
