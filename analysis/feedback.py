@@ -65,12 +65,32 @@ def notes(session) -> list[Note]:
 
     out: list[Note] = []
 
+    # A sitting where this parser can barely see a checkpoint cannot support the spin
+    # note, and this guard was missing until the payload was built for the first time.
+    # FOUND BY RUNNING IT: 38 of the 45 boundary fixtures came back "the agent ran a long
+    # way with nothing to show", one of them for 22 hours. Those fixtures are synthetic
+    # and contain no write, test or commit at all, so every stretch in them looks like
+    # spinning — and a REAL harness whose transcripts hide file writes (an edit made by a
+    # script the agent wrote is a Bash call with no line count anywhere in it) would
+    # produce exactly the same card. That is a statement about the parser printed as a
+    # statement about the person, on the screen people read most.
+    #
+    # `patterns.MIN_CHECKPOINT_DENSITY` is the same bar the corpus finding uses, applied
+    # here per sitting. Importing it rather than choosing a second number: two thresholds
+    # for one question would disagree about the same session on two screens.
+    checkpoints = sum(1 for e in session.events if e.kind == "tool" and pat._checkpoint(e))
+    can_see_progress = checkpoints / calls >= pat.MIN_CHECKPOINT_DENSITY
+
     # --- the agent ran a long way with nothing to show
-    spins = [
-        (n, secs)
-        for n, secs in pat._runs_with_nothing_to_show(session)
-        if n >= NOTABLE_SPIN_CALLS and secs >= NOTABLE_SPIN_SECONDS
-    ]
+    spins = (
+        [
+            (n, secs)
+            for n, secs in pat._runs_with_nothing_to_show(session)
+            if n >= NOTABLE_SPIN_CALLS and secs >= NOTABLE_SPIN_SECONDS
+        ]
+        if can_see_progress
+        else []
+    )
     if spins:
         worst_calls, worst_secs = max(spins)
         lost = sum(s for _, s in spins)
@@ -120,6 +140,43 @@ def notes(session) -> list[Note]:
 
     out.sort(key=lambda n: -n.seconds)
     return out
+
+
+def wire(session) -> list[dict] | None:
+    """The uploadable form of `notes`: an id, seconds and a count. NOTHING ELSE.
+
+    THE TWO THINGS DROPPED HERE ARE DROPPED ON PURPOSE, and both are in the local note:
+
+      * the failing COMMAND. On this machine the note says "4 failures in a row on
+        `bun test`". Terminal commands are on privacy/upload-contract.json's never-list
+        and stay there.
+      * the FILE NAME. The local note names the file rewritten five times. `analysis` may
+        name files because it is opt-in and bounded; this field is neither.
+
+    The SENTENCE is not sent either — the client writes it from the id — so a reworded
+    note is a client change and not a re-upload of everybody's history.
+
+    None, never `[]`: a sitting with nothing worth saying and a sitting the parser could
+    not read must not look the same on the card, and only one of them has a row.
+    """
+    out = [
+        {"id": n.id, "seconds": int(round(n.seconds)), "count": _count(n)} for n in notes(session)
+    ]
+    return out or None
+
+
+def _count(n: Note) -> int:
+    """The one integer that makes each note mean something, by note.
+
+    Read off `numbers` by name rather than positionally: the three notes count three
+    different things, and a shared "count" that meant stretches in one and failures in
+    another would be a plausible wrong number on the card with no error anywhere.
+    """
+    if n.id == "went_nowhere":
+        return int(n.numbers["runs"])
+    if n.id == "failed_in_a_row":
+        return int(n.numbers["failures"])
+    return int(n.numbers["writes"])
 
 
 def _worst_failure_run(session) -> tuple[int, float, str]:
@@ -187,4 +244,5 @@ __all__ = [
     "NOTABLE_SPIN_SECONDS",
     "Note",
     "notes",
+    "wire",
 ]

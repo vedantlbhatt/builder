@@ -15,7 +15,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 # an undeclared top-level field here.
 from .analysis_spec import SessionAnalysis
 
-CONTRACT_VERSION = 2
+CONTRACT_VERSION = 3
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 Sha256Hex = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
@@ -40,6 +40,7 @@ PUBLIC_FIELDS = [
     "content_hash",
     "end_reason",
     "ended_at",
+    "feedback",
     "files_created",
     "files_touched",
     "harness",
@@ -98,6 +99,7 @@ ANONYMOUS_FIELDS = [
     "content_hash",
     "end_reason",
     "ended_at",
+    "feedback",
     "files_created",
     "files_touched",
     "harness",
@@ -174,6 +176,27 @@ class ModelShareWire(BaseModel):
     output_token_share: float
 
 
+#: The three notes analysis/feedback.py can produce. From the contract's own `values`, so
+#: a fourth note is a contract change and a fourth renderer on the client, in that order.
+FEEDBACK_NOTE_IDS: list[str] = ["went_nowhere", "failed_in_a_row", "one_file_over_and_over"]
+
+
+class FeedbackNoteWire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    #: One of FEEDBACK_NOTE_IDS. Checked here rather than only rendered, because an id
+    #: the client cannot render is a blank row on the card and no error anywhere.
+    id: str
+    seconds: int
+    count: int
+
+    @field_validator("id")
+    @classmethod
+    def _known_note(cls, v):
+        if v not in FEEDBACK_NOTE_IDS:
+            raise ValueError(f"id={v!r} is not one of {FEEDBACK_NOTE_IDS!r}")
+        return v
+
+
 class SessionUpload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -232,6 +255,7 @@ class SessionUpload(BaseModel):
     title_source: str | None = None
     card_png_url: str | None = None
     analysis: SessionAnalysis | None = None
+    feedback: list[FeedbackNoteWire] | None = None
 
     @field_validator("harness", "time_quality", "state", "end_reason", "timeline_fidelity", "prompt_count_basis", "agent_line_bucket", "attrib_confidence", "token_dedupe", "token_scope", "token_coverage", "model_state", "repo_id_basis", "title_source")
     @classmethod

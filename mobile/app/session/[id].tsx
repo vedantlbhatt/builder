@@ -15,6 +15,7 @@ import {
 
 import { AnalysisView } from '../../src/analysis/AnalysisView';
 import { describeEnd } from '../../src/analysis/format';
+import { heading, renderable } from '../../src/session/feedback';
 import { RecapCard, toCardModel, type CardModel } from '../../src/card/RecapCard';
 import { shareCard } from '../../src/card/export';
 import {
@@ -160,6 +161,10 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
   const state = session.state ?? 'final';
   const hasSplit = session.attended_seconds !== undefined || session.autonomous_seconds !== undefined;
   const endNote = describeEnd(session);
+  // Only the notes THIS build can render. An id it does not know renders nothing rather
+  // than "went_nowhere: 3", which reads as a bug and says less than silence.
+  const notes = renderable(session.feedback);
+  const noteHeading = heading(notes);
 
   /** A post landed, from either sheet: remember it, then show it. */
   const landed = (p: FeedItem, thenOpen: boolean) => {
@@ -382,6 +387,28 @@ function SessionScreenInner({ id, recap }: { id: string; recap?: string }) {
           </Text>
         )}
       </Section>
+
+      {/* WHERE THE TIME WENT THAT YOU WOULD NOT HAVE CHOSEN. Above the analysis on
+          purpose: the analysis is a reading of the session, and this is a measurement of
+          it. Silent when the sitting had nothing worth saying, which is most of them —
+          MEASURED on this container, 5 of 17. A card that flags something every session
+          is a card people stop reading. */}
+      {notes.length > 0 && (
+        <Section title={noteHeading ?? 'Worth a look'}>
+          {notes.map((n) => (
+            <Text
+              key={n.id}
+              style={{ color: c.text, fontSize: 14, lineHeight: 21, paddingVertical: 5 }}
+            >
+              {n.text}
+            </Text>
+          ))}
+          <Text style={{ color: c.textDim, fontSize: 11, marginTop: space.sm }}>
+            Measured on your machine. The command that kept failing and the file that was
+            rewritten stay there; only the counts travel.
+          </Text>
+        </Section>
+      )}
 
       {session.analysis ? (
         <AnalysisView analysis={session.analysis} />

@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { BuilderNarrative } from '../generated/narrative';
 import type { BuilderReport } from '../generated/report';
+import type { FeedbackNoteWire } from '../generated/contract';
 import type { Archetype, Dimension, SessionAnalysis } from '../generated/analysis';
 
 /**
@@ -108,6 +109,17 @@ export interface SessionDetail {
    * a checkpoint analysis.
    */
   analysis?: SessionAnalysis | null;
+  /**
+   * What this sitting cost that you would not have chosen: at most three notes, each an
+   * id and two integers (contract v3). The SENTENCE is written here, on the client, from
+   * the id — see `src/session/feedback.ts` — so nothing about the wording is on the wire,
+   * and neither is the failing command or the file name the local note carries.
+   *
+   * Null means the sitting had nothing worth saying, or the client that uploaded it does
+   * not compute feedback; both render as no notes. Undefined means a server older than
+   * 0019 that does not know the key.
+   */
+  feedback?: FeedbackNoteWire[] | null;
   updated_at?: string;
 }
 

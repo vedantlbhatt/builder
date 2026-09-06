@@ -65,6 +65,7 @@ public enum UploadField: String, CodingKey, CaseIterable, Sendable {
     case title_source  // String?
     case card_png_url  // String?
     case analysis  // SessionAnalysis?
+    case feedback  // [FeedbackNoteWire]?
 }
 
 /// Per-repo visibility. `excluded` is deliberately not a mode: an excluded repo produces
@@ -83,7 +84,7 @@ public enum PrivacyMode: String, Sendable, CaseIterable {
 }
 
 public enum UploadContract {
-    public static let version = 2
+    public static let version = 3
 
     public static let publicFields: Set<UploadField> = [
         .client_session_id,
@@ -141,6 +142,7 @@ public enum UploadContract {
         .title_source,
         .card_png_url,
         .analysis,
+        .feedback,
     ]
 
     public static let anonymousFields: Set<UploadField> = [
@@ -196,6 +198,7 @@ public enum UploadContract {
         .repo_id_basis,
         .card_png_url,
         .analysis,
+        .feedback,
     ]
 
     /// Legal values for every enum-typed field, so a typo becomes a test failure here
@@ -260,5 +263,21 @@ public struct ModelShareWire: Codable, Sendable, Equatable {
 
     public init(modelID: String, outputTokenShare: Double) {
         self.modelID = modelID; self.outputTokenShare = outputTokenShare
+    }
+}
+
+/// One thing this sitting cost that the person would not have chosen.
+///
+/// An id and two integers. The SENTENCE is written on the client from the id, so the wire
+/// carries no wording, and — unlike the note the same module prints on the machine — no
+/// failing command and no file name. Both are on the never-list in the contract and both
+/// stay there.
+public struct FeedbackNoteWire: Codable, Sendable, Equatable {
+    public let id: String
+    public let seconds: Int
+    public let count: Int
+
+    public init(id: String, seconds: Int, count: Int) {
+        self.id = id; self.seconds = seconds; self.count = count
     }
 }

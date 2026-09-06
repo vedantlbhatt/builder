@@ -37,6 +37,7 @@ SWIFT_TYPES = {
     "toolmap": "[String: Int]",
     "tokens": "TokenBucketsWire",
     "models": "[ModelShareWire]",
+    "feedback": "[FeedbackNoteWire]",
     "url": "String",
     # Lives in BuilderModel/Generated/AnalysisSpec.swift (gen_analysis.py), hence the
     # `import BuilderModel` in the generated Swift below.
@@ -58,6 +59,7 @@ PY_TYPES = {
     "toolmap": "dict[str, int]",
     "tokens": "TokenBucketsWire",
     "models": "list[ModelShareWire]",
+    "feedback": "list[FeedbackNoteWire]",
     "url": "str",
     "analysis": "SessionAnalysis",
 }
@@ -73,6 +75,7 @@ TS_TYPES = {
     "toolmap": "Record<string, number>",
     "tokens": "TokenBucketsWire",
     "models": "ModelShareWire[]",
+    "feedback": "FeedbackNoteWire[]",
     "url": "string",
     "analysis": "SessionAnalysis",
 }
@@ -200,12 +203,34 @@ public struct ModelShareWire: Codable, Sendable, Equatable {{
         self.modelID = modelID; self.outputTokenShare = outputTokenShare
     }}
 }}
+
+/// One thing this sitting cost that the person would not have chosen.
+///
+/// An id and two integers. The SENTENCE is written on the client from the id, so the wire
+/// carries no wording, and — unlike the note the same module prints on the machine — no
+/// failing command and no file name. Both are on the never-list in the contract and both
+/// stay there.
+public struct FeedbackNoteWire: Codable, Sendable, Equatable {{
+    public let id: String
+    public let seconds: Int
+    public let count: Int
+
+    public init(id: String, seconds: Int, count: Int) {{
+        self.id = id; self.seconds = seconds; self.count = count
+    }}
+}}
 """
 
 
 # -------------------------------------------------------------------------- python
+def note_ids(c: dict) -> list[str]:
+    """The feedback note ids, from the contract's own `values`. One definition."""
+    return next(f["values"] for f in fields(c) if f["type"] == "feedback")
+
+
 def gen_py(c: dict) -> str:
     fs = fields(c)
+    feedback_ids = json.dumps(note_ids(c))
     lines = []
     for f in fs:
         t = PY_TYPES[f["type"]]
@@ -289,6 +314,27 @@ class ModelShareWire(BaseModel):
     output_token_share: float
 
 
+#: The three notes analysis/feedback.py can produce. From the contract's own `values`, so
+#: a fourth note is a contract change and a fourth renderer on the client, in that order.
+FEEDBACK_NOTE_IDS: list[str] = {feedback_ids}
+
+
+class FeedbackNoteWire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    #: One of FEEDBACK_NOTE_IDS. Checked here rather than only rendered, because an id
+    #: the client cannot render is a blank row on the card and no error anywhere.
+    id: str
+    seconds: int
+    count: int
+
+    @field_validator("id")
+    @classmethod
+    def _known_note(cls, v):
+        if v not in FEEDBACK_NOTE_IDS:
+            raise ValueError(f"id={{v!r}} is not one of {{FEEDBACK_NOTE_IDS!r}}")
+        return v
+
+
 class SessionUpload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -327,6 +373,8 @@ export interface TokenBucketsWire {{
   cache_read: number; cache_w5m: number; cache_w1h: number;
 }}
 export interface ModelShareWire {{ model_id: string; output_token_share: number; }}
+/** An id and two integers. The sentence is written on the phone; see src/session/feedback.ts. */
+export interface FeedbackNoteWire {{ id: string; seconds: number; count: number; }}
 
 /** The complete set of fields the phone can ever receive for a session. */
 export interface SessionWire {{
@@ -522,6 +570,7 @@ def main() -> None:
         "tokens": ["input", "output", "cache_read", "cache_w5m", "cache_w1h"],
         "strip_marks": ["ms", "k"],
         "models": ["model_id", "output_token_share"],
+        "feedback": ["id", "seconds", "count"],
         "tool_calls": ["<allowlisted tool name>"],
     }
     leaves: list[str] = []

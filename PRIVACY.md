@@ -21,7 +21,7 @@ the only field in the table that carries prose, and it is off unless you turn it
 
 ## What does leave, if you sign in
 
-Every field, in full. `2` is the contract version.
+Every field, in full. `3` is the contract version.
 
 | Field | Type | Sent for | What it is |
 |---|---|---|---|
@@ -80,6 +80,7 @@ Every field, in full. `2` is the contract version.
 | `title_source` | enum | **public repos only** |  |
 | `card_png_url` | url | public + anonymous | populated ONLY when you tap Share. The image you chose to publish; contains no field not listed above |
 | `analysis` | analysis | public + anonymous | model-written reading of the session, produced on the user's machine by their own Claude Code from a digest of the transcript (spec/analysis.v1.json). Present only when analysis upload is enabled. Private to the account under RLS; leaves it only when the session is shared. This is the ONE field that carries prose derived from prompts and code, and it is opt-in for exactly that reason. |
+| `feedback` | feedback | public + anonymous | what this one sitting cost that you would not have chosen: [{id, seconds, count}] where id is one of three fixed notes. Numbers only — no command, no file name, no prose. Computed on the machine (analysis/feedback.py); the sentence is rendered on the phone. Null, never [], when the sitting had nothing worth saying |
 
 ## Per-repository control
 

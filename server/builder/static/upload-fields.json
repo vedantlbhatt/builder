@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "fields": [
     "abandoned_branch_tokens",
     "active_calc_version",
@@ -20,6 +20,7 @@
     "content_hash",
     "end_reason",
     "ended_at",
+    "feedback",
     "files_created",
     "files_touched",
     "harness",
@@ -107,6 +108,9 @@
     "content_hash",
     "end_reason",
     "ended_at",
+    "feedback.count",
+    "feedback.id",
+    "feedback.seconds",
     "files_created",
     "files_touched",
     "harness",

@@ -386,13 +386,15 @@ def _upsert_stats(db, session_id, p: SessionUpload):
               token_dedupe, token_scope, token_coverage, models, model_state, tool_calls,
               human_prompt_count, prompt_count_basis, files_touched, files_created,
               lines_added_agent, lines_removed_agent, commit_count, commit_insertions,
-              commit_deletions, human_edit_events, agent_line_bucket, attrib_confidence
+              commit_deletions, human_edit_events, agent_line_bucket, attrib_confidence,
+              feedback
             ) VALUES (
               :sid, :reported, :tin, :tout, :tcr, :tw5, :tw1, :abandoned,
               :dedupe, :scope, :coverage, CAST(:models AS jsonb), :model_state,
               CAST(:tools AS jsonb),
               :prompts, :basis, :files, :created, :added, :removed,
-              :commits, :ins, :del, :human_edits, :bucket, :confidence
+              :commits, :ins, :del, :human_edits, :bucket, :confidence,
+              CAST(:feedback AS jsonb)
             )
             ON CONFLICT (session_id) DO UPDATE SET
               tokens_reported = EXCLUDED.tokens_reported,
@@ -413,7 +415,12 @@ def _upsert_stats(db, session_id, p: SessionUpload):
               commit_deletions = EXCLUDED.commit_deletions,
               human_edit_events = EXCLUDED.human_edit_events,
               agent_line_bucket = EXCLUDED.agent_line_bucket,
-              attrib_confidence = EXCLUDED.attrib_confidence
+              attrib_confidence = EXCLUDED.attrib_confidence,
+              -- COALESCE, not EXCLUDED, exactly as `analysis` is handled. A client that
+              -- does not compute feedback sends nothing, and nothing must not mean
+              -- "delete what another client measured". A final session's events do not
+              -- change, so a stored note is still true.
+              feedback = COALESCE(EXCLUDED.feedback, session_stats.feedback)
             """
         ),
         {
@@ -443,6 +450,7 @@ def _upsert_stats(db, session_id, p: SessionUpload):
             "human_edits": p.human_edit_events,
             "bucket": p.agent_line_bucket,
             "confidence": p.attrib_confidence,
+            "feedback": (json.dumps([n.model_dump() for n in p.feedback]) if p.feedback else None),
         },
     )
 

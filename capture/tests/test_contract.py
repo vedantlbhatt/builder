@@ -29,12 +29,13 @@ FIX = ROOT / "spec" / "fixtures" / "boundaries"
 TZ = zoneinfo.ZoneInfo("America/New_York")
 SHA = re.compile(r"^[0-9a-f]{64}$")
 
-#: The insides of the three structured field types, as `server/builder/contract.py`
-#: declares them (TokenBucketsWire, StripMarkWire, ModelShareWire).
+#: The insides of the four structured field types, as `server/builder/contract.py`
+#: declares them (TokenBucketsWire, StripMarkWire, ModelShareWire, FeedbackNoteWire).
 NESTED = {
     "tokens": {"input", "output", "cache_read", "cache_w5m", "cache_w1h"},
     "marks": {"ms", "k"},
     "models": {"model_id", "output_token_share"},
+    "feedback": {"id", "seconds", "count"},
 }
 
 
@@ -54,8 +55,8 @@ class ContractConformance(unittest.TestCase):
         cls.payloads = _all_payloads()
         assert cls.payloads
 
-    def test_contract_is_v2(self):
-        self.assertEqual(CONTRACT["version"], 2)
+    def test_contract_is_v3(self):
+        self.assertEqual(CONTRACT["version"], 3)
 
     def test_every_key_is_declared_nested_fields_included(self):
         for p in self.payloads:
@@ -73,6 +74,10 @@ class ContractConformance(unittest.TestCase):
                         self.assertEqual(set(m) - NESTED["models"], set())
                 elif typ == "analysis" and value is not None:
                     self.assertEqual(set(value) - set(ANALYSIS_SCHEMA["properties"]), set())
+                elif typ == "feedback" and value is not None:
+                    for n in value:
+                        self.assertEqual(set(n) - NESTED["feedback"], set())
+                        self.assertIn(n["id"], FIELDS["feedback"]["values"])
                 elif typ in ("toolmap",):
                     self.assertTrue(all(isinstance(v, int) for v in value.values()))
                 else:

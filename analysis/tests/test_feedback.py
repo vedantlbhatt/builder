@@ -10,6 +10,8 @@ something every session is a card people stop reading.
 from __future__ import annotations
 
 import datetime as dt
+import json
+import pathlib
 import unittest
 
 from analysis import feedback as fb
@@ -47,23 +49,43 @@ def by(notes, nid):
     return next((x for x in notes if x.id == nid), None)
 
 
+def checkpoints(count, *, start=T0, n0=900):
+    """Edits, so the sitting can be shown to contain progress this parser CAN see.
+
+    Every spin case below needs these. A sitting with no write, test or commit anywhere in
+    it is refused outright (`MIN_CHECKPOINT_DENSITY`), because the gaps in it measure what
+    the parser could see rather than what the person did — and a test built out of pure
+    busywork would otherwise pass on the refusal rather than on the bar it names, which is
+    the negative test that passes for the wrong reason.
+    """
+    return [
+        ev(n0 + i, start + i, "tool", "", tool="Edit", added=3, path=f"/repo/seen{i}.py")
+        for i in range(count)
+    ]
+
+
+def seen(events, *, n=6):
+    """`events` preceded by enough checkpoints to clear the density floor."""
+    return checkpoints(n, start=events[0].ts - n - 1) + events
+
+
 class TheBar(unittest.TestCase):
     def test_a_short_sitting_says_nothing(self):
         self.assertEqual(fb.notes(sess(busywork(10))), [])
 
     def test_a_long_run_that_also_cost_real_time_is_worth_a_line(self):
-        got = by(fb.notes(sess(busywork(50, seconds_each=30))), "went_nowhere")
+        got = by(fb.notes(sess(seen(busywork(50, seconds_each=30)))), "went_nowhere")
         self.assertIsNotNone(got)
         self.assertIn("50 tool calls", got.text)
 
     def test_forty_fast_greps_are_not_a_problem(self):
         """Calls alone are not the cost. A stretch that took ninety seconds is not
         something anybody would have interrupted."""
-        self.assertEqual(fb.notes(sess(busywork(50, seconds_each=2))), [])
+        self.assertEqual(fb.notes(sess(seen(busywork(50, seconds_each=2)))), [])
 
     def test_a_long_slow_stretch_under_the_call_bar_is_left_alone(self):
         # 30 calls over an hour: slow, but not the agent going nowhere.
-        self.assertEqual(fb.notes(sess(busywork(30, seconds_each=120))), [])
+        self.assertEqual(fb.notes(sess(seen(busywork(30, seconds_each=120)))), [])
 
     def test_the_session_bar_is_higher_than_the_profile_bar(self):
         """The profile is looking for a habit across sittings and can afford to notice a
@@ -83,7 +105,7 @@ class Notes(unittest.TestCase):
         events = busywork(50, start=T0, n0=0)
         events += [ev(100, T0 + 1600, "tool", "", tool="Edit", added=3, path="/a.py")]
         events += busywork(45, start=T0 + 2000, n0=101)
-        got = by(fb.notes(sess(events)), "went_nowhere")
+        got = by(fb.notes(sess(seen(events))), "went_nowhere")
         self.assertEqual(got.numbers["runs"], 2)
         self.assertIn("in total", got.text)
 
@@ -177,6 +199,118 @@ class Wording(unittest.TestCase):
         self.assertEqual(fb._mins(60), "1 minute")
         self.assertEqual(fb._mins(600), "10 minutes")
         self.assertEqual(fb._mins(3900), "1h 05m")
+
+
+class TheParsersBlindSpot(unittest.TestCase):
+    """A sitting where no progress is VISIBLE cannot be called a sitting with no progress.
+
+    FOUND BY RUNNING IT, the first time a payload was built: 38 of the 45 boundary
+    fixtures came back "the agent ran a long way with nothing to show", one of them for 22
+    hours. Those fixtures contain no write, test or commit at all — and a real harness
+    whose transcripts hide file writes (an edit made by a script the agent wrote is a Bash
+    call with no line count anywhere in it) produces exactly the same shape. That card
+    would be a statement about the parser printed as a statement about the person, on the
+    screen people read most.
+    """
+
+    def test_a_sitting_with_no_visible_progress_says_nothing_about_spinning(self):
+        self.assertEqual(fb.notes(sess(busywork(80, seconds_each=60))), [])
+
+    def test_the_same_sitting_with_progress_in_it_does(self):
+        got = by(fb.notes(sess(seen(busywork(80, seconds_each=60)))), "went_nowhere")
+        self.assertIsNotNone(got)
+
+    def test_the_bar_is_the_profiles_bar_and_not_a_second_number(self):
+        """Two thresholds for one question would disagree about one session on two
+        screens."""
+        self.assertEqual(pt.MIN_CHECKPOINT_DENSITY, 1 / 20)
+
+    def test_the_other_notes_do_not_need_progress_to_be_visible(self):
+        """The guard is about STRETCHES BETWEEN checkpoints and nothing else. Failures and
+        rewrites are counted from events that are there, so refusing them on a parser
+        blind spot would be a second bug rather than a fix for the first."""
+        events = busywork(20)
+        t = T0 + 1000
+        for i in range(6):
+            events.append(ev(100 + i * 2, t, "tool", "make test", tool="Bash"))
+            events.append(ev(101 + i * 2, t + 5, "result_error", "boom"))
+            t += 60
+        self.assertIsNotNone(by(fb.notes(sess(events)), "failed_in_a_row"))
+
+
+class TheWire(unittest.TestCase):
+    """What travels, and the two things that deliberately do not.
+
+    The local note names the failing COMMAND and the FILE that was rewritten. Both are on
+    privacy/upload-contract.json's never-list, and this is the function that has to keep
+    them off the wire — the server cannot check for them, because to the server they would
+    just be a string that validated.
+    """
+
+    def failing_session(self):
+        events = busywork(20)
+        t = T0 + 1000
+        for i in range(6):
+            events.append(ev(100 + i * 2, t, "tool", "bun test --coverage", tool="Bash"))
+            events.append(ev(101 + i * 2, t + 5, "result_error", "boom"))
+            t += 60
+        return sess(events)
+
+    def rewriting_session(self):
+        events = busywork(20)
+        for i in range(6):
+            events.append(
+                ev(200 + i, T0 + 2000 + i * 120, "tool", "", tool="Write",
+                   added=40, path="/repo/mobile/src/components/Map.js")
+            )
+        return sess(events)
+
+    def test_the_failing_command_stays_on_the_machine(self):
+        s = self.failing_session()
+        self.assertIn("bun test", by(fb.notes(s), "failed_in_a_row").text)
+        self.assertNotIn("bun test", json.dumps(fb.wire(s)))
+
+    def test_the_file_name_stays_on_the_machine(self):
+        s = self.rewriting_session()
+        self.assertIn("Map.js", by(fb.notes(s), "one_file_over_and_over").text)
+        self.assertNotIn("Map.js", json.dumps(fb.wire(s)))
+
+    def test_the_sentence_itself_does_not_travel(self):
+        """The client writes it from the id, so rewording a note is a client release and
+        not a re-upload of everybody's history."""
+        for note in fb.wire(self.failing_session()):
+            self.assertEqual(set(note), {"id", "seconds", "count"})
+
+    def test_every_id_on_the_wire_is_one_the_contract_declares(self):
+        contract = json.loads(
+            (pathlib.Path(__file__).resolve().parents[2] / "privacy/upload-contract.json").read_text()
+        )
+        declared = next(f for f in contract["fields"] if f["name"] == "feedback")["values"]
+        for s in (self.failing_session(), self.rewriting_session()):
+            for note in fb.wire(s):
+                self.assertIn(note["id"], declared)
+
+    def test_the_count_means_the_right_thing_per_note(self):
+        """Three notes count three different things. A shared "count" that meant stretches
+        in one and failures in another is a plausible wrong number on the card."""
+        failed = fb.wire(self.failing_session())[0]
+        self.assertEqual(failed["id"], "failed_in_a_row")
+        self.assertEqual(failed["count"], 6)
+
+        rewrote = fb.wire(self.rewriting_session())[0]
+        self.assertEqual(rewrote["id"], "one_file_over_and_over")
+        self.assertEqual(rewrote["count"], 6)
+
+    def test_nothing_worth_saying_is_none_and_not_an_empty_list(self):
+        """A sitting with nothing to say and a sitting the client could not read must not
+        look the same, and only one of them gets a key on the wire."""
+        self.assertIsNone(fb.wire(sess(busywork(10))))
+
+    def test_seconds_are_whole_numbers(self):
+        """`FeedbackNoteWire.seconds` is an int at the door; a float here is a 422 on a
+        real upload."""
+        for note in fb.wire(self.failing_session()):
+            self.assertIsInstance(note["seconds"], int)
 
 
 if __name__ == "__main__":

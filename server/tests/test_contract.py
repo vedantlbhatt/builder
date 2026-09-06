@@ -252,10 +252,11 @@ def test_every_contract_harness_exists_in_the_postgres_enum():
     assert not missing, f"harness values with no migration: {missing}"
 
 
-def test_contract_v2_boundary_fields_and_enums():
-    """v2: live snapshots and the two clocks. The server's cache-schema names (open, idle,
-    finalizing) are not wire states — only what the Mac actually uploads is legal."""
-    assert CONTRACT_VERSION == 2
+def test_contract_v3_boundary_fields_and_enums():
+    """v2 added live snapshots and the two clocks; v3 added `feedback`. The server's
+    cache-schema names (open, idle, finalizing) are not wire states — only what the Mac
+    actually uploads is legal."""
+    assert CONTRACT_VERSION == 3
     assert sorted(ENUM_VALUES["state"]) == ["final", "live"]
     assert sorted(ENUM_VALUES["end_reason"]) == [
         "cleared",

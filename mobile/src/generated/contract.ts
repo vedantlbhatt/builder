@@ -2,7 +2,7 @@
 
 import type { SessionAnalysis } from './analysis';
 
-export const CONTRACT_VERSION = 2;
+export const CONTRACT_VERSION = 3;
 
 export interface StripMarkWire { ms: number; k: number; }
 export interface TokenBucketsWire {
@@ -10,6 +10,8 @@ export interface TokenBucketsWire {
   cache_read: number; cache_w5m: number; cache_w1h: number;
 }
 export interface ModelShareWire { model_id: string; output_token_share: number; }
+/** An id and two integers. The sentence is written on the phone; see src/session/feedback.ts. */
+export interface FeedbackNoteWire { id: string; seconds: number; count: number; }
 
 /** The complete set of fields the phone can ever receive for a session. */
 export interface SessionWire {
@@ -104,7 +106,9 @@ export interface SessionWire {
   card_png_url?: string | null;
   /** model-written reading of the session, produced on the user's machine by their own Claude Code from a digest of the transcript (spec/analysis.v1.json). Present only when analysis upload is enabled. Private to the account under RLS; leaves it only when the session is shared. This is the ONE field that carries prose derived from prompts and code, and it is opt-in for exactly that reason. */
   analysis?: SessionAnalysis | null;
+  /** what this one sitting cost that you would not have chosen: [{id, seconds, count}] where id is one of three fixed notes. Numbers only — no command, no file name, no prose. Computed on the machine (analysis/feedback.py); the sentence is rendered on the phone. Null, never [], when the sitting had nothing worth saying */
+  feedback?: FeedbackNoteWire[] | null;
 }
 
-export const PUBLIC_FIELDS = ["abandoned_branch_tokens", "active_calc_version", "active_seconds", "agent_line_bucket", "agent_observed_at", "analysis", "attended_seconds", "attrib_confidence", "autonomous_seconds", "card_png_url", "client_clock_offset_ms", "client_session_id", "client_version", "commit_count", "commit_deletions", "commit_insertions", "content_hash", "end_reason", "ended_at", "files_created", "files_touched", "harness", "human_edit_events", "human_prompt_count", "idle_seconds", "lines_added_agent", "lines_removed_agent", "machine_id", "model_state", "models", "notable", "presence_count", "prompt_count_basis", "repo_hash", "repo_id_basis", "repo_name", "repo_pepper_version", "sessionizer_version", "started_at", "state", "strip_columns", "strip_marks", "time_quality", "timeline_fidelity", "title", "title_source", "token_coverage", "token_dedupe", "token_scope", "tokens", "tokens_reported", "tool_calls", "tz_offset_minutes", "unattended", "visible"] as const;
-export const ANONYMOUS_FIELDS = ["abandoned_branch_tokens", "active_calc_version", "active_seconds", "agent_line_bucket", "agent_observed_at", "analysis", "attended_seconds", "attrib_confidence", "autonomous_seconds", "card_png_url", "client_clock_offset_ms", "client_session_id", "client_version", "commit_count", "commit_deletions", "commit_insertions", "content_hash", "end_reason", "ended_at", "files_created", "files_touched", "harness", "human_edit_events", "human_prompt_count", "idle_seconds", "lines_added_agent", "lines_removed_agent", "machine_id", "model_state", "models", "notable", "presence_count", "prompt_count_basis", "repo_hash", "repo_id_basis", "repo_pepper_version", "sessionizer_version", "started_at", "state", "strip_columns", "strip_marks", "time_quality", "timeline_fidelity", "token_coverage", "token_dedupe", "token_scope", "tokens", "tokens_reported", "tool_calls", "tz_offset_minutes", "unattended", "visible"] as const;
+export const PUBLIC_FIELDS = ["abandoned_branch_tokens", "active_calc_version", "active_seconds", "agent_line_bucket", "agent_observed_at", "analysis", "attended_seconds", "attrib_confidence", "autonomous_seconds", "card_png_url", "client_clock_offset_ms", "client_session_id", "client_version", "commit_count", "commit_deletions", "commit_insertions", "content_hash", "end_reason", "ended_at", "feedback", "files_created", "files_touched", "harness", "human_edit_events", "human_prompt_count", "idle_seconds", "lines_added_agent", "lines_removed_agent", "machine_id", "model_state", "models", "notable", "presence_count", "prompt_count_basis", "repo_hash", "repo_id_basis", "repo_name", "repo_pepper_version", "sessionizer_version", "started_at", "state", "strip_columns", "strip_marks", "time_quality", "timeline_fidelity", "title", "title_source", "token_coverage", "token_dedupe", "token_scope", "tokens", "tokens_reported", "tool_calls", "tz_offset_minutes", "unattended", "visible"] as const;
+export const ANONYMOUS_FIELDS = ["abandoned_branch_tokens", "active_calc_version", "active_seconds", "agent_line_bucket", "agent_observed_at", "analysis", "attended_seconds", "attrib_confidence", "autonomous_seconds", "card_png_url", "client_clock_offset_ms", "client_session_id", "client_version", "commit_count", "commit_deletions", "commit_insertions", "content_hash", "end_reason", "ended_at", "feedback", "files_created", "files_touched", "harness", "human_edit_events", "human_prompt_count", "idle_seconds", "lines_added_agent", "lines_removed_agent", "machine_id", "model_state", "models", "notable", "presence_count", "prompt_count_basis", "repo_hash", "repo_id_basis", "repo_pepper_version", "sessionizer_version", "started_at", "state", "strip_columns", "strip_marks", "time_quality", "timeline_fidelity", "token_coverage", "token_dedupe", "token_scope", "tokens", "tokens_reported", "tool_calls", "tz_offset_minutes", "unattended", "visible"] as const;

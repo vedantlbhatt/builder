@@ -159,6 +159,34 @@ percentage (`0.44` said as `44%`). Both deleted **correct** sentences.
 
 ---
 
+## 2b. The session's feedback reaches the card (contract v3)
+
+The profile's report is one document a person pulls. The session's feedback is the other
+half of the answer and it rides with the session itself, as `feedback` — the second field
+added to `privacy/upload-contract.json` since v2, and the most conservative one on the
+wire:
+
+```json
+[{"id": "went_nowhere", "seconds": 1217, "count": 1}]
+```
+
+**No prose, no command, no file name.** The note printed on your own machine says *"7
+failures in a row on `bun test`"* and *"`Map.js` was rewritten 6 times"*. Terminal commands
+and file names are on the never-list, so what travels is the id and two integers, and the
+SENTENCE is written on the phone from the id. Rewording a note is a client release rather
+than a re-upload of everybody's history.
+
+**"Nothing happened" is a claim about the parser until proven otherwise.** The spin note
+was written without the checkpoint-density guard `patterns.py` already had. The first
+payload built with it carried the note on 38 of 45 boundary fixtures, one for 22 hours —
+those fixtures contain no write, test or commit at all, and a real harness whose
+transcripts hide file writes looks identical. The guard is now shared, not duplicated.
+
+MEASURED on this container: **5 of 17** sittings had anything worth saying. A card that
+flags something every session is a card people stop reading.
+
+---
+
 ## 3. How it reaches the phone
 
 Everything above was, for a while, a set of commands that printed to a terminal. A

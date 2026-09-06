@@ -223,6 +223,73 @@ def test_live_snapshot_is_replaced_in_place_by_the_final(client, paired):
     assert _upload(client, headers, final)["unchanged"] == 1
 
 
+SAMPLE_FEEDBACK = [
+    {"id": "went_nowhere", "seconds": 1217, "count": 1},
+    {"id": "failed_in_a_row", "seconds": 64, "count": 7},
+]
+
+
+def test_feedback_round_trips_and_is_not_wiped_by_a_client_that_does_not_compute_it(client, paired):
+    """Contract v3. The card's notes: an id and two integers, no prose on the wire.
+
+    The retraction half is the point. The Mac does not compute feedback, so a resync from
+    it carries none — and "none" must not mean "delete what another client measured".
+    Same rule `analysis` follows, for the same reason, and the only way to see it is to
+    upload without it and read back.
+    """
+    uid, headers = paired
+    csid = uuid.uuid4().hex * 2
+
+    assert (
+        _upload(client, headers, _payload(client_session_id=csid, feedback=SAMPLE_FEEDBACK))[
+            "accepted"
+        ]
+        == 1
+    )
+    sid = _owner_rows(uid)[0].id
+    assert client.get(f"/v1/sessions/{sid}", headers=headers).json()["feedback"] == SAMPLE_FEEDBACK
+
+    # A payload with no feedback at all leaves the stored notes alone.
+    # The same sitting, from a client that computes no feedback. Only `content_hash`
+    # differs, which is exactly what a Mac resync of an already-uploaded session looks
+    # like.
+    r = _upload(client, headers, _payload(client_session_id=csid))
+    assert r["accepted"] == 1, r
+    assert client.get(f"/v1/sessions/{sid}", headers=headers).json()["feedback"] == SAMPLE_FEEDBACK
+
+
+def test_a_sitting_with_nothing_worth_saying_reads_back_as_null_not_an_empty_list(client, paired):
+    """Null and [] are the same thing on this card and must not be two things in the
+    client. The key is always present, so an older server is still distinguishable."""
+    uid, headers = paired
+    assert _upload(client, headers, _payload())["accepted"] == 1
+    sid = _owner_rows(uid)[0].id
+    body = client.get(f"/v1/sessions/{sid}", headers=headers).json()
+    assert "feedback" in body and body["feedback"] is None
+
+
+def test_a_feedback_note_the_contract_does_not_declare_is_refused(client, paired):
+    """`FeedbackNoteWire` checks the id at the door. An id the client cannot render is a
+    blank row on the card and no error anywhere."""
+    _, headers = paired
+    # Built as a dict rather than through `_payload`, which validates on the way out and
+    # would raise here instead of letting the ROUTE refuse it.
+    bad = _payload()
+    bad["feedback"] = [{"id": "burned_tokens", "seconds": 10, "count": 1}]
+    r = client.post("/v1/sync/sessions:batch", json={"sessions": [bad]}, headers=headers)
+    assert r.status_code == 422, r.text
+
+
+def test_a_feedback_note_carrying_prose_is_refused(client, paired):
+    """extra='forbid'. The sentence is written on the client; a `text` field arriving here
+    would be the wire growing prose nobody declared."""
+    _, headers = paired
+    bad = _payload()
+    bad["feedback"] = [{"id": "went_nowhere", "seconds": 10, "count": 1, "text": "you spun"}]
+    r = client.post("/v1/sync/sessions:batch", json={"sessions": [bad]}, headers=headers)
+    assert r.status_code == 422, r.text
+
+
 def test_analysis_upserts_reads_back_and_is_not_retracted_by_a_payload_without_one(client, paired):
     uid, headers = paired
     csid = uuid.uuid4().hex * 2

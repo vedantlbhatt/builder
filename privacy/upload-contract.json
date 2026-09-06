@@ -34,6 +34,20 @@
     "outside `analysis` carries prose, and `analysis` itself carries no paths, diffs, tool I/O,",
     "commit messages, branch names, URLs, hostnames or raw prompts.",
     "",
+    "THE SECOND FIELD ADDED SINCE v2 (v3): `feedback`. What ONE sitting cost you, for the card you",
+    "read once and close: a stretch that went nowhere, a run of failures, a file rewritten over and",
+    "over. It is NOT a second `analysis` and needed no exception, because it carries no prose at all",
+    "— an id from a fixed list of three, and two integers. The SENTENCE is written on the phone from",
+    "that id, so nothing about the wording travels either.",
+    "",
+    "What it deliberately does NOT carry, and both were in the local version of these notes:",
+    "  * the FAILING COMMAND. `analysis/feedback.py` says \"4 failures in a row on `bun test`\" on your",
+    "    own machine. Terminal commands are on the never-list above and stay there; the wire says how",
+    "    many and for how long.",
+    "  * the FILE NAME. The local note names the file that was rewritten five times. `analysis` may",
+    "    name files in prose because it is opt-in and bounded; this field is neither, so it says",
+    "    \"a file\" and the name stays on the machine.",
+    "",
     "Two design contradictions resolved here, deliberately:",
     "  1. Branch names are DELETED ENTIRELY. One design's never-list banned them while another",
     "     uploaded them for public repos. Branch was read by zero cards and zero queries, so",
@@ -44,74 +58,584 @@
     "     deleted, not restricted — every harness already writes a title to disk. This is also",
     "     what makes the falsification command on /privacy safe to publish."
   ],
-
-  "version": 2,
-  "modes": ["public", "anonymous"],
+  "version": 3,
+  "modes": [
+    "public",
+    "anonymous"
+  ],
   "_excluded_note": "visibility 'excluded' is not a mode: an excluded repo produces ZERO uploads, and if ANY event in a session resolves to an excluded repo the ENTIRE session is dropped — never partially uploaded, never uploaded under the primary repo's visibility.",
-
   "fields": [
-    { "name": "client_session_id",    "type": "sha256hex", "modes": ["public", "anonymous"], "doc": "stable opaque session id; also the Idempotency-Key" },
-    { "name": "machine_id",           "type": "sha256hex", "modes": ["public", "anonymous"], "doc": "sha256 of this Mac's platform UUID" },
-    { "name": "content_hash",         "type": "sha256hex", "modes": ["public", "anonymous"], "doc": "hash of this payload; lets sync skip unchanged sessions" },
-    { "name": "client_version",       "type": "string",    "modes": ["public", "anonymous"], "doc": "agent version" },
-    { "name": "sessionizer_version",  "type": "int",       "modes": ["public", "anonymous"], "doc": "so a retuned boundary is a recompute, not a migration" },
-    { "name": "active_calc_version",  "type": "int",       "modes": ["public", "anonymous"], "doc": "so a retuned active-time formula is a recompute" },
-    { "name": "harness",              "type": "enum",      "modes": ["public", "anonymous"], "values": ["claude_code", "cursor_ide", "cursor_agent", "codex", "gemini_cli", "cline", "opencode", "aider"] },
-    { "name": "agent_observed_at",    "type": "datetime",  "modes": ["public", "anonymous"], "doc": "when the agent produced this payload: the finalize instant for final, the snapshot instant for live" },
-    { "name": "client_clock_offset_ms", "type": "int",     "modes": ["public", "anonymous"], "doc": "measured against the server Date header" },
-
-    { "name": "started_at",           "type": "datetime",  "modes": ["public", "anonymous"] },
-    { "name": "ended_at",             "type": "datetime",  "modes": ["public", "anonymous"] },
-    { "name": "active_seconds",       "type": "int",       "modes": ["public", "anonymous"], "doc": "union of turn spans and capped gaps; the honest headline" },
-    { "name": "idle_seconds",         "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "tz_offset_minutes",    "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "time_quality",         "type": "enum",      "modes": ["public", "anonymous"], "values": ["ok", "mtime_corrected"] },
-    { "name": "state",                "type": "enum",      "modes": ["public", "anonymous"], "values": ["live", "final"], "doc": "live = an open/idle session snapshot, replaced in place when it finalizes; final = complete" },
-    { "name": "end_reason",           "type": "enum",      "modes": ["public", "anonymous"], "values": ["idle_gap", "human_returned", "day_boundary", "cleared", "switched_repo", "still_running"], "doc": "why the session ended (docs/session-boundaries.md). still_running IS the live upload; cleared (a typed /clear) and switched_repo (a new session opened in another repo) are v3 ends that, like idle_gap, mean the work stopped" },
-    { "name": "attended_seconds",     "type": "int",       "modes": ["public", "anonymous"], "doc": "active time with a human evidently present (docs/session-boundaries.md)" },
-    { "name": "autonomous_seconds",   "type": "int",       "modes": ["public", "anonymous"], "doc": "active time after the human went quiet for > tauAutonomousSec" },
-    { "name": "presence_count",       "type": "int",       "modes": ["public", "anonymous"], "doc": "typed prompts + interrupts + human file edits" },
-    { "name": "unattended",           "type": "bool",      "modes": ["public", "anonymous"], "doc": "zero presence signals. Hours only: no record, no streak, no notification" },
-    { "name": "visible",              "type": "bool",      "modes": ["public", "anonymous"], "doc": "counts toward hours, graph, streaks" },
-    { "name": "notable",              "type": "bool",      "modes": ["public", "anonymous"], "doc": "eligible for a card or a record" },
-
-    { "name": "strip_columns",        "type": "base64",    "bytes": 1024, "modes": ["public", "anonymous"], "doc": "1024 bytes: 2-bit class, 2-bit density. No text, no paths, by construction" },
-    { "name": "strip_marks",          "type": "marks",     "modes": ["public", "anonymous"], "doc": "[{ms, k}] where k is prompt|commit|compact" },
-    { "name": "timeline_fidelity",    "type": "enum",      "modes": ["public", "anonymous"], "values": ["full", "coarse", "header_only"] },
-
-    { "name": "human_prompt_count",   "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "prompt_count_basis",   "type": "enum",      "modes": ["public", "anonymous"], "values": ["typed_promptsource", "user_bubble"], "doc": "so Cursor's looser rule never sums with Claude Code's" },
-    { "name": "tool_calls",           "type": "toolmap",   "modes": ["public", "anonymous"], "doc": "allowlisted tool names only; unknown and MCP names bucket to mcp_other / other" },
-    { "name": "files_touched",        "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "files_created",        "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "lines_added_agent",    "type": "int",       "modes": ["public", "anonymous"], "doc": "live-path only; rewound edits never landed" },
-    { "name": "lines_removed_agent",  "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "commit_count",         "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "commit_insertions",    "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "commit_deletions",     "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "human_edit_events",    "type": "int",       "modes": ["public", "anonymous"], "doc": "count of edited_text_file / humanChanges signals. Existence only — these carry no line counts" },
-    { "name": "agent_line_bucket",    "type": "enum",      "modes": ["public", "anonymous"], "values": ["almost_all_agent", "nine_in_ten", "three_in_four", "about_half", "mostly_you", "unknown"], "doc": "a 5-way LOWER BOUND, never a percentage" },
-    { "name": "attrib_confidence",    "type": "enum",      "modes": ["public", "anonymous"], "values": ["high", "medium", "low", "none"] },
-
-    { "name": "tokens_reported",      "type": "bool",      "modes": ["public", "anonymous"], "doc": "false for EVERY Cursor session, forever — Cursor never writes token counts locally" },
-    { "name": "tokens",               "type": "tokens",    "nullable": true, "modes": ["public", "anonymous"], "doc": "five separate buckets. Null, never zero, when unreported" },
-    { "name": "abandoned_branch_tokens", "type": "int",    "modes": ["public", "anonymous"], "doc": "tokens spent on rewound DAG branches. You paid for them" },
-    { "name": "token_dedupe",         "type": "enum",      "modes": ["public", "anonymous"], "values": ["message_id", "request_id", "none"], "doc": "server rejects none + tokens_reported: that is the 1.88x arriving unlabeled" },
-    { "name": "token_scope",          "type": "enum",      "modes": ["public", "anonymous"], "values": ["parent_aggregated", "mixed"], "doc": "'flat' is NOT a legal value — it would let the ~3x subagent glob overcount in wearing a legitimate label" },
-    { "name": "token_coverage",       "type": "enum",      "modes": ["public", "anonymous"], "values": ["complete", "partial", "structurally_absent"] },
-    { "name": "models",               "type": "models",    "modes": ["public", "anonymous"], "doc": "[{model_id, output_token_share}] — labels only. The [1m] suffix is preserved verbatim" },
-    { "name": "model_state",          "type": "enum",      "modes": ["public", "anonymous"], "values": ["known", "partial", "unknown"], "doc": "Cursor is ~84% unknown: modelName is 'default' on 115 of 137 composers" },
-
-    { "name": "repo_hash",            "type": "sha256hex", "nullable": true, "modes": ["public", "anonymous"], "doc": "HMAC of the normalized origin URL. Full 64 hex, never truncated" },
-    { "name": "repo_pepper_version",  "type": "int",       "modes": ["public", "anonymous"] },
-    { "name": "repo_id_basis",        "type": "enum",      "modes": ["public", "anonymous"], "values": ["origin", "root_commit"] },
-
-    { "name": "repo_name",            "type": "string",    "nullable": true, "modes": ["public"], "doc": "PUBLIC REPOS ONLY. Absent from the anonymous key set entirely" },
-    { "name": "title",                "type": "string",    "nullable": true, "modes": ["public"], "doc": "PUBLIC REPOS ONLY. The title the HARNESS already wrote to your disk. Never model-generated by us" },
-    { "name": "title_source",         "type": "enum",      "nullable": true, "modes": ["public"], "values": ["harness", "template"] },
-
-    { "name": "card_png_url",         "type": "url",       "nullable": true, "modes": ["public", "anonymous"], "doc": "populated ONLY when you tap Share. The image you chose to publish; contains no field not listed above" },
-
-    { "name": "analysis",             "type": "analysis",  "nullable": true, "modes": ["public", "anonymous"], "doc": "model-written reading of the session, produced on the user's machine by their own Claude Code from a digest of the transcript (spec/analysis.v1.json). Present only when analysis upload is enabled. Private to the account under RLS; leaves it only when the session is shared. This is the ONE field that carries prose derived from prompts and code, and it is opt-in for exactly that reason." }
+    {
+      "name": "client_session_id",
+      "type": "sha256hex",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "stable opaque session id; also the Idempotency-Key"
+    },
+    {
+      "name": "machine_id",
+      "type": "sha256hex",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "sha256 of this Mac's platform UUID"
+    },
+    {
+      "name": "content_hash",
+      "type": "sha256hex",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "hash of this payload; lets sync skip unchanged sessions"
+    },
+    {
+      "name": "client_version",
+      "type": "string",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "agent version"
+    },
+    {
+      "name": "sessionizer_version",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "so a retuned boundary is a recompute, not a migration"
+    },
+    {
+      "name": "active_calc_version",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "so a retuned active-time formula is a recompute"
+    },
+    {
+      "name": "harness",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "claude_code",
+        "cursor_ide",
+        "cursor_agent",
+        "codex",
+        "gemini_cli",
+        "cline",
+        "opencode",
+        "aider"
+      ]
+    },
+    {
+      "name": "agent_observed_at",
+      "type": "datetime",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "when the agent produced this payload: the finalize instant for final, the snapshot instant for live"
+    },
+    {
+      "name": "client_clock_offset_ms",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "measured against the server Date header"
+    },
+    {
+      "name": "started_at",
+      "type": "datetime",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "ended_at",
+      "type": "datetime",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "active_seconds",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "union of turn spans and capped gaps; the honest headline"
+    },
+    {
+      "name": "idle_seconds",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "tz_offset_minutes",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "time_quality",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "ok",
+        "mtime_corrected"
+      ]
+    },
+    {
+      "name": "state",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "live",
+        "final"
+      ],
+      "doc": "live = an open/idle session snapshot, replaced in place when it finalizes; final = complete"
+    },
+    {
+      "name": "end_reason",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "idle_gap",
+        "human_returned",
+        "day_boundary",
+        "cleared",
+        "switched_repo",
+        "still_running"
+      ],
+      "doc": "why the session ended (docs/session-boundaries.md). still_running IS the live upload; cleared (a typed /clear) and switched_repo (a new session opened in another repo) are v3 ends that, like idle_gap, mean the work stopped"
+    },
+    {
+      "name": "attended_seconds",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "active time with a human evidently present (docs/session-boundaries.md)"
+    },
+    {
+      "name": "autonomous_seconds",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "active time after the human went quiet for > tauAutonomousSec"
+    },
+    {
+      "name": "presence_count",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "typed prompts + interrupts + human file edits"
+    },
+    {
+      "name": "unattended",
+      "type": "bool",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "zero presence signals. Hours only: no record, no streak, no notification"
+    },
+    {
+      "name": "visible",
+      "type": "bool",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "counts toward hours, graph, streaks"
+    },
+    {
+      "name": "notable",
+      "type": "bool",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "eligible for a card or a record"
+    },
+    {
+      "name": "strip_columns",
+      "type": "base64",
+      "bytes": 1024,
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "1024 bytes: 2-bit class, 2-bit density. No text, no paths, by construction"
+    },
+    {
+      "name": "strip_marks",
+      "type": "marks",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "[{ms, k}] where k is prompt|commit|compact"
+    },
+    {
+      "name": "timeline_fidelity",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "full",
+        "coarse",
+        "header_only"
+      ]
+    },
+    {
+      "name": "human_prompt_count",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "prompt_count_basis",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "typed_promptsource",
+        "user_bubble"
+      ],
+      "doc": "so Cursor's looser rule never sums with Claude Code's"
+    },
+    {
+      "name": "tool_calls",
+      "type": "toolmap",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "allowlisted tool names only; unknown and MCP names bucket to mcp_other / other"
+    },
+    {
+      "name": "files_touched",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "files_created",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "lines_added_agent",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "live-path only; rewound edits never landed"
+    },
+    {
+      "name": "lines_removed_agent",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "commit_count",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "commit_insertions",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "commit_deletions",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "human_edit_events",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "count of edited_text_file / humanChanges signals. Existence only — these carry no line counts"
+    },
+    {
+      "name": "agent_line_bucket",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "almost_all_agent",
+        "nine_in_ten",
+        "three_in_four",
+        "about_half",
+        "mostly_you",
+        "unknown"
+      ],
+      "doc": "a 5-way LOWER BOUND, never a percentage"
+    },
+    {
+      "name": "attrib_confidence",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "high",
+        "medium",
+        "low",
+        "none"
+      ]
+    },
+    {
+      "name": "tokens_reported",
+      "type": "bool",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "false for EVERY Cursor session, forever — Cursor never writes token counts locally"
+    },
+    {
+      "name": "tokens",
+      "type": "tokens",
+      "nullable": true,
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "five separate buckets. Null, never zero, when unreported"
+    },
+    {
+      "name": "abandoned_branch_tokens",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "tokens spent on rewound DAG branches. You paid for them"
+    },
+    {
+      "name": "token_dedupe",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "message_id",
+        "request_id",
+        "none"
+      ],
+      "doc": "server rejects none + tokens_reported: that is the 1.88x arriving unlabeled"
+    },
+    {
+      "name": "token_scope",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "parent_aggregated",
+        "mixed"
+      ],
+      "doc": "'flat' is NOT a legal value — it would let the ~3x subagent glob overcount in wearing a legitimate label"
+    },
+    {
+      "name": "token_coverage",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "complete",
+        "partial",
+        "structurally_absent"
+      ]
+    },
+    {
+      "name": "models",
+      "type": "models",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "[{model_id, output_token_share}] — labels only. The [1m] suffix is preserved verbatim"
+    },
+    {
+      "name": "model_state",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "known",
+        "partial",
+        "unknown"
+      ],
+      "doc": "Cursor is ~84% unknown: modelName is 'default' on 115 of 137 composers"
+    },
+    {
+      "name": "repo_hash",
+      "type": "sha256hex",
+      "nullable": true,
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "HMAC of the normalized origin URL. Full 64 hex, never truncated"
+    },
+    {
+      "name": "repo_pepper_version",
+      "type": "int",
+      "modes": [
+        "public",
+        "anonymous"
+      ]
+    },
+    {
+      "name": "repo_id_basis",
+      "type": "enum",
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "values": [
+        "origin",
+        "root_commit"
+      ]
+    },
+    {
+      "name": "repo_name",
+      "type": "string",
+      "nullable": true,
+      "modes": [
+        "public"
+      ],
+      "doc": "PUBLIC REPOS ONLY. Absent from the anonymous key set entirely"
+    },
+    {
+      "name": "title",
+      "type": "string",
+      "nullable": true,
+      "modes": [
+        "public"
+      ],
+      "doc": "PUBLIC REPOS ONLY. The title the HARNESS already wrote to your disk. Never model-generated by us"
+    },
+    {
+      "name": "title_source",
+      "type": "enum",
+      "nullable": true,
+      "modes": [
+        "public"
+      ],
+      "values": [
+        "harness",
+        "template"
+      ]
+    },
+    {
+      "name": "card_png_url",
+      "type": "url",
+      "nullable": true,
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "populated ONLY when you tap Share. The image you chose to publish; contains no field not listed above"
+    },
+    {
+      "name": "analysis",
+      "type": "analysis",
+      "nullable": true,
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "model-written reading of the session, produced on the user's machine by their own Claude Code from a digest of the transcript (spec/analysis.v1.json). Present only when analysis upload is enabled. Private to the account under RLS; leaves it only when the session is shared. This is the ONE field that carries prose derived from prompts and code, and it is opt-in for exactly that reason."
+    },
+    {
+      "name": "feedback",
+      "type": "feedback",
+      "nullable": true,
+      "modes": [
+        "public",
+        "anonymous"
+      ],
+      "doc": "what this one sitting cost that you would not have chosen: [{id, seconds, count}] where id is one of three fixed notes. Numbers only — no command, no file name, no prose. Computed on the machine (analysis/feedback.py); the sentence is rendered on the phone. Null, never [], when the sitting had nothing worth saying",
+      "values": [
+        "went_nowhere",
+        "failed_in_a_row",
+        "one_file_over_and_over"
+      ]
+    }
   ]
 }

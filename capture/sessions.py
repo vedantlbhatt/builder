@@ -570,8 +570,32 @@ def build_payload(
         p["repo_hash"] = s.repo.hash
     if analysis is not None:
         p["analysis"] = analysis
+    notes = _feedback(s)
+    if notes is not None:
+        p["feedback"] = notes
     p["content_hash"] = content_hash(p)
     return p
+
+
+def _feedback(s: Session) -> list[dict] | None:
+    """What this sitting cost that the person would not have chosen, for the card.
+
+    NOT a parameter like `analysis`, and the difference is the point: an analysis costs a
+    model call, so the caller decides whether to pay for it. This is arithmetic over
+    events already in memory, so every path that builds a payload gets it — sync, the hook
+    channel, and the fixtures the contract test walks — and there is no way to end up with
+    a card that has it in one and not the other.
+
+    `analysis/` sits beside `capture/` and the repo-root Dockerfile copies both, but the
+    older server-only image has only one; `hook_ingest._capture` already handles that
+    shape the same way. A deployment without it uploads no feedback rather than failing to
+    upload the session.
+    """
+    try:
+        from analysis import feedback as fb
+    except ImportError:  # pragma: no cover - deployment shape, not logic
+        return None
+    return fb.wire(s)
 
 
 #: Fields that change on every run without the session changing. Excluded from the hash so

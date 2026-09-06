@@ -214,6 +214,11 @@ def get_session(session_id: str, device: CurrentDevice = Depends(current_device)
             "agent_line_bucket": stats.agent_line_bucket,
             "attrib_confidence": stats.attrib_confidence,
         }
+    # Null, never absent, and never [] standing in for null: the phone tells "this sitting
+    # had nothing worth saying" from "an older server does not know the key" by whether
+    # the key is there at all. Stored on session_stats (0019); the SENTENCE is not stored
+    # because it is not uploaded — the client writes it from the id.
+    out["feedback"] = (stats.feedback if stats else None) or None
     # Null, never absent: the phone distinguishes "no analysis for this session" from an
     # older server that does not know the key.
     out["analysis"] = analysis.body if analysis else None
