@@ -111,6 +111,13 @@ class SessionEvents:
     #: reports 39,487 output tokens for 21 hours of work, which is off by orders of
     #: magnitude. Absent is a refusal; zero would be a lie.
     output_tokens: int | None = None
+    #: What this sitting would have cost at API list prices, or None when the tokens or
+    #: the model are unknown. NOT a bill: most people running these tools are on a
+    #: subscription (analysis/pricing.py).
+    cost_usd: float | None = None
+    #: The model that wrote at least `DOMINANT_SHARE` of the output, when there is one.
+    #: None for a genuinely mixed sitting, whose commits belong to no single model.
+    dominant_model: str | None = None
 
 
 # ------------------------------------------------------------------ small measurements
@@ -187,6 +194,7 @@ def findings(sessions: Sequence[SessionEvents]) -> list[Finding]:
         _short_prompts_get_corrected,
         _verification_habit,
         _what_the_quiet_sessions_cost,
+        _the_cheaper_model_shipped,
     ):
         found = fn(sessions)
         if found is not None:
@@ -605,55 +613,115 @@ def _verification_habit(sessions: Sequence[SessionEvents]) -> Finding | None:
 
 
 def _what_the_quiet_sessions_cost(sessions: Sequence[SessionEvents]) -> Finding | None:
-    """Output tokens spent in sittings that ended with no commit, as a share of the bill.
+    """What the sittings that ended with no commit would have cost at list prices.
 
-    Reported as a TOTAL and a share, not as a per-session average. FOUND BY RUNNING IT: on
-    the reference corpus the sessions that shipped nothing averaged 36,214 output tokens
-    each against 148,932 for the ones that did, so a sentence built on the averages would
-    have said "your quiet sessions are the cheap ones" while the number a person actually
-    cares about, a fifth of their spend producing nothing they kept, went unsaid. The
-    average is the wrong statistic here and the direction it points is worse than useless.
+    IN DOLLARS, NOT TOKENS, and the switch changed the answer. MEASURED on the reference
+    corpus: the sessions that shipped nothing were 23% of the output TOKENS and 1% of the
+    money, because the quiet ones were cheap Sonnet sittings and the expensive Opus ones
+    all shipped. The token version was a true sentence pointing the wrong way; a person
+    who read it would have gone looking for waste that was not there.
 
-    Both halves are reliably visible: `git commit` is in the command text, and the token
-    count comes from the ledger. Sessions with no token count are dropped, never zeroed.
+    Both halves are reliably visible: `git commit` is in the command text, and the cost
+    comes from the ledger through the one price table (analysis/pricing.py). A session
+    with no cost is dropped, never counted as free.
     """
-    quiet, shipped = 0, 0
+    quiet, shipped = 0.0, 0.0
     n_quiet, n_shipped = 0, 0
     for s in sessions:
-        if s.output_tokens is None or s.output_tokens <= 0:
+        if s.cost_usd is None:
             continue
         if _commits(s) > 0:
-            shipped += s.output_tokens
+            shipped += s.cost_usd
             n_shipped += 1
         else:
-            quiet += s.output_tokens
+            quiet += s.cost_usd
             n_quiet += 1
     total = quiet + shipped
-    if n_quiet < MIN_GROUP or n_shipped < MIN_GROUP or not total:
+    if n_quiet < MIN_GROUP or n_shipped < MIN_GROUP or total <= 0:
         return None
     share = quiet / total
     if share < MIN_SHARE_GAP:
         return None
+    from . import pricing
+
     return Finding(
         id="what_the_quiet_sessions_cost",
         text=(
-            f"{n_quiet} of your sessions ended without a single commit. Between them they "
-            f"spent {quiet:,} output tokens, {_pct(share)} of everything you have spent, "
-            f"and left nothing behind. The other {n_shipped} spent {shipped:,} and shipped."
+            f"{n_quiet} of your sessions ended without a single commit and would have "
+            f"cost {pricing.money(quiet)} on the API, {_pct(share)} of everything you ran. "
+            f"The {n_shipped} that did ship cost {pricing.money(shipped)} and left "
+            f"something behind."
         ),
         left={
             "group": "sessions that ended with no commit",
             "n": n_quiet,
-            "output_tokens": quiet,
+            "usd": round(quiet, 2),
             "share_of_spend": round(share, 3),
         },
         right={
             "group": "sessions that ended with a commit",
             "n": n_shipped,
-            "output_tokens": shipped,
+            "usd": round(shipped, 2),
         },
         lift=_lift(share, 1 - share) if share < 1 else float(n_quiet),
-        basis="ledger_output_tokens_by_commit_outcome",
+        basis="list_price_by_commit_outcome",
+    )
+
+
+def _the_cheaper_model_shipped(sessions: Sequence[SessionEvents]) -> Finding | None:
+    """The model that cost the least per commit, against the one that cost the most.
+
+    The one comparison in this module a stranger can use. It only fires on sittings ONE
+    model wrote most of, because a session's commits belong to the session and splitting
+    them by output share would hand a commit to whichever model wrote the test log.
+    """
+    from . import pricing
+
+    rows: dict[str, dict] = {}
+    for s in sessions:
+        if s.cost_usd is None or not s.dominant_model:
+            continue
+        row = rows.setdefault(pricing.family(s.dominant_model), {"usd": 0.0, "commits": 0, "n": 0})
+        row["usd"] += s.cost_usd
+        row["commits"] += _commits(s)
+        row["n"] += 1
+
+    ranked = [
+        (name, r["usd"] / r["commits"], r)
+        for name, r in rows.items()
+        if r["n"] >= MIN_GROUP and r["commits"] > 0
+    ]
+    if len(ranked) < 2:
+        return None
+    ranked.sort(key=lambda x: x[1])
+    (cheap, cheap_rate, cheap_row), (dear, dear_rate, dear_row) = ranked[0], ranked[-1]
+    if _lift(dear_rate, cheap_rate) < MIN_LIFT:
+        return None
+    return Finding(
+        id="the_cheaper_model_shipped",
+        text=(
+            f"{cheap} landed a commit for {pricing.money(cheap_rate)} of API usage. "
+            f"{dear} cost {pricing.money(dear_rate)} for the same thing, "
+            f"{_lift(dear_rate, cheap_rate)}x more. That is "
+            f"{cheap_row['commits']} commits over {cheap_row['n']} sittings against "
+            f"{dear_row['commits']} over {dear_row['n']}."
+        ),
+        left={
+            "group": f"sittings {cheap} wrote most of",
+            "n": cheap_row["n"],
+            "usd": round(cheap_row["usd"], 2),
+            "commits": cheap_row["commits"],
+            "usd_per_commit": round(cheap_rate, 2),
+        },
+        right={
+            "group": f"sittings {dear} wrote most of",
+            "n": dear_row["n"],
+            "usd": round(dear_row["usd"], 2),
+            "commits": dear_row["commits"],
+            "usd_per_commit": round(dear_rate, 2),
+        },
+        lift=_lift(dear_rate, cheap_rate),
+        basis="list_price_per_commit_by_dominant_model",
     )
 
 

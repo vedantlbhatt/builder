@@ -308,6 +308,7 @@ def cmd_narrative(a: argparse.Namespace) -> int:
         # for 21 hours of real work. None when the harness reports none, which is a refusal
         # rather than a zero (Cursor writes {0, 0} on all 14,565 of its message rows).
         ledger = sessions.token_ledger(s.records)
+        cost, dominant = pf.pricing.priced_session(ledger, pf.DOMINANT_SHARE)
         events.append(
             pat.SessionEvents(
                 session_id=s.client_session_id,
@@ -320,6 +321,8 @@ def cmd_narrative(a: argparse.Namespace) -> int:
                 output_tokens=(
                     ledger.buckets["output"] if ledger.reported and ledger.buckets else None
                 ),
+                cost_usd=cost,
+                dominant_model=dominant,
             )
         )
 

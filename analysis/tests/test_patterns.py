@@ -37,7 +37,7 @@ def idle(n, ts, cmd="ls"):
     return ev(n, ts, "tool", cmd, tool="Bash")
 
 
-def sess(events, *, sid="s", start=T0, active=3600.0, tz=0, tokens=None):
+def sess(events, *, sid="s", start=T0, active=3600.0, tz=0, tokens=None, usd=None, model=None):
     return pt.SessionEvents(
         session_id=sid,
         started_at=start,
@@ -47,6 +47,8 @@ def sess(events, *, sid="s", start=T0, active=3600.0, tz=0, tokens=None):
         tz_offset_minutes=tz,
         events=events,
         output_tokens=tokens,
+        cost_usd=usd,
+        dominant_model=model,
     )
 
 
@@ -384,62 +386,105 @@ class VerificationHabit(unittest.TestCase):
 
 class QuietSessionsCost(unittest.TestCase):
     @staticmethod
-    def corpus(quiet_tokens, shipped_tokens, n=5, tokens_known=True):
+    def corpus(quiet_usd, shipped_usd, n=5, priced=True):
         out = []
         for i in range(n):
-            out.append(
-                sess(
-                    [idle(0, T0)],
-                    sid=f"q{i}",
-                    tokens=quiet_tokens if tokens_known else None,
-                )
-            )
+            out.append(sess([idle(0, T0)], sid=f"q{i}", usd=quiet_usd if priced else None))
             out.append(
                 sess(
                     [write(0, T0), commit(1, T0 + 60)],
                     sid=f"s{i}",
-                    tokens=shipped_tokens if tokens_known else None,
+                    usd=shipped_usd if priced else None,
                 )
             )
         return out
 
     def test_the_bill_for_sessions_that_shipped_nothing(self):
-        f = by_id(pt.findings(self.corpus(40000, 10000)), "what_the_quiet_sessions_cost")
+        f = by_id(pt.findings(self.corpus(8.0, 2.0)), "what_the_quiet_sessions_cost")
         self.assertIsNotNone(f)
-        self.assertEqual(f.left["output_tokens"], 200000)
-        self.assertIn("200,000", f.text)
+        self.assertEqual(f.left["usd"], 40.0)
+        self.assertIn("$40.00", f.text)
         self.assertIn("80%", f.text)
 
-    def test_it_reports_the_total_and_never_the_average(self):
-        """MEASURED: on the reference corpus the sessions that shipped nothing averaged
-        36,214 output tokens each against 148,932 for the ones that did. A sentence built
-        on the averages would say "your quiet sessions are the cheap ones", which is true
-        and points away from the number that matters."""
-        # Quiet sessions a third the size of the ones that shipped: cheaper each, still
-        # a quarter of the bill.
-        f = by_id(pt.findings(self.corpus(30000, 90000)), "what_the_quiet_sessions_cost")
-        self.assertIsNotNone(f)
-        self.assertIn("25%", f.text)
-        self.assertNotIn("average", f.text)
-        self.assertNotIn("each", f.text)
-        self.assertNotIn("mean", f.left)
+    def test_it_is_dollars_and_not_tokens(self):
+        """MEASURED: on the reference corpus the sittings that shipped nothing were 23%
+        of the output TOKENS and 1% of the money, because the quiet ones were cheap
+        Sonnet sittings. The token version pointed at waste that was not there."""
+        f = by_id(pt.findings(self.corpus(8.0, 2.0)), "what_the_quiet_sessions_cost")
+        self.assertNotIn("token", f.text.lower())
+        self.assertIn("$", f.text)
 
-    def test_a_corpus_with_no_token_counts_is_refused_not_zeroed(self):
-        """`Ev.tok_out` reports 39,487 output tokens for 21 real hours. Absent is a
-        refusal; zero would be a lie."""
-        found = pt.findings(self.corpus(40000, 10000, tokens_known=False))
+    def test_an_unpriced_corpus_is_refused_not_zeroed(self):
+        found = pt.findings(self.corpus(8.0, 2.0, priced=False))
         self.assertIsNone(by_id(found, "what_the_quiet_sessions_cost"))
 
     def test_a_trivial_share_is_not_worth_a_sentence(self):
-        # 1,000 against 99,000 a side: 1% of the bill. True, and not worth a paragraph.
         self.assertIsNone(
-            by_id(pt.findings(self.corpus(1000, 99000)), "what_the_quiet_sessions_cost")
+            by_id(pt.findings(self.corpus(0.1, 9.9)), "what_the_quiet_sessions_cost")
         )
 
     def test_four_quiet_sessions_is_refused(self):
         self.assertIsNone(
-            by_id(pt.findings(self.corpus(40000, 10000, n=4)), "what_the_quiet_sessions_cost")
+            by_id(pt.findings(self.corpus(8.0, 2.0, n=4)), "what_the_quiet_sessions_cost")
         )
+
+
+class CheaperModelShipped(unittest.TestCase):
+    """The one comparison a stranger can use, which is why it has to be exactly right."""
+
+    @staticmethod
+    def corpus(cheap_usd, dear_usd, commits=2, n=5, cheap="claude-sonnet-5", dear="claude-opus-5"):
+        out = []
+        for i in range(n):
+            out.append(
+                sess(
+                    [write(0, T0)] + [commit(j + 1, T0 + 60 * j) for j in range(commits)],
+                    sid=f"c{i}",
+                    usd=cheap_usd,
+                    model=cheap,
+                )
+            )
+            out.append(
+                sess(
+                    [write(0, T0)] + [commit(j + 1, T0 + 60 * j) for j in range(commits)],
+                    sid=f"d{i}",
+                    usd=dear_usd,
+                    model=dear,
+                )
+            )
+        return out
+
+    def test_the_two_models_are_named_with_their_rates(self):
+        f = by_id(pt.findings(self.corpus(1.0, 20.0)), "the_cheaper_model_shipped")
+        self.assertIsNotNone(f)
+        self.assertIn("Sonnet 5", f.text)
+        self.assertIn("Opus 5", f.text)
+        self.assertEqual(f.left["usd_per_commit"], 0.5)
+        self.assertEqual(f.right["usd_per_commit"], 10.0)
+        self.assertEqual(f.lift, 20.0)
+
+    def test_two_models_that_cost_about_the_same_is_not_a_finding(self):
+        self.assertIsNone(by_id(pt.findings(self.corpus(1.0, 1.2)), "the_cheaper_model_shipped"))
+
+    def test_one_model_alone_has_nothing_to_compare_against(self):
+        one = self.corpus(1.0, 20.0, dear="claude-sonnet-5")
+        self.assertIsNone(by_id(pt.findings(one), "the_cheaper_model_shipped"))
+
+    def test_four_sittings_a_side_is_refused(self):
+        self.assertIsNone(
+            by_id(pt.findings(self.corpus(1.0, 20.0, n=4)), "the_cheaper_model_shipped")
+        )
+
+    def test_a_mixed_sitting_belongs_to_no_model(self):
+        """A session's commits belong to the session. Splitting them by output share
+        would hand a commit to whichever model wrote the test log."""
+        mixed = [
+            sess([write(0, T0), commit(1, T0 + 60)], sid=f"m{i}", usd=99.0, model=None)
+            for i in range(5)
+        ]
+        f = by_id(pt.findings(self.corpus(1.0, 20.0) + mixed), "the_cheaper_model_shipped")
+        self.assertEqual(f.left["n"], 5, "the mixed sittings joined neither side")
+        self.assertEqual(f.right["n"], 5)
 
 
 class Empty(unittest.TestCase):

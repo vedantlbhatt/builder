@@ -54,6 +54,8 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
+from . import pricing
+
 PROFILE_VERSION = 1
 
 #: Tuning.dayBoundaryHour. 04:00 local starts a new day, everywhere.
@@ -129,6 +131,11 @@ MIN_LINES_FOR_VELOCITY = 200
 MIN_TOOL_CALLS_FOR_DIVERSITY = 5
 MIN_SESSIONS_FOR_DIVERSITY = 3
 
+#: A model wrote "most of" a sitting at this share of its output tokens. 0.8 rather than
+#: a bare majority: at 0.5 a two-model session credits its commits to whichever model
+#: edged the other out, which is a coin flip dressed as an attribution.
+DOMINANT_SHARE = 0.8
+
 #: A "share of sessions" needs enough sessions that one of them cannot move it by a third.
 #: Eight puts a single sitting at 12.5 points, which is under the smallest gap this
 #: codebase is willing to call a difference (patterns.MIN_SHARE_GAP).
@@ -184,6 +191,10 @@ class SessionFact:
     #: share comes back None rather than wrong.
     commit_times: tuple[float, ...] | None = None
     output_tokens_by_model: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    #: The five token buckets for this sitting, or None when the harness reported none.
+    #: None is a refusal: Cursor writes {0, 0} on all 14,565 of its message rows, and a
+    #: zero here would price a real session at nothing.
+    tokens: "pricing.Tokens | None" = None
     prompts: tuple[PromptFact, ...] | None = None
     test_runs: int | None = None
     unattended: bool = False
@@ -252,6 +263,7 @@ def session_fact_from_events(
     autonomous_seconds: float,
     tz_offset_minutes: int,
     output_tokens_by_model: Mapping[str, int] | None = None,
+    tokens: pricing.Tokens | None = None,
     unattended: bool = False,
 ) -> SessionFact:
     """A `SessionFact` from one session's digest events (`analysis.digest.Ev`).
@@ -330,6 +342,7 @@ def session_fact_from_events(
         output_tokens_by_model=dict(output_tokens_by_model or {}),
         prompts=tuple(prompts),
         test_runs=tests,
+        tokens=tokens,
         unattended=unattended,
     )
 
@@ -718,6 +731,119 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
             else f"{len(committed_known)} sessions, {MIN_SESSIONS_FOR_SHARE} needed",
         )
 
+    # ---- what it would cost at list prices
+    #
+    # NOT A BILL. Most people running these tools are on a subscription and are billed
+    # nothing per token; this is what the same work would cost on the API, which is the
+    # only unit that lets an Opus session be compared with a Haiku one. The basis says so
+    # and the phone prints it (analysis/pricing.py).
+    priced, unpriced, spend = [], 0, 0.0
+    per_model: dict[str, dict] = {}
+    for f in ss:
+        if f.tokens is None or not f.tokens.any:
+            continue
+        share = _output_share(f)
+        usd, basis = pricing.session_cost(f.tokens, share)
+        if usd is None:
+            unpriced += 1
+            continue
+        priced.append((f, usd))
+        spend += usd
+        for model, part in pricing.split_by_model(f.tokens, share).items():
+            one = pricing.cost_usd(part, model)
+            if one is None:
+                continue
+            row = per_model.setdefault(
+                pricing.family(model),
+                {
+                    "usd": 0.0,
+                    "usd_dominated": 0.0,
+                    "output_tokens": 0,
+                    "sessions": 0,
+                    "commits": 0,
+                    "dominated": 0,
+                },
+            )
+            row["usd"] += one
+            row["output_tokens"] += part.output
+            row["sessions"] += 1
+            # Commits are credited ONLY from sittings this model dominated. A session's
+            # commits belong to the session, not to a model, and there is no per-model
+            # split anywhere in the data. Crediting them to every model in the session
+            # double counts: MEASURED on this corpus, three models summed to 134 commits
+            # where git counted 85, and every model's dollars-per-commit came out
+            # flattering. Attributing them by output share would be worse still, since it
+            # would hand a commit to whichever model happened to write the test log.
+            if f.commit_basis == COMMITS_GIT_LOG and share.get(model, 0.0) >= DOMINANT_SHARE:
+                row["commits"] += f.commit_count
+                row["dominated"] += 1
+                row["usd_dominated"] += one
+
+    stale = pricing.prices_are_stale()
+    price_basis = "stale_prices" if stale else pricing.BASIS_LIST_PRICE
+    if priced:
+        m["spend_usd"] = _metric(
+            round(spend, 2),
+            "US dollars at API list prices",
+            len(priced),
+            price_basis,
+            "prices were last read on %s and may have moved" % pricing.PRICES_READ_ON
+            if stale
+            else None,
+            unpriced_sessions=unpriced or None,
+            prices_read_on=str(pricing.PRICES_READ_ON),
+        )
+        m["spend_per_hour_usd"] = (
+            _metric(
+                round(spend / active_hours, 2),
+                "US dollars per active hour at list prices",
+                len(priced),
+                price_basis,
+            )
+            if active_hours > 0
+            else _metric(None, "US dollars per active hour at list prices", 0, "absent", "no active time")
+        )
+    else:
+        m["spend_usd"] = _metric(
+            None,
+            "US dollars at API list prices",
+            0,
+            pricing.BASIS_TOKENS_ABSENT if not unpriced else pricing.BASIS_UNKNOWN_MODEL,
+            "no session reported token counts"
+            if not unpriced
+            else f"{unpriced} session(s) used a model with no published price here",
+        )
+        m["spend_per_hour_usd"] = _metric(
+            None, "US dollars per active hour at list prices", 0, "absent", "no priced sessions"
+        )
+
+    # ---- what the sittings that shipped nothing cost
+    #
+    # The postable half of the spend. A total is a fact; the share of it that produced no
+    # commit is a story, and it is the one people screenshot.
+    shipped_known = [(f, usd) for f, usd in priced if f.commit_basis == COMMITS_GIT_LOG]
+    if len(shipped_known) >= MIN_SESSIONS_FOR_SHARE:
+        quiet = [(f, usd) for f, usd in shipped_known if f.commit_count == 0]
+        quiet_usd = sum(usd for _, usd in quiet)
+        total_usd = sum(usd for _, usd in shipped_known)
+        m["spend_without_a_commit_usd"] = _metric(
+            round(quiet_usd, 2),
+            "US dollars on sittings that ended with no commit",
+            len(shipped_known),
+            price_basis,
+            sessions=len(quiet),
+            share_of_spend=round(quiet_usd / total_usd, 3) if total_usd > 0 else None,
+        )
+    else:
+        m["spend_without_a_commit_usd"] = _metric(
+            None,
+            "US dollars on sittings that ended with no commit",
+            len(shipped_known),
+            price_basis if shipped_known else "absent",
+            f"{len(shipped_known)} priced sessions with git commit counts, "
+            f"{MIN_SESSIONS_FOR_SHARE} needed",
+        )
+
     # ---- night, peak hour
     by_hour = _active_by_hour(ss)
     night = sum(v for h, v in by_hour.items() if h >= NIGHT_START_HOUR or h < NIGHT_END_HOUR)
@@ -835,6 +961,39 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
         share=model_mix[0]["share"] if model_mix else None,
     )
 
+    # ---- what each model actually cost you, and what it landed
+    #
+    # THE POSTABLE ONE. "Sonnet shipped 8 commits for $4.20, Opus shipped 6 for $31" is
+    # an argument people want to have, and it is the only comparison here that a reader
+    # who has never met this person can still use.
+    #
+    # Two honesties travel with it. The dollars are list prices, not a bill
+    # (analysis/pricing.py). And a model's commits are the commits of the SESSIONS it
+    # worked in, credited whole to every model in the session, so a mixed session double
+    # counts: `commits_basis` says `sessions_the_model_worked_in` and the phone must not
+    # add the rows up. A per-model commit split does not exist anywhere in the data,
+    # and inventing one by output share would attribute a commit to a model that wrote a
+    # test log.
+    model_costs = [
+        {
+            "model": name,
+            "usd": round(row["usd"], 2),
+            "output_tokens": row["output_tokens"],
+            "sessions": row["sessions"],
+            "commits": row["commits"],
+            "sessions_dominated": row["dominated"],
+            # Dollars per commit is computed over the DOMINATED sittings alone, so the
+            # numerator and the denominator describe the same sessions. Using this model's
+            # whole spend over commits it only partly earned is how a mixed session makes
+            # every model in it look cheap.
+            "usd_per_commit": (
+                round(row["usd_dominated"] / row["commits"], 2) if row["commits"] > 0 else None
+            ),
+            "commits_basis": "sittings_this_model_wrote_most_of",
+        }
+        for name, row in sorted(per_model.items(), key=lambda kv: -kv[1]["usd"])
+    ]
+
     # ---- where each session stands
     #
     # Ranked by ATTENDED seconds, never active: an eight-hour autonomous run is not a
@@ -881,6 +1040,7 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
         "metrics": m,
         "top_tools": top_tools,
         "model_mix": model_mix,
+        "model_costs": model_costs,
         # The top five attended sessions and how many were eligible at all, so the phone
         # can say "your longest attended session, 1 of 9" without ranking anything itself.
         "session_rank": session_rank,
@@ -1005,6 +1165,18 @@ def archetype(metrics: Mapping[str, dict], sample: Mapping) -> dict:
             for r in ranked[1:3]
         ],
     }
+
+
+def _output_share(f: SessionFact) -> dict[str, float]:
+    """Which model produced what share of this session's output tokens.
+
+    The wire carries the share directly; a machine-side caller has the counts. Both are
+    normalised here so `pricing.split_by_model` sees one shape.
+    """
+    total = sum(f.output_tokens_by_model.values())
+    if total <= 0:
+        return {}
+    return {m: n / total for m, n in f.output_tokens_by_model.items() if n > 0}
 
 
 def _rule_value(name: str, metrics: Mapping[str, dict]) -> float | None:

@@ -127,6 +127,7 @@ def _narrative(a) -> int:
         offset = _dt.datetime.fromtimestamp(s.started_at, tz).utcoffset() or _dt.timedelta(0)
         # See capture/cli.py: the ledger, not a sum over the events.
         ledger = cap.token_ledger(s.records)
+        cost, dominant = pf_mod.pricing.priced_session(ledger, pf_mod.DOMINANT_SHARE)
         sessions.append(
             pat.SessionEvents(
                 session_id=s.client_session_id,
@@ -139,6 +140,8 @@ def _narrative(a) -> int:
                 output_tokens=(
                     ledger.buckets["output"] if ledger.reported and ledger.buckets else None
                 ),
+                cost_usd=cost,
+                dominant_model=dominant,
             )
         )
     found = pat.findings(sessions)
@@ -220,6 +223,15 @@ def _corpus_facts(root: pathlib.Path) -> tuple[list, list]:
                 autonomous_seconds=s.autonomous,
                 tz_offset_minutes=int(offset.total_seconds() // 60),
                 output_tokens_by_model=by_model,
+                # The five buckets, straight from the ledger. `cache_read` is billed at a
+                # tenth of the input rate and `cache_w5m` at 1.25x it, so they travel
+                # separately: adding them up and multiplying by one price overcharges
+                # cache-heavy work by a factor that grows with how well the cache worked.
+                tokens=(
+                    pf_mod.pricing.Tokens(**ledger.buckets)
+                    if ledger.reported and ledger.buckets
+                    else None
+                ),
                 unattended=s.presence == 0,
             )
         )

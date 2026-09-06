@@ -541,3 +541,116 @@ class AttributeCommits(unittest.TestCase):
     def test_a_mismatched_roots_list_is_an_error_not_a_silent_misattribution(self):
         with self.assertRaises(ValueError):
             pf.attribute_commits(self.facts((0, HOUR), (HOUR, 2 * HOUR)), ["/repo"], self.lister([]))
+
+
+class Spend(unittest.TestCase):
+    """Dollars at list prices, the per-model comparison, and the refusals.
+
+    The dollar figure is the number most likely to be quoted out loud and the one a
+    reader has the least ability to check, so what it refuses to say matters more than
+    what it says.
+    """
+
+    @staticmethod
+    def priced(sid, model, output, commits=0, tokens=None, **kw):
+        f = session([], session_id=sid, **kw)
+        return dataclasses.replace(
+            f,
+            output_tokens_by_model={model: output},
+            tokens=tokens or pf.pricing.Tokens(output=output),
+            commit_count=commits,
+            commit_basis=pf.COMMITS_GIT_LOG,
+            repo=sid,
+        )
+
+    def corpus(self, n=10):
+        # Sonnet does the cheap volume, Opus the expensive few.
+        out = [
+            self.priced(f"s{i}", "claude-sonnet-5", 1_000_000, commits=2, start=T0 + i * 86400)
+            for i in range(n)
+        ]
+        out += [
+            self.priced(f"o{i}", "claude-opus-5", 1_000_000, commits=1, start=T0 + (n + i) * 86400)
+            for i in range(3)
+        ]
+        return out
+
+    def test_the_total_is_the_price_table_read_back(self):
+        p = pf.corpus_profile(self.corpus())
+        # 10 Sonnet sessions at $10 of output + 3 Opus at $25.
+        self.assertAlmostEqual(p["metrics"]["spend_usd"]["value"], 10 * 10.0 + 3 * 25.0, places=2)
+        self.assertEqual(p["metrics"]["spend_usd"]["basis"], pf.pricing.BASIS_LIST_PRICE)
+
+    def test_the_unit_says_list_prices_so_nobody_reads_it_as_a_bill(self):
+        p = pf.corpus_profile(self.corpus())
+        self.assertIn("list price", p["metrics"]["spend_usd"]["unit"])
+
+    def test_a_corpus_with_no_token_counts_is_refused_not_zeroed(self):
+        p = pf.corpus_profile([session([], session_id=f"s{i}") for i in range(10)])
+        self.assertIsNone(p["metrics"]["spend_usd"]["value"])
+        self.assertEqual(p["metrics"]["spend_usd"]["basis"], pf.pricing.BASIS_TOKENS_ABSENT)
+        self.assertEqual(p["model_costs"], [])
+
+    def test_a_model_with_no_published_price_takes_its_session_out_not_the_corpus(self):
+        corpus = self.corpus() + [self.priced("x", "some-other-model", 1_000_000)]
+        p = pf.corpus_profile(corpus)
+        self.assertAlmostEqual(p["metrics"]["spend_usd"]["value"], 175.0, places=2)
+        self.assertEqual(p["metrics"]["spend_usd"]["unpriced_sessions"], 1)
+        self.assertNotIn("some-other-model", [r["model"] for r in p["model_costs"]])
+
+    def test_the_model_table_is_ordered_by_what_it_cost(self):
+        rows = pf.corpus_profile(self.corpus())["model_costs"]
+        self.assertEqual([r["model"] for r in rows], ["Sonnet 5", "Opus 5"])
+        self.assertGreater(rows[0]["usd"], rows[1]["usd"])
+
+    def test_dollars_per_commit_compares_the_models(self):
+        rows = {r["model"]: r for r in pf.corpus_profile(self.corpus())["model_costs"]}
+        # Sonnet: $100 over 20 commits. Opus: $75 over 3.
+        self.assertAlmostEqual(rows["Sonnet 5"]["usd_per_commit"], 5.0, places=2)
+        self.assertAlmostEqual(rows["Opus 5"]["usd_per_commit"], 25.0, places=2)
+
+    def test_a_mixed_session_credits_its_commits_to_nobody(self):
+        """MEASURED: crediting a session's commits to every model in it summed three
+        models to 134 commits where git counted 85, and made every one look cheap."""
+        mixed = dataclasses.replace(
+            self.priced("mix", "claude-opus-5", 1_000_000, commits=50),
+            output_tokens_by_model={"claude-opus-5": 500_000, "claude-sonnet-5": 500_000},
+        )
+        rows = {r["model"]: r for r in pf.corpus_profile(self.corpus() + [mixed])["model_costs"]}
+        self.assertEqual(rows["Opus 5"]["commits"], 3, "a 50/50 session credits neither model")
+        self.assertEqual(rows["Sonnet 5"]["commits"], 20)
+
+    def test_a_session_one_model_wrote_most_of_does_credit_it(self):
+        dominated = dataclasses.replace(
+            self.priced("dom", "claude-opus-5", 1_000_000, commits=7),
+            output_tokens_by_model={"claude-opus-5": 900_000, "claude-sonnet-5": 100_000},
+        )
+        rows = {r["model"]: r for r in pf.corpus_profile(self.corpus() + [dominated])["model_costs"]}
+        self.assertEqual(rows["Opus 5"]["commits"], 10)
+        self.assertEqual(rows["Opus 5"]["sessions_dominated"], 4)
+
+    def test_the_sittings_that_shipped_nothing_carry_their_share(self):
+        corpus = self.corpus() + [
+            self.priced(f"q{i}", "claude-opus-5", 1_000_000, commits=0, start=T0 + (20 + i) * 86400)
+            for i in range(2)
+        ]
+        m = pf.corpus_profile(corpus)["metrics"]["spend_without_a_commit_usd"]
+        self.assertAlmostEqual(m["value"], 50.0, places=2)
+        self.assertEqual(m["sessions"], 2)
+
+    def test_seven_priced_sessions_is_too_few_to_call_a_share(self):
+        m = pf.corpus_profile(self.corpus(n=4))["metrics"]["spend_without_a_commit_usd"]
+        self.assertIsNone(m["value"])
+        self.assertIn("needed", m["reason"])
+
+    def test_a_cache_heavy_session_is_not_billed_at_the_input_rate(self):
+        cheap = self.priced(
+            "c",
+            "claude-opus-5",
+            1_000,
+            tokens=pf.pricing.Tokens(input=1_000, output=1_000, cache_read=5_000_000),
+        )
+        p = pf.corpus_profile([cheap] + self.corpus())
+        # 5M cache reads at $0.50/M is $2.50, not $25.
+        delta = p["metrics"]["spend_usd"]["value"] - 175.0
+        self.assertLess(delta, 3.0)
