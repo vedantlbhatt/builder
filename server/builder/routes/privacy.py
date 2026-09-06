@@ -105,8 +105,7 @@ def set_visibility(body: VisibilityUpdate, device: CurrentDevice = Depends(curre
             # filtered. A session post needs no line here; it cascades from its session.
             db.execute(
                 text(
-                    "DELETE FROM posts WHERE user_id = :u AND repo_id = :r "
-                    "AND session_id IS NULL"
+                    "DELETE FROM posts WHERE user_id = :u AND repo_id = :r AND session_id IS NULL"
                 ),
                 {"u": str(device.user_id), "r": str(repo.id)},
             )

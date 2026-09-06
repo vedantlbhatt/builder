@@ -213,9 +213,7 @@ def test_a_followers_only_build_post_reaches_an_accepted_follower(client, create
     _handle(uid, f"author-{uid[:6]}")
     fuid, follower = _pair(client, created_users)
     _handle(fuid, f"fan-{fuid[:6]}")
-    assert (
-        client.post(f"/v1/follows/{_handle_of(uid)}", headers=follower).status_code == 200
-    )
+    assert client.post(f"/v1/follows/{_handle_of(uid)}", headers=follower).status_code == 200
     assert client.get(f"/v1/posts/{pid}", headers=follower).status_code == 200
 
 
