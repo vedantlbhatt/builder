@@ -11,7 +11,8 @@
       "ios": { "simulator": false }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "_comment": "BUILDER_API_URL is deliberately NOT written here. It is an EAS secret (eas secret:create --name BUILDER_API_URL --value https://<your-server>), because a URL in this file is a URL in the repository, and the one in the repository is the one somebody forgets to change. app.config.ts FAILS the build when it is missing rather than shipping an app pointed at localhost, which installs, opens, and fails every request with nothing a person could act on."
     }
   },
   "submit": {

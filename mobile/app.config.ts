@@ -1,5 +1,7 @@
 import type { ExpoConfig } from 'expo/config';
 
+import { resolveApiBaseUrl } from './src/config/apiBaseUrl.ts';
+
 /**
  * Managed workflow, no bare eject.
  *
@@ -8,6 +10,10 @@ import type { ExpoConfig } from 'expo/config';
  * largest entitlements surface in the project and none of them moves whether a person
  * shares a card.
  */
+// The rule and its message live in src/config/apiBaseUrl.ts so `bun test` can run
+// them; a guard nobody has ever executed is a guard nobody should trust.
+const apiBaseUrl = resolveApiBaseUrl(process.env);
+
 const config: ExpoConfig = {
   name: 'Builder',
   slug: 'builder',
@@ -74,7 +80,7 @@ const config: ExpoConfig = {
   ],
 
   extra: {
-    apiBaseUrl: process.env.BUILDER_API_URL ?? 'http://localhost:8000',
+    apiBaseUrl,
     // Google sign-in runs the browser-based id_token flow with no native SDK. Empty means
     // "not configured": the button renders disabled and says so rather than opening a
     // consent page that would 400.

@@ -493,9 +493,15 @@ _VOLATILE = frozenset({"content_hash", "agent_observed_at", "client_clock_offset
 
 
 def content_hash(payload: dict) -> str:
-    """sha256 over the canonical JSON of everything that can change. The Mac hashes a
-    hand-picked list of the same things; hashing the payload itself means a new field can
-    never be forgotten from the list and come back `unchanged` forever."""
+    """sha256 over the canonical JSON of everything that can change.
+
+    The whole payload, not a hand-picked list of fields, and the Mac does the same
+    (`SyncCommand`: `Hashing.sha256Hex(encoder().encode(upload))`). It has to: a field
+    left off such a list can never make a session look changed, so it would come back
+    `unchanged` forever and never reach the phone. The analysis is the field that would
+    have been forgotten first, since it arrives on a LATER run than the session it
+    describes.
+    """
     import json
 
     body = {k: v for k, v in payload.items() if k not in _VOLATILE}

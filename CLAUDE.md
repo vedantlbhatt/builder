@@ -181,6 +181,15 @@ it. `sed -i` names a path and returns NO count: the file was touched, the magnit
 in the command, and inventing one would feed `attribution` a guess it would treat as
 measured.
 
+**An app that ships pointing at localhost does not crash.** `app.config.ts` defaulted
+`apiBaseUrl` to `http://localhost:8000`, which is right for a simulator and fatal in a
+store build: the app installs, opens, and fails every request against an address the phone
+cannot reach, with no error a person could act on and nothing wrong with it except that.
+An EAS build with no `BUILDER_API_URL` now fails at config time with the `eas secret:create`
+line in the message. The rule lives in `mobile/src/config/apiBaseUrl.ts`, not inline in the
+config, so `bun test` can run it: a guard nobody has ever executed is a guard nobody should
+trust.
+
 **The density floor is a design constant, not a detail.** At 0.45 the identity amber
 rendered as muddy brown across most of a real strip, because a 71-minute session is 4.2s
 per column and most columns land in the lowest bucket. Density should modulate the colour,
@@ -217,7 +226,7 @@ prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/
 | suite | n | protects |
 |---|---|---|
 | `swift test` | 136 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
-| `bun test` | 384 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes and per-frame change ceiling; the profile screen's archetype wording and its closest-rule fallback |
+| `bun test` | 389 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes and per-frame change ceiling; the profile screen's archetype wording and its closest-rule fallback |
 | `pytest` | 124 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
 | `unittest` (analysis/) | 160 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
 | `make capture-test` | 56 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth |

@@ -3,6 +3,12 @@
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    // app.config.ts imports ./src/config/apiBaseUrl.ts BY EXTENSION, because that is the
+    // only specifier Expo's config loader resolves from app.config.ts. The rule it holds
+    // fails an EAS build with no BUILDER_API_URL, and it lives in src/ so `bun test` can
+    // run it.
+    "allowImportingTsExtensions": true,
     "types": ["bun-types"],
     "paths": {
       "@/*": ["./src/*"]
