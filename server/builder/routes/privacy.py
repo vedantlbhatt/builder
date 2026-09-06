@@ -98,6 +98,18 @@ def set_visibility(body: VisibilityUpdate, device: CurrentDevice = Depends(curre
                 {"u": str(device.user_id), "r": str(repo.id)},
             )
             deleted = result.rowcount or 0
+            # A build post (0017) is about a PROJECT and has no session, so deleting the
+            # sessions does not reach it and it would survive the sweep. `can_view_post`
+            # does hide it, and hidden is weaker than the promise this route makes: an
+            # excluded repository has NOTHING on the server, not a row that is currently
+            # filtered. A session post needs no line here; it cascades from its session.
+            db.execute(
+                text(
+                    "DELETE FROM posts WHERE user_id = :u AND repo_id = :r "
+                    "AND session_id IS NULL"
+                ),
+                {"u": str(device.user_id), "r": str(repo.id)},
+            )
         elif body.visibility == "anonymous":
             # Dropping to anonymous must strip the name and the title everywhere it was
             # already stored, not just stop sending them from now on.

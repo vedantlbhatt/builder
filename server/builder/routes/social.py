@@ -15,6 +15,7 @@ the phone renders the screen from one response over a cellular connection.
 """
 
 import base64
+import json
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -30,6 +31,7 @@ from ..auth import CurrentDevice, current_device, new_user_code
 from ..db import db_session
 from ..objectstore import configured as object_store_configured
 from ..objectstore import presign_put, public_url
+from ..shipped_spec import ShippedPost
 from .sessions import _row_to_session
 
 router = APIRouter(prefix="/v1", tags=["social"])
@@ -110,9 +112,15 @@ def _media_dict(m) -> dict:
 
 # One statement per page. `s.*` supplies everything `_row_to_session` reads; the post's
 # own columns are aliased so nothing collides with the session's.
+#
+# THE JOIN ON `sessions` IS LEFT, and it matters: a build post (0017) has no session at
+# all, so an inner join drops it from every feed, every profile and every deep link with
+# no error anywhere. The same inner join in `can_view_post` made those posts invisible to
+# their own authors; both were written when a post could only be about one sitting.
+# `repos` is reached from whichever of the two carries it.
 _ITEM_SELECT = """
     SELECT p.id AS post_id, p.user_id AS post_user_id,
-           p.caption, p.visibility, p.share_analysis,
+           p.caption, p.visibility, p.share_analysis, p.shipped,
            p.kudos_count, p.comment_count,
            p.created_at AS post_created_at, p.updated_at AS post_updated_at,
            u.handle, u.display_name,
@@ -123,8 +131,8 @@ _ITEM_SELECT = """
                    WHERE k.post_id = p.id AND k.user_id = CAST(:viewer AS uuid)) AS you_kudosed
     FROM posts p
     JOIN users u ON u.id = p.user_id
-    JOIN sessions s ON s.id = p.session_id
-    LEFT JOIN repos r ON r.id = s.repo_id
+    LEFT JOIN sessions s ON s.id = p.session_id
+    LEFT JOIN repos r ON r.id = COALESCE(s.repo_id, p.repo_id)
     LEFT JOIN session_strips st ON st.session_id = s.id
     LEFT JOIN session_analysis a ON a.session_id = s.id
 """
@@ -159,7 +167,11 @@ def _item(r, media: list, viewer: str) -> dict:
         "share_analysis": r.share_analysis,
         "created_at": r.post_created_at.isoformat(),
         "updated_at": r.post_updated_at.isoformat(),
-        "session": _row_to_session(r),
+        # Null on a build post, which is about a project across several sittings and has
+        # no single session to show. The phone branches on which of the two is present.
+        "session": _row_to_session(r) if r.id is not None else None,
+        "shipped": r.shipped,
+        "project": r.public_name,
         "strip": strip,
         "analysis": analysis,
         "photos": photos,
@@ -373,6 +385,75 @@ def create_post(body: PostCreate, device: CurrentDevice = Depends(current_device
             },
         ).scalar()
         _set_shared(db, sid, body.visibility)
+        page = _page(db, uid, "p.id = CAST(:pid AS uuid)", {"pid": str(post_id)}, limit=1)
+    return page["items"][0]
+
+
+class BuildPostCreate(BaseModel):
+    """A build post: what somebody made, across however many sittings it took."""
+
+    repo_id: str
+    shipped: ShippedPost
+    caption: str | None = Field(default=None, max_length=1000)
+    visibility: str = "private"
+
+
+@router.post("/posts/build", status_code=201)
+def create_build_post(body: BuildPostCreate, device: CurrentDevice = Depends(current_device)):
+    """Post what you built. Never automatic; this call is the act.
+
+    A session post is about one sitting. This one is about a PROJECT across as many
+    sittings as the work took, which is the unit a feature actually arrives in, and it
+    carries a `shipped` document (spec/shipped.v1.json) rather than a session analysis.
+
+    The server cannot write that document and does not try: it is drafted where the
+    transcripts, the commit messages and the dependency manifests are, none of which leave
+    the machine (privacy/upload-contract.json). What arrives here is validated against the
+    Pydantic half of the same spec, which is where the string bounds are actually enforced.
+
+    The repository must be one the caller has sessions in, and must not be excluded. The
+    ownership check is the important half: `repo_id` is a foreign key to a table SHARED by
+    every user (two people working on the same open source project resolve to one `repos`
+    row), so without it anybody could post about any project that has ever been seen.
+    """
+    if body.visibility not in VISIBILITIES:
+        raise HTTPException(422, f"visibility must be one of {list(VISIBILITIES)}")
+    uid = str(device.user_id)
+    rid = _uuid(body.repo_id, "repo_id")
+
+    with db_session(viewer_id=uid) as db:
+        mine = db.execute(
+            text(
+                "SELECT 1 FROM sessions WHERE user_id = CAST(:u AS uuid) "
+                "AND repo_id = CAST(:r AS uuid) LIMIT 1"
+            ),
+            {"u": uid, "r": rid},
+        ).first()
+        if mine is None:
+            raise HTTPException(404, "no sessions of yours in that repository")
+        excluded = db.execute(
+            text("SELECT session_repo_excluded(CAST(:u AS uuid), CAST(:r AS uuid))"),
+            {"u": uid, "r": rid},
+        ).scalar()
+        if excluded:
+            raise HTTPException(403, "this repository is excluded and cannot be shared")
+
+        post_id = db.execute(
+            text(
+                """
+                INSERT INTO posts (repo_id, user_id, caption, visibility, shipped)
+                VALUES (CAST(:r AS uuid), CAST(:u AS uuid), :caption, :vis, CAST(:b AS jsonb))
+                RETURNING id
+                """
+            ),
+            {
+                "r": rid,
+                "u": uid,
+                "caption": body.caption,
+                "vis": body.visibility,
+                "b": json.dumps(body.shipped.model_dump(mode="json")),
+            },
+        ).scalar()
         page = _page(db, uid, "p.id = CAST(:pid AS uuid)", {"pid": str(post_id)}, limit=1)
     return page["items"][0]
 
