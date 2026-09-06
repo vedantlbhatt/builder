@@ -24,9 +24,16 @@ const c = colors('dark');
 export function ArchetypeHero({
   archetype,
   sessions,
+  sentence,
 }: {
   archetype: CorpusArchetype | null;
   sessions: number;
+  /**
+   * The narrative's one line about what this label means for THIS person, when a
+   * narrative exists and the number check did not take it back. Shown ABOVE the rule,
+   * because the rule is the receipt and this is the claim. Absent is the normal state.
+   */
+  sentence?: string | null;
 }) {
   const name = archetype?.name ?? null;
   const runners = (archetype?.runners_up ?? []).filter((r) => r.score !== null);
@@ -64,7 +71,20 @@ export function ArchetypeHero({
         </View>
       </View>
 
-      <Text style={{ color: c.text, fontSize: 14, lineHeight: 20, marginTop: space.md }}>
+      {sentence && (
+        <Text style={{ color: c.text, fontSize: 16, lineHeight: 24, marginTop: space.md }}>
+          {sentence}
+        </Text>
+      )}
+
+      <Text
+        style={{
+          color: sentence ? c.textDim : c.text,
+          fontSize: sentence ? 12 : 14,
+          lineHeight: sentence ? 18 : 20,
+          marginTop: sentence ? space.sm : space.md,
+        }}
+      >
         {/* The rule, verbatim from the server, or the reason there is none. An archetype
             with nothing under it is a horoscope; this one is a threshold on a single
             named metric, so saying which one is the difference between a claim and a

@@ -10,6 +10,8 @@ import { ArchetypeHero } from '../src/profile/ArchetypeHero';
 import { BuilderProfileCard } from '../src/profile/BuilderProfileCard';
 import { ContributionGrid } from '../src/profile/ContributionGrid';
 import { FactList } from '../src/profile/FactList';
+import { archetypeSentence } from '../src/profile/narrative';
+import { NarrativeSection } from '../src/profile/NarrativeSection';
 import { ShareBars } from '../src/profile/ShareBars';
 import { StripClass } from '../src/generated/strip';
 import { colors, duration, space } from '../src/theme';
@@ -76,6 +78,9 @@ export default function ProfileScreen() {
   const longestValue = longest ? duration(longest.attended_seconds ?? longest.active_seconds) : null;
 
   const corpus = builder?.corpus ?? null;
+  // Absent on a server older than 0016, and null until this account's own machine has
+  // run `python -m capture narrative`. Both are the same thing on screen: nothing.
+  const narrative = builder?.narrative ?? null;
   const missing = Object.entries(corpus?.sample.missing ?? {});
 
   return (
@@ -88,7 +93,18 @@ export default function ProfileScreen() {
       {/* The archetype is the top of the screen, not a card buried under the totals: it is
           the one line a person would say out loud about themselves. Only a server that
           computes it gets the hero; an older one keeps the hours card as the opener. */}
-      {corpus && <ArchetypeHero archetype={corpus.archetype} sessions={corpus.sample.sessions} />}
+      {corpus && (
+        <ArchetypeHero
+          archetype={corpus.archetype}
+          sessions={corpus.sample.sessions}
+          sentence={archetypeSentence(narrative)}
+        />
+      )}
+
+      {/* Directly under the archetype, because it is the sentence that explains it. A
+          person who reads "quality guardian" and nothing else has learned a label; the
+          paragraph under it is the part that is about them. */}
+      {narrative && <NarrativeSection narrative={narrative} />}
 
       {corpus && corpus.facts.length > 0 && (
         <Section title="What stands out">
