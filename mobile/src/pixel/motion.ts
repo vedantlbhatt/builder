@@ -621,61 +621,61 @@ export interface AnimalMotion {
 
 export const ANIMAL_MOTION: Record<Animal, AnimalMotion> = {
   crab: {
-    beatMs: 420,
+    beatMs: 300,
     // Two beats to the step, so the claw snip lands on the turn of the sidestep.
     drift: { axis: 'x', cells: 1, periodMs: 1680 },
     breathMs: 4200,
-    note: 'sidesteps one pixel, claws snip',
+    note: 'claws snip, eight legs step, one blink, sidestepping a pixel',
   },
   octopus: {
-    beatMs: 380,
+    beatMs: 320,
     drift: { axis: 'y', cells: 1, periodMs: 3400 },
     breathMs: 4600,
-    note: 'tentacles wiggle out and back, hangs in the water',
+    note: 'arms curl out and back through four positions, blinking mid stroke',
   },
   dog: {
     beatMs: 300,
     drift: null,
     breathMs: 3600,
-    // Head on you do not see the tail, you see its TIP appear past one flank and then the
-    // other. Fast, because a wag that is not fast is a limp.
-    note: 'tail tip swings past one flank, then the other',
+    note: 'tail tip swings past each flank in turn, ears bounce, one blink',
   },
   cat: {
-    beatMs: 600,
+    beatMs: 380,
     drift: null,
     breathMs: 4800,
-    note: 'tail flicks, then an ear twitch',
+    note: 'tail sweeps through four positions, one ear twitches, one blink',
   },
   owl: {
-    beatMs: 520,
-    // 0.28 x 520 = 146 ms shut. See `holds`.
-    holds: [1, 0.28, 1],
+    beatMs: 340,
+    // The blink is frames 1 to 3 and a blink is not a nap: half, shut and half again go
+    // past in 0.28 of a beat each, which is 95 ms, the same rule the three-frame owl had.
+    holds: [1, 0.28, 0.28, 0.28, 1, 1, 1, 1, 1, 1, 1, 1],
     drift: null,
     breathMs: 5000,
-    note: 'blinks, then turns its head a pixel',
+    note: 'blinks, turns its head each way, flattens its tufts, shuffles its feet',
   },
   fox: {
-    beatMs: 480,
+    beatMs: 360,
     drift: null,
     breathMs: 4000,
-    // Facing forward there is no brush to sweep, and the ears are what a fox has that the
-    // dog does not. One at a time, through the resting pose: both at once is a shrug.
-    note: 'one ear flicks, then the other',
+    note: 'one ear folds, then the other, breathing in between, and one blink',
   },
   whale: {
-    beatMs: 560,
+    beatMs: 380,
     drift: { axis: 'y', cells: 1, periodMs: 4200 },
     breathMs: 5200,
-    note: 'spout puffs, bobs on the swell',
+    note: 'the spout builds, plumes and clears, flippers tuck, one blink',
   },
   bee: {
     beatMs: 300,
+    // A wing beat at 300 ms is a moth. The six wing frames go past at 0.4 of a beat,
+    // 120 ms each, and the abdomen and the blink take the full beat.
+    holds: [0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 1, 1, 1, 1, 0.4, 0.4],
     // The fastest drift in the pack, and the only 2-cell one: a bee that hovers gently
     // is a moth.
     drift: { axis: 'y', cells: 2, periodMs: 900 },
     breathMs: 3000,
-    note: 'wings blur, hovers up and down',
+    note: 'wings beat through five positions, abdomen tapers, one blink',
   },
 };
 

@@ -35,12 +35,13 @@ import { colors, type Scheme } from '../src/theme';
  * The subtlety budget: how many of the 256 cells may change between one frame of a loop
  * and the next, the wrap back to frame 0 included.
  *
- * MEASURED over the shipping frames — crab 6, octopus 8, dog 2, cat 3, owl 8, fox 2,
- * whale 6, bee 4 — so the worst change in the pack is 8 cells and the ceiling is 10.
+ * MEASURED over the shipping frames — crab 8, octopus 8, dog 2, cat 6, owl 6, fox 6,
+ * whale 8, bee 8 — so the worst change in the pack is 8 cells and the ceiling is 10.
  *
- * The dog and the fox are the smallest in the pack because they turned to face forward:
- * a side view has to move a whole tail or a whole brush, and head on the same gesture is
- * a tail tip past one flank or a single ear folding.
+ * This is what makes a ten-frame loop possible at all. Each frame moves exactly ONE
+ * channel of the animal (the claws, or the legs, or the eyelids) to an adjacent state,
+ * so the loop is busy across its length and quiet on any single beat. A frame that
+ * changed two channels at once would double this number and read as a jump.
  * The number is the whole point of the rule: whole-body movement belongs in
  * `ANIMAL_MOTION.drift`, and a loop that starts repainting the animal has stopped being
  * an idle. If this ever fails, look at the contact sheet before raising it.
@@ -101,9 +102,12 @@ describe('the pack', () => {
     describe(animal, () => {
       const frames = framesForAnimal(animal);
 
-      test('the loop is 2 to 4 frames', () => {
-        expect(frames.length).toBeGreaterThanOrEqual(2);
-        expect(frames.length).toBeLessThanOrEqual(4);
+      test('the loop is 10 to 12 frames', () => {
+        // Long enough that the animal is doing several things — snipping, stepping and
+        // blinking, not just one gesture on repeat — and short enough that a person sees
+        // the whole loop before it comes round again.
+        expect(frames.length).toBeGreaterThanOrEqual(10);
+        expect(frames.length).toBeLessThanOrEqual(12);
       });
 
       test(`every frame is ${GRID}x${GRID} and uses only known glyphs`, () => {
@@ -181,6 +185,25 @@ describe('the pack', () => {
     }
     // Named, so removing the cat's tail does not quietly satisfy a rule it is exempt from.
     expect(asymmetry(framesForAnimal('cat')[0]!)).toBeGreaterThan(0);
+  });
+
+  test('every animal moves several parts across its loop, not one', () => {
+    // The complaint this answers: two frames of a tail is not an animation. Count the
+    // distinct PLACES that move — the set of rows that changed on each beat, deduped over
+    // the loop. One gesture on repeat gives one. The crab's claws, legs and eyelids give
+    // three, and nothing in the pack gives fewer.
+    for (const animal of ANIMALS) {
+      const frames = framesForAnimal(animal);
+      const places = new Set<string>();
+      for (let i = 0; i < frames.length; i++) {
+        const a = frames[i]!;
+        const b = frames[(i + 1) % frames.length]!;
+        const rows: number[] = [];
+        for (let y = 0; y < GRID; y++) if (a[y] !== b[y]) rows.push(y);
+        if (rows.length) places.add(rows.join(','));
+      }
+      expect(places.size, `${animal} moves only ${[...places].join(' | ')}`).toBeGreaterThanOrEqual(3);
+    }
   });
 
   test('a gesture breaks the symmetry by a few cells, never a redraw', () => {
@@ -415,15 +438,26 @@ describe('animal motion', () => {
     }
   });
 
-  test("the owl's blink is a blink, not a nap", () => {
-    // Frame 1 is the shut-eyed frame; 0.28 x 520 ms = 146 ms, near the mascot's 120.
-    const [open, shut, turn] = animalTimeline('owl');
-    expect(shut!.ms).toBeLessThan(200);
-    expect(shut!.ms).toBeLessThan(open!.ms / 2);
-    expect(turn!.ms).toBe(open!.ms);
-    // Nobody else holds a frame short.
+  test('a blink is a blink and a wing beat is a wing beat, not a nap or a flap', () => {
+    // Frames 1 to 3 are the owl's blink: half, shut, half. 0.28 x 340 ms is 95 ms each,
+    // near the mascot's 120, and the whole blink goes by inside one ordinary beat.
+    const owl = animalTimeline('owl');
+    const beat = owl[0]!.ms;
+    for (const i of [1, 2, 3]) expect(owl[i]!.ms, `owl frame ${i}`).toBeLessThan(120);
+    expect(owl[1]!.ms + owl[2]!.ms + owl[3]!.ms).toBeLessThanOrEqual(beat);
+    for (const i of [4, 5, 6, 7, 8, 9, 10, 11]) expect(owl[i]!.ms).toBe(beat);
+
+    // The bee's six wing frames are held short for the opposite reason: a wing beat at a
+    // full beat is a moth.
+    const bee = animalTimeline('bee');
+    const wing = [0, 1, 2, 3, 4, 5, 10, 11];
+    for (const i of wing) expect(bee[i]!.ms, `bee frame ${i}`).toBeLessThan(150);
+    for (const i of [6, 7, 8, 9]) expect(bee[i]!.ms).toBeGreaterThan(250);
+
+    // Nobody else holds a frame short: an even beat is the default and the exceptions are
+    // the two animals whose gesture is genuinely faster than the rest of their loop.
     for (const animal of ANIMALS) {
-      if (animal === 'owl') continue;
+      if (animal === 'owl' || animal === 'bee') continue;
       const ms = animalTimeline(animal).map((b) => b.ms);
       expect(new Set(ms).size, animal).toBe(1);
     }
