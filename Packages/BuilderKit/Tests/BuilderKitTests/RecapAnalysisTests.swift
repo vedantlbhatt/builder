@@ -28,13 +28,11 @@ struct RecapAnalysisTests {
             analysisVersion: AnalysisSpec.version, model: "sonnet",
             generatedAt: Date(timeIntervalSince1970: 1_800_000_000),
             digestHash: String(repeating: "a", count: 64), digestCoverage: 1,
-            headline: headline, summary: summary, outcome: outcome, features: [],
-            workMix: ["feature": 1],
+            headline: headline, summary: summary, highlights: [], outcome: outcome,
             buildStyle: .init(
                 planning: .light, iteration: .iterative, steering: .guided,
                 verification: .ranTests, scopeControl: .held),
-            dimensions: dimensions, archetype: archetype, decisionPatterns: [], pivots: [],
-            friction: [],
+            dimensions: dimensions, archetype: archetype, decisionPatterns: [],
             prompting: .init(tone: .terse, specificity: 60, correctionShare: 0.1, questionShare: 0.1),
             growthEdge: [], tags: [], confidence: 0.8, containsSensitive: false)
     }

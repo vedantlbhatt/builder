@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from ..auth import CurrentDevice, current_device
-from ..builder_profile import DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS, MIN_SESSIONS, builder_profile
+from ..builder_profile import (
+    DEFAULT_WINDOW_DAYS,
+    MAX_WINDOW_DAYS,
+    MIN_SESSIONS,
+    builder_profile,
+    corpus_metrics,
+)
 from ..contract import ENUM_VALUES
 from ..db import db_session
 
@@ -230,7 +236,9 @@ def profile(
 
     `builder_profile` is the aggregate of the session analyses (builder_profile.py): null
     until three analysed sessions exist, because docs/analysis.md forbids reading an
-    archetype off one run. `/profile/builder` serves it alone for a refresh.
+    archetype off one run. The computed corpus metrics and their ranked facts are NOT
+    here: they are a second, larger object served by `/profile/builder`, which the phone
+    fetches for the profile card and refreshes on its own.
     """
     uid = str(device.user_id)
     with db_session(viewer_id=uid) as db:
@@ -349,16 +357,27 @@ def profile(
 def profile_builder(device: CurrentDevice = Depends(current_device), window_days: int = WindowDays):
     """The builder profile alone, so the phone can refresh it without the whole tab.
 
-    The count and the minimum travel beside the (possibly null) profile so the screen can
-    say "2 of 3 sessions analysed" rather than show an empty card: null alone cannot
-    distinguish "not enough yet" from "nothing was ever analysed".
+    TWO profiles under one route, and they are not the same kind of thing:
+
+    * `builder_profile` aggregates the model-written session analyses (dimension means,
+      modal archetype, build style, tags). Null until three analysed sessions exist. The
+      count and the minimum travel beside it so the screen can say "2 of 3 sessions
+      analysed" rather than show an empty card.
+    * `corpus` is COMPUTED, never written: totals, prompt shape, planning ratio, steer
+      rate, autonomy, velocity, night share, the archetype the deterministic rules chose
+      with its runners up, and `facts`, the ranked one-line sentences the card shows. It
+      needs no analysis at all, and every metric it cannot honestly compute is null with
+      a reason in `sample.missing`. Null for the whole block means only one thing: the
+      metrics module is not deployed on this server.
     """
     uid = str(device.user_id)
     with db_session(viewer_id=uid) as db:
         builder, analysed = builder_profile(db, uid, window_days)
+        corpus = corpus_metrics(db, uid, window_days)
     return {
         "builder_profile": builder,
         "sessions_analysed": analysed,
         "min_sessions": MIN_SESSIONS,
         "window_days": window_days,
+        "corpus": corpus,
     }

@@ -117,6 +117,58 @@ def _verify_excerpts(analysis: dict, digest_text: str) -> int:
     return dropped
 
 
+#: Fields whose text is the USER'S OWN WORDS. A dash inside one of these is something the
+#: person typed, and rewriting it would also break the verbatim check that makes an
+#: excerpt worth showing.
+_VERBATIM_FIELDS = frozenset({"prompt_excerpt"})
+
+_DASHES = ("\u2014", "\u2013", "\u2015", "\u2212")
+
+
+def _dedash(text: str) -> str:
+    """A dash the model used as punctuation becomes a comma or a full stop.
+
+    REWRITE, not reject: the call costs a few minutes and a few cents (docs/analysis.md),
+    and throwing the whole reading away over punctuation would mean a session with no
+    analysis at all. A spaced dash is a clause break and becomes a comma; an unspaced one
+    is a range or a compound and becomes " to " when it sits between two digits and a
+    comma otherwise.
+    """
+    out = text
+    for dash in _DASHES:
+        while dash in out:
+            i = out.index(dash)
+            before, after = out[:i], out[i + 1 :]
+            if before[-1:].isdigit() and after[:1].isdigit():
+                out = f"{before} to {after}"
+            elif before[-1:] == " " and after[:1] == " ":
+                out = f"{before.rstrip()}, {after.lstrip()}"
+            else:
+                out = f"{before.rstrip()}, {after.lstrip()}"
+    return " ".join(out.split()) if text.strip() else text
+
+
+def dedash(node, *, field: str | None = None) -> tuple[object, int]:
+    """Rewrite every dash in every string of a decoded analysis. Returns (node, count)."""
+    if isinstance(node, str):
+        if field in _VERBATIM_FIELDS or not any(d in node for d in _DASHES):
+            return node, 0
+        return _dedash(node), sum(node.count(d) for d in _DASHES)
+    if isinstance(node, dict):
+        total = 0
+        for k, v in node.items():
+            node[k], n = dedash(v, field=k)
+            total += n
+        return node, total
+    if isinstance(node, list):
+        total = 0
+        for i, v in enumerate(node):
+            node[i], n = dedash(v, field=field)
+            total += n
+        return node, total
+    return node, 0
+
+
 def analyze(
     transcript: pathlib.Path,
     start: float | None = None,
@@ -142,10 +194,14 @@ def analyze(
     analysis["generated_at"] = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     analysis["digest_hash"] = d["hash"]
     analysis["digest_coverage"] = d["coverage"]
+    # Excerpts are verified BEFORE the dash rewrite: an excerpt is checked against the
+    # digest as the person typed it, and it is exempt from the rewrite for the same reason.
     dropped = _verify_excerpts(analysis, d["text"])
+    analysis, dashes = dedash(analysis)
 
     return {
         "analysis": analysis,
+        "dashes_rewritten": dashes,
         "stats": d["stats"],
         "digest_chars": len(d["text"]),
         "digest_events": d["events"],

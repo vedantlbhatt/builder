@@ -16,10 +16,24 @@ Windowing is by the session's `started_at`, not the analysis's `generated_at`: t
 question is "how have I been building lately", and a re-run analysis of an old session
 does not make that session recent. Live snapshots are excluded, like every other
 aggregate on the profile; a live checkpoint analysis describes work in progress.
+
+`corpus_metrics` below is the OTHER half of the profile and shares nothing with the
+first: no model wrote any of it. It reads the stored sessions and their stats, hands
+them to `analysis/profile.py` as `SessionFact`s, and returns the metric set, the ranked
+one-line facts and the archetype the rules chose. Two consequences worth stating:
+
+  * it does NOT need an analysis, so it lights up on the third SESSION rather than the
+    third analysed session, and
+  * the server cannot see prompt text, interrupts, per-tool names or commit times, so the
+    metrics that rest on those come back null with a reason instead of a number. The
+    reasons travel to the phone in `sample.missing`; a blank metric with no explanation
+    is how a user concludes the product is broken.
 """
 
 from __future__ import annotations
 
+import pathlib
+import sys
 from collections import Counter
 
 from sqlalchemy import text
@@ -194,3 +208,120 @@ def _mode(counts: Counter) -> tuple[str | None, int]:
 def _mean(values: list, digits: int) -> float | None:
     xs = [float(v) for v in values if v is not None]
     return round(sum(xs) / len(xs), digits) if xs else None
+
+
+# ------------------------------------------------------------------- corpus metrics
+#: `analysis/` lives at the repository root, next to `server/`. The repo-root Dockerfile
+#: copies it into the image; the older server-only image does not have it, and the hook
+#: channel already handles that shape the same way (`hook_ingest._capture`). Imported
+#: lazily so a server without it still boots and still serves the rest of the profile.
+_ANALYSIS_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+
+class MetricsUnavailable(RuntimeError):
+    """`analysis/profile.py` is not deployed on this server."""
+
+
+def _profile_module():
+    try:
+        import analysis.profile as ap
+    except ImportError:
+        root = str(_ANALYSIS_ROOT)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        try:
+            import analysis.profile as ap
+        except ImportError as e:  # pragma: no cover - deployment shape, not logic
+            raise MetricsUnavailable(str(e)) from e
+    return ap
+
+
+def corpus_metrics(db, user_id: str, window_days: int) -> dict | None:
+    """Every computed metric over the viewer's own sessions in the window, or None.
+
+    None means the module is not deployed. An EMPTY corpus is not None: it is a profile
+    whose sample block says there are no sessions, which is a different thing and reads
+    differently on the phone.
+
+    The population is FINAL, VISIBLE sessions: the same one the hours total and the graph
+    use, so a person cannot find one screen counting a session another screen ignores.
+    Live rows move every minute and are excluded here too.
+    """
+    try:
+        ap = _profile_module()
+    except MetricsUnavailable:
+        return None
+
+    rows = db.execute(
+        text(
+            """
+            SELECT s.id, s.started_at, s.ended_at, s.tz_offset_minutes,
+                   s.active_seconds, s.attended_seconds, s.autonomous_seconds, s.unattended,
+                   st.tool_calls, st.human_prompt_count, st.lines_added_agent,
+                   st.commit_count, st.models, st.tok_out, st.tokens_reported
+            FROM sessions s LEFT JOIN session_stats st ON st.session_id = s.id
+            WHERE s.user_id = :u AND s.state = 'final' AND s.visible
+              AND s.started_at > now() - make_interval(days => :days)
+            ORDER BY s.started_at
+            """
+        ),
+        {"u": user_id, "days": window_days},
+    ).all()
+
+    facts = [_session_fact(ap, r) for r in rows]
+    return ap.corpus_profile(facts)
+
+
+def _session_fact(ap, r):
+    """One stored session as a `SessionFact`, with every basis labelled.
+
+    What the server does NOT have, and therefore never guesses:
+
+      * prompt TEXT and interrupt counts. `human_prompt_count` is a count; the wording of
+        a prompt never leaves the machine (privacy/upload-contract.json), so
+        `avg_prompt_chars`, `short_prompt_share`, `planning_ratio` and `steer_rate` are
+        null here and say so.
+      * real tool NAMES. `tool_calls` is an allowlisted map (unknown and MCP tools bucket
+        to `other` / `mcp_other`), so it is labelled as such and distinct-name diversity
+        is refused rather than undercounted. It also cannot say which Bash call wrote a
+        file, so `write_events` is None (unknown), not a count of the edit-tool names.
+      * commit TIMES. `commit_count` is a git-log count over the session window, the same
+        definition the uploader computes; the strip marks are deduped for rendering and
+        are not commit timestamps.
+      * per-model output TOKENS, except as shares. `models` carries
+        `output_token_share` per model, so share times `tok_out` is the honest
+        reconstruction, and it is exactly what the machine-side path uses too.
+    """
+    tokens: dict[str, int] = {}
+    for entry in r.models or []:
+        if isinstance(entry, dict) and entry.get("model_id") and r.tok_out:
+            tokens[entry["model_id"]] = round(
+                float(entry.get("output_token_share") or 0) * r.tok_out
+            )
+    return ap.SessionFact(
+        session_id=str(r.id),
+        started_at=r.started_at.timestamp(),
+        ended_at=r.ended_at.timestamp(),
+        active_seconds=r.active_seconds,
+        attended_seconds=r.attended_seconds,
+        autonomous_seconds=r.autonomous_seconds,
+        tz_offset_minutes=r.tz_offset_minutes,
+        prompt_count=r.human_prompt_count or 0,
+        interrupts=None,
+        tool_calls=dict(r.tool_calls or {}),
+        tool_basis=ap.TOOLS_ALLOWLIST if r.tool_calls else ap.TOOLS_ABSENT,
+        lines_added_agent=r.lines_added_agent or 0,
+        lines_basis=ap.LINES_UPLOADED,
+        # UNKNOWN, not zero. Both clients now fold shell writes (`cat > f <<'EOF'`) into
+        # `lines_added_agent`, and the uploaded tool map cannot say which Bash call wrote
+        # a file, so counting Edit/Write names here would report 0 writes for a session
+        # that wrote 2,000 lines and refuse a rate that is real.
+        write_events=None,
+        commit_count=r.commit_count or 0,
+        commit_basis=ap.COMMITS_GIT_LOG,
+        commit_times=None,
+        output_tokens_by_model=tokens,
+        prompts=None,
+        test_runs=None,
+        unattended=r.unattended,
+    )

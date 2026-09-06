@@ -76,15 +76,6 @@ export function analysisFooter(
 export const SENSITIVE_WARNING =
   'This analysis mentions something that looks sensitive. Check before sharing.';
 
-/** "t+38m" / "t+2h 05m" for the pivot timeline. */
-export function pivotTime(atMinute: number): string {
-  const m = Math.max(0, Math.round(atMinute));
-  if (m < 60) return `t+${m}m`;
-  const h = Math.floor(m / 60);
-  const rem = m % 60;
-  return `t+${h}h ${rem.toString().padStart(2, '0')}m`;
-}
-
 /**
  * The one-time flourish beside an analysis headline. Only `shipped` earns it: a model that
  * wrote `progressed` or `explored` is saying the work is not done, and a cheering mascot

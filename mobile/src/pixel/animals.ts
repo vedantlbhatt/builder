@@ -520,9 +520,9 @@ export function isAnimal(value: unknown): value is Animal {
 
 /**
  * One animal per builder archetype, so the profile screen can show a creature rather than
- * a word. The six keys are the six archetypes in `generated/analysis.ts`; that file is
- * generated from the spec, so a seventh archetype breaks this table's type rather than
- * silently falling through to the default.
+ * a word. These six keys are the six archetypes in `generated/analysis.ts` — the ones a
+ * MODEL assigns to a single session. That file is generated from the spec, so a seventh
+ * archetype breaks this table's type rather than silently falling through to the default.
  *
  * The obvious pairs first: an architect gets the owl, a velocity machine the bee, a
  * quality guardian the crab (it walks sideways and checks everything twice).
@@ -542,6 +542,26 @@ export const ARCHETYPE_ANIMALS = {
   firefighter: 'fox',
 } as const satisfies Record<string, Animal>;
 
+/**
+ * The two archetypes the CORPUS profile can reach that a single session cannot.
+ *
+ * `analysis/profile.py:ARCHETYPE_RULES` scores a whole corpus deterministically, and its
+ * six names are not the same six the model picks from per session: it can return
+ * `director` (a high autonomy score: you brief and leave) and `skeptic` (test runs per
+ * active hour), neither of which is in the spec's per-session enum. Without these two
+ * entries a director's profile would show the fallback crab and read as a bug.
+ *
+ * They are written out here rather than generated because the corpus rules are not in
+ * `spec/analysis.v1.json` — they are computation, not a wire enum. The union of the two
+ * tables is eight archetypes over the pack's eight animals, and the test asserts that
+ * mapping stays one-to-one, so a new archetype on either side cannot quietly share a
+ * creature with an existing one.
+ */
+export const CORPUS_ARCHETYPE_ANIMALS = {
+  director: 'dog',
+  skeptic: 'whale',
+} as const satisfies Record<string, Animal>;
+
 export type ArchetypeKey = keyof typeof ARCHETYPE_ANIMALS;
 
 /** The animal shown when nobody has chosen one and there is no archetype yet. */
@@ -554,7 +574,9 @@ export const DEFAULT_ANIMAL: Animal = 'crab';
  */
 export function animalForArchetype(archetype: string | null | undefined): Animal {
   if (typeof archetype !== 'string') return DEFAULT_ANIMAL;
-  const hit = (ARCHETYPE_ANIMALS as Record<string, Animal>)[archetype];
+  const hit =
+    (ARCHETYPE_ANIMALS as Record<string, Animal>)[archetype] ??
+    (CORPUS_ARCHETYPE_ANIMALS as Record<string, Animal>)[archetype];
   return hit ?? DEFAULT_ANIMAL;
 }
 

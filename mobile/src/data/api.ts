@@ -192,6 +192,140 @@ export interface BuilderProfile {
   decision_patterns: { pattern: string; sessions: number; example: string }[];
 }
 
+// ---------------------------------------------------------- the corpus profile
+// `GET /v1/profile/builder` → `corpus`, field for field as `analysis/profile.py`
+// serialises it. Nothing here is model-written: it is arithmetic over every final,
+// visible session in the window, so the same corpus always produces the same profile.
+
+/**
+ * One computed metric.
+ *
+ * `value: null` is NOT zero and must never render as one. It means the metric was
+ * REFUSED, and `reason` says why in a sentence meant for a person: the sample was too
+ * small, or the input is structurally absent on this server (prompt wording never leaves
+ * the machine, so anything derived from prompt text is null through the API by design).
+ * `basis` names the data it was computed from, because the same metric means a different
+ * thing read from transcripts than read from uploaded counts.
+ */
+export interface CorpusMetric {
+  /**
+   * A number for every metric except `busiest_day`, which is a local date string. Typed
+   * as the union rather than special-cased: a screen that assumed number would render
+   * `NaN` for that one key, and the whole point of this block is that it never states a
+   * number it did not measure.
+   */
+  value: number | string | null;
+  unit: string;
+  n: number;
+  basis: string;
+  reason: string | null;
+  /**
+   * Per-metric extras the server attaches: `planning_ratio` carries its two prompt
+   * counts, `steer_rate` its interrupts and corrective prompts, `code_velocity` its
+   * `write_events` (null where the writes cannot be counted at all, which is not zero),
+   * `night_share` and `short_prompt_share` a `note`, `busiest_day` its active seconds.
+   */
+  [extra: string]: unknown;
+}
+
+/** What a fact was ranked against, so the screen can say where the number sits. */
+export interface FactBaseline {
+  value: number;
+  scale: number;
+  source: string;
+}
+
+/** One ranked sentence in the second person. `unusualness` sorts them, most first. */
+export interface CorpusFact {
+  id: string;
+  text: string;
+  value: number | null;
+  unit: string;
+  unusualness: number;
+  /** Null on a fact that was not ranked against one: the peak hour, the streak, the
+   *  totals, the model mix, the top tool. */
+  baseline: FactBaseline | null;
+}
+
+/** One archetype rule and how this corpus scored against it. */
+export interface ArchetypeScore {
+  name: string;
+  metric: string;
+  value: number | null;
+  threshold: number;
+  /** `value / threshold`, halved, so meeting the threshold exactly is 0.5. Null: the
+   *  metric it reads was refused, so the rule did not score and cannot win. */
+  score: number | null;
+  rule: string;
+}
+
+/**
+ * The archetype the deterministic rules chose.
+ *
+ * `name` is null when no rule met its threshold or the corpus is too small, and `reason`
+ * says which. The rules can return `director` and `skeptic`, which are NOT in the
+ * per-session `Archetype` enum, so this is a plain string.
+ */
+export interface CorpusArchetype {
+  name: string | null;
+  confidence: number | null;
+  reason: string | null;
+  /** The winning rule, all four null together when nothing won. `scores` still carries
+   *  every rule, so a corpus with no type can still say which one it came closest to. */
+  metric: string | null;
+  value: number | null;
+  threshold: number | null;
+  rule: string | null;
+  scores: ArchetypeScore[];
+  runners_up: { name: string; score: number | null; metric: string; value: number | null }[];
+}
+
+export interface CorpusProfile {
+  profile_version: number;
+  generated_at: string;
+  sample: {
+    sessions: number;
+    sessions_with_prompt_text: number;
+    prompts: number;
+    prompts_with_text: number;
+    tool_calls: number;
+    active_hours: number;
+    days: number;
+    min_sessions: number;
+    enough_sessions: boolean;
+    /** Metric name → why it is null. Shown verbatim; these are the honesty of the screen. */
+    missing: Record<string, string>;
+  };
+  totals: {
+    total_sessions: number;
+    total_hours: number;
+    total_prompts: number;
+    total_lines_added: number;
+    total_commits: number;
+    commit_basis: string;
+    total_tool_calls: number;
+  };
+  metrics: Record<string, CorpusMetric>;
+  top_tools: { tool: string; calls: number; share: number }[];
+  model_mix: { model: string; output_tokens: number; share: number }[];
+  archetype: CorpusArchetype;
+  facts: CorpusFact[];
+}
+
+/**
+ * `GET /v1/profile/builder`. Two different kinds of profile under one route:
+ * `builder_profile` aggregates what a MODEL wrote about each session and is null until
+ * `min_sessions` of them are analysed; `corpus` is computed and needs no analysis at all.
+ * `corpus` null means only one thing: the metrics module is not deployed on that server.
+ */
+export interface BuilderProfileResponse {
+  builder_profile: BuilderProfile | null;
+  sessions_analysed: number;
+  min_sessions: number;
+  window_days: number;
+  corpus: CorpusProfile | null;
+}
+
 // ------------------------------------------------------------------ social
 // Read shapes mirror `server/builder/routes/social.py` field for field. A feed item is
 // self-contained (one request renders the screen); the cursor pair `next_before` /
@@ -555,6 +689,14 @@ export class Api {
 
   profile(days = 119): Promise<Profile> {
     return this.request('GET', `/v1/profile?days=${encodeURIComponent(days)}`);
+  }
+
+  /**
+   * The builder profile on its own, so the screen can refresh the part that changes
+   * without refetching the graph, the projects and every live session with it.
+   */
+  builderProfile(days = 119): Promise<BuilderProfileResponse> {
+    return this.request('GET', `/v1/profile/builder?days=${encodeURIComponent(days)}`);
   }
 
   sessions(opts: { limit?: number; before?: string | null; notable_only?: boolean } = {}): Promise<{

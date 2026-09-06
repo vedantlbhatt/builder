@@ -4,51 +4,35 @@ export const ANALYSIS_VERSION = 1;
 
 /** Character caps by size class; string fields below name one of these in their doc. */
 export const ANALYSIS_MAX_LENGTHS = {
-  headline: 90,
-  summary: 700,
+  headline: 70,
+  summary: 260,
   short: 140,
   medium: 300,
   excerpt: 160,
 } as const;
 
 export type Outcome = "shipped" | "progressed" | "explored" | "blocked" | "abandoned" | "maintenance";
-export type FeatureStatus = "done" | "partial" | "started" | "reverted";
 export type Planning = "none" | "light" | "explicit_plan" | "plan_mode";
 export type Iteration = "linear" | "iterative" | "pivoted" | "thrashing";
 export type Steering = "hands_off" | "guided" | "tight_loop" | "micromanaged";
 export type Verification = "none" | "manual_check" | "ran_tests" | "tests_added";
 export type ScopeControl = "held" | "expanded" | "narrowed";
 export type Archetype = "architect" | "velocity_machine" | "quality_guardian" | "night_owl" | "explorer" | "firefighter";
-export type FrictionKind = "misunderstanding" | "tool_failure" | "env_issue" | "model_error" | "scope_creep" | "human_error" | "waiting";
 export type Tone = "neutral" | "terse" | "polite" | "frustrated" | "mixed";
-export type WorkKind = "feature" | "bugfix" | "refactor" | "infra" | "docs" | "test" | "research" | "ops";
 export type Dimension = "steering" | "execution" | "engineering" | "product_instinct" | "planning";
 
 /** Legal values for every enum, in spec order — the same order Swift's CaseIterable uses. */
 export const ANALYSIS_ENUMS = {
   outcome: ["shipped", "progressed", "explored", "blocked", "abandoned", "maintenance"],
-  feature_status: ["done", "partial", "started", "reverted"],
   planning: ["none", "light", "explicit_plan", "plan_mode"],
   iteration: ["linear", "iterative", "pivoted", "thrashing"],
   steering: ["hands_off", "guided", "tight_loop", "micromanaged"],
   verification: ["none", "manual_check", "ran_tests", "tests_added"],
   scope_control: ["held", "expanded", "narrowed"],
   archetype: ["architect", "velocity_machine", "quality_guardian", "night_owl", "explorer", "firefighter"],
-  friction_kind: ["misunderstanding", "tool_failure", "env_issue", "model_error", "scope_creep", "human_error", "waiting"],
   tone: ["neutral", "terse", "polite", "frustrated", "mixed"],
-  work_kind: ["feature", "bugfix", "refactor", "infra", "docs", "test", "research", "ops"],
   dimension: ["steering", "execution", "engineering", "product_instinct", "planning"],
 } as const;
-
-export interface Feature {
-  /** (max 140 chars) */
-  name: string;
-  status: FeatureStatus;
-  /** (max 300 chars) */
-  detail?: string | null;
-  /** digest event ordinals that support this (max 6 items) */
-  evidence: number[];
-}
 
 export interface BuildStyle {
   planning: Planning;
@@ -56,7 +40,7 @@ export interface BuildStyle {
   steering: Steering;
   verification: Verification;
   scope_control: ScopeControl;
-  /** how they structured the work, if visible (max 300 chars) */
+  /** how they structured the work, if visible. One sentence, no dashes. (max 300 chars) */
   architecture_note?: string | null;
 }
 
@@ -64,7 +48,7 @@ export interface DimensionScore {
   dimension: Dimension;
   /** 0-100 */
   score: number;
-  /** (max 140 chars) */
+  /** one line, grounded in the digest. No dashes. (max 140 chars) */
   rationale: string;
 }
 
@@ -75,23 +59,6 @@ export interface DecisionPattern {
   prompt_excerpt: string;
   /** (max 140 chars) */
   effect?: string | null;
-}
-
-export interface Pivot {
-  at_minute: number;
-  /** (max 140 chars) */
-  from_goal: string;
-  /** (max 140 chars) */
-  to_goal: string;
-  /** (max 140 chars) */
-  trigger?: string | null;
-}
-
-export interface Friction {
-  kind: FrictionKind;
-  /** (max 140 chars) */
-  description: string;
-  cost_minutes?: number | null;
 }
 
 export interface Prompting {
@@ -117,28 +84,22 @@ export interface SessionAnalysis {
   digest_hash: string;
   /** fraction of the session's events that fit in the digest (1.0 = nothing sampled out) (0-1) */
   digest_coverage: number;
-  /** one line: what this session was. Past tense, no trailing period. (max 90 chars) */
+  /** one line: what this session was. Past tense, no trailing period, no dashes. (max 70 chars) */
   headline: string;
-  /** 2-4 sentences: what got done, what did not, how it ended (max 700 chars) */
+  /** AT MOST 2 sentences: what got done and how it ended. No dashes. (max 260 chars) */
   summary: string;
+  /** up to 3 one-line highlights, each a concrete thing that happened, with a number where the digest gives one. No dashes. (each max 140 chars, max 3 items) */
+  highlights: string[];
   outcome: Outcome;
-  /** the high-level things that were built or changed (max 8 items) */
-  features: Feature[];
-  /** shares summing to ~1.0 across work kinds present (keys are work_kind values, each value 0-1) */
-  work_mix: Partial<Record<WorkKind, number>>;
   build_style: BuildStyle;
   /** exactly one entry per dimension (max 5 items) */
   dimensions: DimensionScore[];
   /** null when the session is too short to say */
   archetype?: Archetype | null;
-  /** signature moves in how the person directed the agent, each grounded in a prompt (max 5 items) */
+  /** signature moves in how the person directed the agent, each grounded in a prompt (max 3 items) */
   decision_patterns: DecisionPattern[];
-  /** (max 5 items) */
-  pivots: Pivot[];
-  /** (max 6 items) */
-  friction: Friction[];
   prompting: Prompting;
-  /** specific things to try next, grounded in THIS session (each max 300 chars, max 3 items) */
+  /** specific things to try next, grounded in THIS session. One short sentence each, no dashes. (each max 300 chars, max 3 items) */
   growth_edge: string[];
   /** lowercase, kebab-case (each max 140 chars, max 8 items) */
   tags: string[];

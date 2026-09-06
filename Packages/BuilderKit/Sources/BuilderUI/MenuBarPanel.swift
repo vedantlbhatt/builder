@@ -318,7 +318,7 @@ public struct MenuBarPanel: View {
 /// What the model made of the last session, under the top card.
 ///
 /// Shared between the pure-data panel and the live app, like `PhoneConnectRow`, so the
-/// two cannot drift. The full reading — features, friction, growth edge — lives on the
+/// two cannot drift. The full reading (highlights, dimensions, growth edge) lives on the
 /// phone; this is the headline and enough of the summary to decide whether to open it.
 /// With nothing stored it is one quiet line, never an empty section.
 public struct AnalysisBlock: View {

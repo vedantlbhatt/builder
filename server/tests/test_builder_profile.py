@@ -239,12 +239,12 @@ def test_two_analysed_sessions_is_not_a_profile(client, paired):
 
     assert client.get("/v1/profile", headers=headers).json()["builder_profile"] is None
     alone = client.get("/v1/profile/builder", headers=headers).json()
-    assert alone == {
-        "builder_profile": None,
-        "sessions_analysed": 2,
-        "min_sessions": 3,
-        "window_days": 90,
-    }
+    assert alone["builder_profile"] is None
+    assert (alone["sessions_analysed"], alone["min_sessions"], alone["window_days"]) == (2, 3, 90)
+    # The computed corpus is a different object with a different floor: it needs sessions,
+    # not analyses. Two of them is still under `MIN_SESSIONS`, so it names no archetype.
+    assert alone["corpus"]["totals"]["total_sessions"] == 2
+    assert alone["corpus"]["archetype"]["name"] is None
 
     # The third one tips it.
     _upload(client, headers, FOUR[2])
@@ -271,3 +271,136 @@ def test_another_users_analyses_never_enter_the_aggregate(client, created_users)
         assert builder_profile(db, uid_b, 90) == (None, 0)
     with db_session(viewer_id=uid_b) as db:
         assert builder_profile(db, uid_b, 90)[1] == 4
+
+
+# ------------------------------------------------------------------ computed corpus
+#: The FOUR fixtures above are the sample payload four times over: one hour each, all
+#: attended, 10 prompts, 100 Bash calls, 200 agent lines, 2 commits, 200 output tokens on
+#: one model. Every number below is that, times four.
+def test_the_corpus_metrics_are_computed_from_the_sessions_not_from_any_analysis(client, paired):
+    uid, headers = paired
+    _upload(client, headers, *FOUR)
+
+    corpus = client.get("/v1/profile/builder", headers=headers).json()["corpus"]
+    assert corpus["totals"] == {
+        "total_sessions": 4,
+        "total_hours": 4.0,
+        "total_prompts": 40,
+        "total_lines_added": 800,
+        "total_commits": 8,
+        "commit_basis": "git_log_window",
+        "total_tool_calls": 400,
+    }
+    m = corpus["metrics"]
+    assert m["iteration_depth"]["value"] == 10.0  # 400 tool calls over 40 prompts
+    assert m["autonomy_score"]["value"] == 0.0  # every one of the four was attended
+    # 800 agent lines over 4 active hours. The uploaded rows cannot say WHICH tool wrote
+    # them (both clients fold `cat > f <<'EOF'` into one number), so the rate rests on the
+    # line total being too large to be an artefact rather than on a count of writes.
+    assert m["code_velocity"]["value"] == 200.0
+    assert m["code_velocity"]["basis"] == "uploaded_agent_lines"
+    assert corpus["model_mix"] == [
+        {"model": "claude-opus-5[1m]", "output_tokens": 800, "share": 1.0}
+    ]
+    assert corpus["sample"]["sessions"] == 4
+    assert corpus["sample"]["prompts"] == 40
+
+
+def test_what_the_server_cannot_see_is_null_with_a_reason_rather_than_zero(client, paired):
+    """Prompt text, interrupts, real tool names and commit times never leave the machine
+    (privacy/upload-contract.json). The metrics that rest on them must say so."""
+    uid, headers = paired
+    _upload(client, headers, *FOUR)
+
+    corpus = client.get("/v1/profile/builder", headers=headers).json()["corpus"]
+    m, missing = corpus["metrics"], corpus["sample"]["missing"]
+    for key in (
+        "avg_prompt_chars",
+        "median_prompt_chars",
+        "short_prompt_share",
+        "planning_ratio",
+        "steer_rate",
+        "night_commit_share",
+        "tool_diversity",
+    ):
+        assert m[key]["value"] is None, key
+        assert missing[key], key
+    assert "not stored server side" in missing["steer_rate"]
+    assert "allowlist" in missing["tool_diversity"]
+    # And no fact is ever built on a metric that is null.
+    ids = {f["id"] for f in corpus["facts"]}
+    assert ids.isdisjoint({"steer_rate", "planning_ratio", "avg_prompt_chars"})
+
+
+def test_the_facts_are_ranked_second_person_sentences_with_no_dashes(client, paired):
+    uid, headers = paired
+    _upload(client, headers, *FOUR)
+
+    facts = client.get("/v1/profile/builder", headers=headers).json()["corpus"]["facts"]
+    assert facts, "four sessions should produce at least one fact"
+    assert [f["unusualness"] for f in facts] == sorted(
+        (f["unusualness"] for f in facts), reverse=True
+    )
+    for f in facts:
+        assert {"id", "text", "value", "unit"} <= set(f)
+        assert "\u2014" not in f["text"] and "\u2013" not in f["text"]
+        assert any(ch.isdigit() for ch in f["text"])
+    assert any(f["text"].startswith("You default to Opus") for f in facts)
+
+
+def test_a_line_total_too_small_to_be_a_rate_is_refused(client, paired):
+    """The trap this metric exists to avoid, in the shape the proof database has: 11 lines
+    across three sessions reads as a tidy "3.7 lines an hour" and means nothing. The
+    module's floor catches it, and the reason says the writes cannot be counted here."""
+    uid, headers = paired
+    _upload(
+        client,
+        headers,
+        *[
+            _session_at(
+                d,
+                _analysis(50, 50, 50, 50, 50),
+                tool_calls={"Bash": 50},
+                lines_added_agent=4,
+            )
+            for d in (5, 3, 1)
+        ],
+    )
+
+    m = client.get("/v1/profile/builder", headers=headers).json()["corpus"]["metrics"]
+    assert m["code_velocity"]["value"] is None
+    assert "too small a total" in m["code_velocity"]["reason"]
+    assert not any(f["id"] == "code_velocity" for f in _facts(client, headers))
+
+
+def _facts(client, headers) -> list:
+    return client.get("/v1/profile/builder", headers=headers).json()["corpus"]["facts"]
+
+
+def test_a_live_snapshot_is_not_part_of_the_corpus(client, paired):
+    """A live row's numbers move every minute; folding them in would make the profile
+    disagree with itself between two pulls, exactly as on the rest of the profile."""
+    uid, headers = paired
+    _upload(client, headers, *FOUR)
+    started = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=30)
+    _upload(client, headers, _live(started, 20))
+
+    corpus = client.get("/v1/profile/builder", headers=headers).json()["corpus"]
+    assert corpus["totals"]["total_sessions"] == 4
+
+
+def test_another_users_sessions_never_enter_the_corpus(client, created_users):
+    """RLS on `sessions` and `session_stats`, as builder_app, through the route."""
+    uid_a, headers_a = _pair(client, created_users)
+    uid_b, headers_b = _pair(client, created_users)
+    _upload(client, headers_b, *FOUR)
+
+    assert (
+        client.get("/v1/profile/builder", headers=headers_b).json()["corpus"]["totals"][
+            "total_sessions"
+        ]
+        == 4
+    )
+    a = client.get("/v1/profile/builder", headers=headers_a).json()["corpus"]
+    assert a["totals"]["total_sessions"] == 0
+    assert a["archetype"]["name"] is None

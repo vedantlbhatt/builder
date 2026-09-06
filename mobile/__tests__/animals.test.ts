@@ -17,6 +17,7 @@ import {
   ANIMAL_GLYPHS,
   ANIMAL_LABELS,
   ARCHETYPE_ANIMALS,
+  CORPUS_ARCHETYPE_ANIMALS,
   DEFAULT_ANIMAL,
   animalChoices,
   animalForArchetype,
@@ -262,9 +263,25 @@ describe('archetype → animal', () => {
     expect(animalForArchetype('night_owl')).not.toBe(animalForArchetype('architect'));
   });
 
-  test('every archetype gets a different animal', () => {
-    const chosen = ANALYSIS_ENUMS.archetype.map((a) => animalForArchetype(a));
-    expect(new Set(chosen).size).toBe(ANALYSIS_ENUMS.archetype.length);
+  test('the corpus rules reach two archetypes the per-session enum never does', () => {
+    // `analysis/profile.py:ARCHETYPE_RULES` can return `director` or `skeptic`, which are
+    // not in the spec's per-session enum. Before they were mapped, a director's profile
+    // showed the fallback crab, which reads as a bug rather than as an archetype.
+    expect(animalForArchetype('director')).toBe('dog');
+    expect(animalForArchetype('skeptic')).toBe('whale');
+    for (const a of Object.values(CORPUS_ARCHETYPE_ANIMALS)) expect(ANIMALS).toContain(a);
+  });
+
+  test('every archetype on either side gets a DIFFERENT animal, and the pack is used up', () => {
+    // Eight archetypes across the two tables, eight animals in the pack, one-to-one. A
+    // seventh per-session archetype or a seventh corpus rule fails here rather than
+    // quietly sharing a creature with an existing one, which is the whole point of using
+    // a creature as the shorthand.
+    const keys = [...ANALYSIS_ENUMS.archetype, ...Object.keys(CORPUS_ARCHETYPE_ANIMALS)];
+    expect(new Set(keys).size).toBe(keys.length);
+    const chosen = keys.map((a) => animalForArchetype(a));
+    expect(new Set(chosen).size).toBe(keys.length);
+    expect(new Set(chosen)).toEqual(new Set(ANIMALS));
   });
 
   test('nothing unknown throws; it falls back', () => {

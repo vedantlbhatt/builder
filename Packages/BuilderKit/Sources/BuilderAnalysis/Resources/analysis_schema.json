@@ -31,14 +31,23 @@
       "maximum": 1.0
     },
     "headline": {
-      "description": "one line: what this session was. Past tense, no trailing period. (max 90 chars)",
+      "description": "one line: what this session was. Past tense, no trailing period, no dashes. (max 70 chars)",
       "type": "string",
-      "maxLength": 90
+      "maxLength": 70
     },
     "summary": {
-      "description": "2-4 sentences: what got done, what did not, how it ended (max 700 chars)",
+      "description": "AT MOST 2 sentences: what got done and how it ended. No dashes. (max 260 chars)",
       "type": "string",
-      "maxLength": 700
+      "maxLength": 260
+    },
+    "highlights": {
+      "description": "up to 3 one-line highlights, each a concrete thing that happened, with a number where the digest gives one. No dashes. (each max 140 chars, max 3 items)",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 140
+      },
+      "maxItems": 3
     },
     "outcome": {
       "type": "string",
@@ -50,61 +59,6 @@
         "abandoned",
         "maintenance"
       ]
-    },
-    "features": {
-      "description": "the high-level things that were built or changed (max 8 items)",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/Feature"
-      },
-      "maxItems": 8
-    },
-    "work_mix": {
-      "description": "shares summing to ~1.0 across work kinds present (keys are work_kind values, each value 0-1)",
-      "type": "object",
-      "properties": {
-        "feature": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        },
-        "bugfix": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        },
-        "refactor": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        },
-        "infra": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        },
-        "docs": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        },
-        "test": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        },
-        "research": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        },
-        "ops": {
-          "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0
-        }
-      },
-      "additionalProperties": false
     },
     "build_style": {
       "$ref": "#/$defs/BuildStyle"
@@ -137,34 +91,18 @@
       ]
     },
     "decision_patterns": {
-      "description": "signature moves in how the person directed the agent, each grounded in a prompt (max 5 items)",
+      "description": "signature moves in how the person directed the agent, each grounded in a prompt (max 3 items)",
       "type": "array",
       "items": {
         "$ref": "#/$defs/DecisionPattern"
       },
-      "maxItems": 5
-    },
-    "pivots": {
-      "description": "(max 5 items)",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/Pivot"
-      },
-      "maxItems": 5
-    },
-    "friction": {
-      "description": "(max 6 items)",
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/Friction"
-      },
-      "maxItems": 6
+      "maxItems": 3
     },
     "prompting": {
       "$ref": "#/$defs/Prompting"
     },
     "growth_edge": {
-      "description": "specific things to try next, grounded in THIS session (each max 300 chars, max 3 items)",
+      "description": "specific things to try next, grounded in THIS session. One short sentence each, no dashes. (each max 300 chars, max 3 items)",
       "type": "array",
       "items": {
         "type": "string",
@@ -200,14 +138,11 @@
     "digest_coverage",
     "headline",
     "summary",
+    "highlights",
     "outcome",
-    "features",
-    "work_mix",
     "build_style",
     "dimensions",
     "decision_patterns",
-    "pivots",
-    "friction",
     "prompting",
     "growth_edge",
     "tags",
@@ -216,51 +151,6 @@
   ],
   "additionalProperties": false,
   "$defs": {
-    "Feature": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "description": "(max 140 chars)",
-          "type": "string",
-          "maxLength": 140
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "done",
-            "partial",
-            "started",
-            "reverted"
-          ]
-        },
-        "detail": {
-          "description": "(max 300 chars)",
-          "anyOf": [
-            {
-              "type": "string",
-              "maxLength": 300
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "evidence": {
-          "description": "digest event ordinals that support this (max 6 items)",
-          "type": "array",
-          "items": {
-            "type": "integer"
-          },
-          "maxItems": 6
-        }
-      },
-      "required": [
-        "name",
-        "status",
-        "evidence"
-      ],
-      "additionalProperties": false
-    },
     "BuildStyle": {
       "type": "object",
       "properties": {
@@ -309,7 +199,7 @@
           ]
         },
         "architecture_note": {
-          "description": "how they structured the work, if visible (max 300 chars)",
+          "description": "how they structured the work, if visible. One sentence, no dashes. (max 300 chars)",
           "anyOf": [
             {
               "type": "string",
@@ -350,7 +240,7 @@
           "maximum": 100
         },
         "rationale": {
-          "description": "(max 140 chars)",
+          "description": "one line, grounded in the digest. No dashes. (max 140 chars)",
           "type": "string",
           "maxLength": 140
         }
@@ -391,79 +281,6 @@
       "required": [
         "pattern",
         "prompt_excerpt"
-      ],
-      "additionalProperties": false
-    },
-    "Pivot": {
-      "type": "object",
-      "properties": {
-        "at_minute": {
-          "type": "integer"
-        },
-        "from_goal": {
-          "description": "(max 140 chars)",
-          "type": "string",
-          "maxLength": 140
-        },
-        "to_goal": {
-          "description": "(max 140 chars)",
-          "type": "string",
-          "maxLength": 140
-        },
-        "trigger": {
-          "description": "(max 140 chars)",
-          "anyOf": [
-            {
-              "type": "string",
-              "maxLength": 140
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "at_minute",
-        "from_goal",
-        "to_goal"
-      ],
-      "additionalProperties": false
-    },
-    "Friction": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "misunderstanding",
-            "tool_failure",
-            "env_issue",
-            "model_error",
-            "scope_creep",
-            "human_error",
-            "waiting"
-          ]
-        },
-        "description": {
-          "description": "(max 140 chars)",
-          "type": "string",
-          "maxLength": 140
-        },
-        "cost_minutes": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "kind",
-        "description"
       ],
       "additionalProperties": false
     },

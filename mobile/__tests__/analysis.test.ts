@@ -10,7 +10,6 @@ import {
   hoursText,
   labelize,
   pct,
-  pivotTime,
   relativeTime,
 } from '../src/analysis/format';
 import { livePresenceLine, liveStatusLine } from '../src/live/format';
@@ -51,18 +50,13 @@ describe('describeEnd', () => {
   });
 });
 
-describe('hoursText / pivotTime / labelize', () => {
+describe('hoursText / labelize', () => {
   test('hoursText', () => {
     expect(hoursText(0)).toBe('0 min');
     expect(hoursText(45 * 60)).toBe('45 min');
     expect(hoursText(3600)).toBe('1 h');
     expect(hoursText(5400)).toBe('1.5 h');
     expect(hoursText(8 * 3600 + 120)).toBe('8 h');
-  });
-  test('pivotTime', () => {
-    expect(pivotTime(0)).toBe('t+0m');
-    expect(pivotTime(38)).toBe('t+38m');
-    expect(pivotTime(125)).toBe('t+2h 05m');
   });
   test('labelize', () => {
     expect(labelize('plan_mode')).toBe('plan mode');

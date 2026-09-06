@@ -39,10 +39,7 @@ struct AnalyzerTests {
             "headline": "Wired the live upload and the analyst into the agent",
             "summary": "Built the digest, the runner and the sync changes. Tests were added. Ended on a commit.",
             "outcome": "shipped",
-            "features": [
-              {"name": "Live session upload", "status": "done", "detail": null, "evidence": [3, 9]}
-            ],
-            "work_mix": {"feature": 0.7, "test": 0.3},
+            "highlights": ["18 commits in 4 hours", "the suite went green on the third try"],
             "build_style": {
               "planning": "explicit_plan",
               "iteration": "linear",
@@ -63,8 +60,6 @@ struct AnalyzerTests {
               {"pattern": "cuts scope explicitly", "prompt_excerpt": "no, the   other one", "effect": "redirected the agent"},
               {"pattern": "invented", "prompt_excerpt": "this sentence is not in any prompt", "effect": null}
             ],
-            "pivots": [],
-            "friction": [{"kind": "tool_failure", "description": "one flaky test", "cost_minutes": 4}],
             "prompting": {"tone": "terse", "specificity": 70, "correction_share": 0.33, "question_share": 0.0, "note": null},
             "growth_edge": ["State the acceptance test in the first prompt"],
             "tags": ["sync", "analysis"],
@@ -110,7 +105,7 @@ struct AnalyzerTests {
         #expect(a.outcome == .shipped)
         #expect(a.buildStyle.planning == .explicitPlan)
         #expect(a.dimensions.count == 5)
-        #expect(a.workMix["feature"] == 0.7)
+        #expect(a.highlights.count == 2)
 
         // "no, the   other one" normalises to a verbatim substring of the digest and is
         // kept; the invented one is dropped — same rule as run._verify_excerpts.

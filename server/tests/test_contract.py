@@ -32,14 +32,10 @@ SAMPLE_ANALYSIS: dict = {
     "headline": "Wired the sync endpoint to the two-clock session fields",
     "summary": (
         "Added attended and autonomous seconds to the upload contract and the server. "
-        "The sanity gate checks they sum to active. Ended on a green suite."
+        "Ended on a green suite."
     ),
+    "highlights": ["two clocks on every payload", "the sanity gate checks they sum to active"],
     "outcome": "shipped",
-    "features": [
-        {"name": "two-clock fields", "status": "done", "detail": None, "evidence": [3, 9]},
-        {"name": "live snapshots", "status": "partial", "detail": "endpoint only", "evidence": []},
-    ],
-    "work_mix": {"feature": 0.7, "test": 0.3},
     "build_style": {
         "planning": "light",
         "iteration": "linear",
@@ -58,16 +54,6 @@ SAMPLE_ANALYSIS: dict = {
             "pattern": "asks for the measurement before the constant",
             "prompt_excerpt": "what does the corpus say before we pick a number",
             "effect": None,
-        }
-    ],
-    "pivots": [
-        {"at_minute": 40, "from_goal": "one enum", "to_goal": "text + CHECK", "trigger": None}
-    ],
-    "friction": [
-        {
-            "kind": "tool_failure",
-            "description": "enum ADD VALUE in a transaction",
-            "cost_minutes": 5,
         }
     ],
     "prompting": {

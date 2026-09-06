@@ -23,13 +23,6 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
         case maintenance
     }
 
-    public enum FeatureStatus: String, CaseIterable, Codable, Sendable {
-        case done
-        case partial
-        case started
-        case reverted
-    }
-
     public enum Planning: String, CaseIterable, Codable, Sendable {
         case none
         case light
@@ -73,33 +66,12 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
         case firefighter
     }
 
-    public enum FrictionKind: String, CaseIterable, Codable, Sendable {
-        case misunderstanding
-        case toolFailure = "tool_failure"
-        case envIssue = "env_issue"
-        case modelError = "model_error"
-        case scopeCreep = "scope_creep"
-        case humanError = "human_error"
-        case waiting
-    }
-
     public enum Tone: String, CaseIterable, Codable, Sendable {
         case neutral
         case terse
         case polite
         case frustrated
         case mixed
-    }
-
-    public enum WorkKind: String, CaseIterable, Codable, Sendable {
-        case feature
-        case bugfix
-        case refactor
-        case infra
-        case docs
-        case test
-        case research
-        case ops
     }
 
     public enum Dimension: String, CaseIterable, Codable, Sendable {
@@ -110,42 +82,13 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
         case planning
     }
 
-    public struct Feature: Codable, Sendable, Equatable {
-        /// (max 140 chars)
-        public let name: String
-        public let status: FeatureStatus
-        /// (max 300 chars)
-        public let detail: String?
-        /// digest event ordinals that support this (max 6 items)
-        public let evidence: [Int]
-
-        enum CodingKeys: String, CodingKey {
-            case name
-            case status
-            case detail
-            case evidence
-        }
-
-        public init(
-            name: String,
-            status: FeatureStatus,
-            detail: String? = nil,
-            evidence: [Int]
-        ) {
-            self.name = name
-            self.status = status
-            self.detail = detail
-            self.evidence = evidence
-        }
-    }
-
     public struct BuildStyle: Codable, Sendable, Equatable {
         public let planning: Planning
         public let iteration: Iteration
         public let steering: Steering
         public let verification: Verification
         public let scopeControl: ScopeControl
-        /// how they structured the work, if visible (max 300 chars)
+        /// how they structured the work, if visible. One sentence, no dashes. (max 300 chars)
         public let architectureNote: String?
 
         enum CodingKeys: String, CodingKey {
@@ -178,7 +121,7 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
         public let dimension: Dimension
         /// 0-100
         public let score: Int
-        /// (max 140 chars)
+        /// one line, grounded in the digest. No dashes. (max 140 chars)
         public let rationale: String
 
         enum CodingKeys: String, CodingKey {
@@ -220,58 +163,6 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
             self.pattern = pattern
             self.promptExcerpt = promptExcerpt
             self.effect = effect
-        }
-    }
-
-    public struct Pivot: Codable, Sendable, Equatable {
-        public let atMinute: Int
-        /// (max 140 chars)
-        public let fromGoal: String
-        /// (max 140 chars)
-        public let toGoal: String
-        /// (max 140 chars)
-        public let trigger: String?
-
-        enum CodingKeys: String, CodingKey {
-            case atMinute = "at_minute"
-            case fromGoal = "from_goal"
-            case toGoal = "to_goal"
-            case trigger
-        }
-
-        public init(
-            atMinute: Int,
-            fromGoal: String,
-            toGoal: String,
-            trigger: String? = nil
-        ) {
-            self.atMinute = atMinute
-            self.fromGoal = fromGoal
-            self.toGoal = toGoal
-            self.trigger = trigger
-        }
-    }
-
-    public struct Friction: Codable, Sendable, Equatable {
-        public let kind: FrictionKind
-        /// (max 140 chars)
-        public let description: String
-        public let costMinutes: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case kind
-            case description
-            case costMinutes = "cost_minutes"
-        }
-
-        public init(
-            kind: FrictionKind,
-            description: String,
-            costMinutes: Int? = nil
-        ) {
-            self.kind = kind
-            self.description = description
-            self.costMinutes = costMinutes
         }
     }
 
@@ -319,28 +210,22 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
     public let digestHash: String
     /// fraction of the session's events that fit in the digest (1.0 = nothing sampled out) (0-1)
     public let digestCoverage: Double
-    /// one line: what this session was. Past tense, no trailing period. (max 90 chars)
+    /// one line: what this session was. Past tense, no trailing period, no dashes. (max 70 chars)
     public let headline: String
-    /// 2-4 sentences: what got done, what did not, how it ended (max 700 chars)
+    /// AT MOST 2 sentences: what got done and how it ended. No dashes. (max 260 chars)
     public let summary: String
+    /// up to 3 one-line highlights, each a concrete thing that happened, with a number where the digest gives one. No dashes. (each max 140 chars, max 3 items)
+    public let highlights: [String]
     public let outcome: Outcome
-    /// the high-level things that were built or changed (max 8 items)
-    public let features: [Feature]
-    /// shares summing to ~1.0 across work kinds present (keys are work_kind values, each value 0-1)
-    public let workMix: [String: Double]
     public let buildStyle: BuildStyle
     /// exactly one entry per dimension (max 5 items)
     public let dimensions: [DimensionScore]
     /// null when the session is too short to say
     public let archetype: Archetype?
-    /// signature moves in how the person directed the agent, each grounded in a prompt (max 5 items)
+    /// signature moves in how the person directed the agent, each grounded in a prompt (max 3 items)
     public let decisionPatterns: [DecisionPattern]
-    /// (max 5 items)
-    public let pivots: [Pivot]
-    /// (max 6 items)
-    public let friction: [Friction]
     public let prompting: Prompting
-    /// specific things to try next, grounded in THIS session (each max 300 chars, max 3 items)
+    /// specific things to try next, grounded in THIS session. One short sentence each, no dashes. (each max 300 chars, max 3 items)
     public let growthEdge: [String]
     /// lowercase, kebab-case (each max 140 chars, max 8 items)
     public let tags: [String]
@@ -357,15 +242,12 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
         case digestCoverage = "digest_coverage"
         case headline
         case summary
+        case highlights
         case outcome
-        case features
-        case workMix = "work_mix"
         case buildStyle = "build_style"
         case dimensions
         case archetype
         case decisionPatterns = "decision_patterns"
-        case pivots
-        case friction
         case prompting
         case growthEdge = "growth_edge"
         case tags
@@ -381,15 +263,12 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
         digestCoverage: Double,
         headline: String,
         summary: String,
+        highlights: [String],
         outcome: Outcome,
-        features: [Feature],
-        workMix: [String: Double],
         buildStyle: BuildStyle,
         dimensions: [DimensionScore],
         archetype: Archetype? = nil,
         decisionPatterns: [DecisionPattern],
-        pivots: [Pivot],
-        friction: [Friction],
         prompting: Prompting,
         growthEdge: [String],
         tags: [String],
@@ -403,15 +282,12 @@ public struct SessionAnalysis: Codable, Sendable, Equatable {
         self.digestCoverage = digestCoverage
         self.headline = headline
         self.summary = summary
+        self.highlights = highlights
         self.outcome = outcome
-        self.features = features
-        self.workMix = workMix
         self.buildStyle = buildStyle
         self.dimensions = dimensions
         self.archetype = archetype
         self.decisionPatterns = decisionPatterns
-        self.pivots = pivots
-        self.friction = friction
         self.prompting = prompting
         self.growthEdge = growthEdge
         self.tags = tags
@@ -425,8 +301,8 @@ public enum AnalysisSpec {
 
     /// Character caps by size class; the spec's `max` on a string field names one of these.
     public static let maxLengths: [String: Int] = [
-        "headline": 90,
-        "summary": 700,
+        "headline": 70,
+        "summary": 260,
         "short": 140,
         "medium": 300,
         "excerpt": 160,
@@ -436,16 +312,13 @@ public enum AnalysisSpec {
     /// value fails a test here rather than a 422 on the user's first sync.
     public static let enumValues: [String: [String]] = [
         "outcome": ["shipped", "progressed", "explored", "blocked", "abandoned", "maintenance"],
-        "feature_status": ["done", "partial", "started", "reverted"],
         "planning": ["none", "light", "explicit_plan", "plan_mode"],
         "iteration": ["linear", "iterative", "pivoted", "thrashing"],
         "steering": ["hands_off", "guided", "tight_loop", "micromanaged"],
         "verification": ["none", "manual_check", "ran_tests", "tests_added"],
         "scope_control": ["held", "expanded", "narrowed"],
         "archetype": ["architect", "velocity_machine", "quality_guardian", "night_owl", "explorer", "firefighter"],
-        "friction_kind": ["misunderstanding", "tool_failure", "env_issue", "model_error", "scope_creep", "human_error", "waiting"],
         "tone": ["neutral", "terse", "polite", "frustrated", "mixed"],
-        "work_kind": ["feature", "bugfix", "refactor", "infra", "docs", "test", "research", "ops"],
         "dimension": ["steering", "execution", "engineering", "product_instinct", "planning"],
     ]
 }

@@ -1,40 +1,35 @@
 import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 
-import type { FeatureStatus, SessionAnalysis } from '../generated/analysis';
-import { StripClass } from '../generated/strip';
+import type { SessionAnalysis } from '../generated/analysis';
 import { PixelSprite } from '../pixel/PixelSprite';
 import { colors, space } from '../theme';
-import { analysisFooter, celebrationFor, labelize, pct, pivotTime, SENSITIVE_WARNING } from './format';
+import { analysisFooter, celebrationFor, labelize, pct, SENSITIVE_WARNING } from './format';
 
 /**
  * The model-written reading of a session, below the card and the numbers.
  *
- * Every section is skipped when the model left it empty — the spec's honesty rule says a
- * field the model could not ground is null/empty, never guessed, and an empty "Pivots"
- * card would turn that silence into a claim that nothing pivoted. Nothing here is
- * computed; this view only lays out what the analysis already says.
+ * SHORT ON PURPOSE (spec/analysis.v1.json, docs/analysis.md). The reading is a headline,
+ * at most two sentences and up to three highlights; the long blocks this screen used to
+ * render (features, work mix, pivots, friction) were removed from the schema because
+ * nobody read them. The corpus numbers people actually want — planning ratio, steer rate,
+ * velocity, archetype — are COMPUTED and live on the profile, not here.
+ *
+ * Every section is still skipped when the model left it empty: the spec's honesty rule
+ * says a field the model could not ground is null/empty, never guessed, and an empty card
+ * would turn that silence into a claim. Nothing here is computed; this view only lays out
+ * what the analysis already says.
  */
 
 const c = colors('dark');
-const TEAL = c.strip[StripClass.human_edit];
-
-const STATUS_COLOR: Record<FeatureStatus, string> = {
-  done: TEAL,
-  partial: c.accent,
-  started: c.textDim,
-  reverted: c.danger,
-};
 
 /** How long Bit cheers beside a shipped headline before settling into a still idle pose. */
 export const CELEBRATION_MS = 3000;
 
 export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
-  const features = a.features ?? [];
+  const highlights = a.highlights ?? [];
   const dimensions = a.dimensions ?? [];
   const moves = a.decision_patterns ?? [];
-  const pivots = a.pivots ?? [];
-  const friction = a.friction ?? [];
   const growth = a.growth_edge ?? [];
   const tags = a.tags ?? [];
   const style = a.build_style;
@@ -60,6 +55,16 @@ export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
             {a.summary}
           </Text>
         ) : null}
+        {highlights.length > 0 && (
+          <View style={{ marginTop: space.md, gap: 4 }}>
+            {highlights.map((h, i) => (
+              <View key={i} style={{ flexDirection: 'row', gap: space.sm }}>
+                <Text style={{ color: c.accent, fontSize: 14 }}>•</Text>
+                <Text style={{ color: c.text, fontSize: 14, lineHeight: 20, flex: 1 }}>{h}</Text>
+              </View>
+            ))}
+          </View>
+        )}
         {(a.outcome || a.archetype) && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, marginTop: space.md }}>
             {a.outcome ? <Chip label={labelize(a.outcome)} tone="accent" /> : null}
@@ -68,22 +73,6 @@ export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
           </View>
         )}
       </Section>
-
-      {features.length > 0 && (
-        <Section title="What got built">
-          {features.map((f, i) => (
-            <View key={`${f.name}-${i}`} style={{ paddingVertical: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                <Text style={{ color: c.text, fontSize: 14, fontWeight: '600', flex: 1 }}>
-                  {f.name}
-                </Text>
-                <Chip label={f.status} color={STATUS_COLOR[f.status] ?? c.textDim} />
-              </View>
-              {f.detail ? <Text style={[dim, { marginTop: 2 }]}>{f.detail}</Text> : null}
-            </View>
-          ))}
-        </Section>
-      )}
 
       {style && (
         <Section title="How you built it">
@@ -135,51 +124,6 @@ export function AnalysisView({ analysis: a }: { analysis: SessionAnalysis }) {
                 </View>
               ) : null}
               {m.effect ? <Text style={[dim, { marginTop: 4 }]}>{m.effect}</Text> : null}
-            </View>
-          ))}
-        </Section>
-      )}
-
-      {pivots.length > 0 && (
-        <Section title="Pivots">
-          {pivots.map((p, i) => (
-            <View key={`${p.at_minute}-${i}`} style={{ flexDirection: 'row', paddingVertical: 6, gap: space.sm }}>
-              <Text
-                style={{
-                  color: c.accent,
-                  fontSize: 12,
-                  fontVariant: ['tabular-nums'],
-                  width: 64,
-                  paddingTop: 2,
-                }}
-              >
-                {pivotTime(p.at_minute)}
-              </Text>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: c.text, fontSize: 14 }}>
-                  <Text style={{ color: c.textDim }}>{p.from_goal}</Text>
-                  {'  →  '}
-                  {p.to_goal}
-                </Text>
-                {p.trigger ? <Text style={[dim, { marginTop: 2 }]}>{p.trigger}</Text> : null}
-              </View>
-            </View>
-          ))}
-        </Section>
-      )}
-
-      {friction.length > 0 && (
-        <Section title="Friction">
-          {friction.map((f, i) => (
-            <View key={`${f.kind}-${i}`} style={{ paddingVertical: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                <Chip label={labelize(f.kind)} />
-                <View style={{ flex: 1 }} />
-                {typeof f.cost_minutes === 'number' ? (
-                  <Text style={dim}>~{f.cost_minutes} min</Text>
-                ) : null}
-              </View>
-              <Text style={{ color: c.text, fontSize: 14, marginTop: 4 }}>{f.description}</Text>
             </View>
           ))}
         </Section>

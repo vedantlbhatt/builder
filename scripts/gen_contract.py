@@ -423,7 +423,7 @@ builder sync --dry-run --print-payload | jq
 #    `leaf_paths` expands the five structured fields (tokens, models, strip_marks,
 #    tool_calls, analysis) so a scalar-path walk lines up exactly. tool_calls keys are
 #    tool names, so they are normalised to the wildcard the contract publishes. List
-#    indices are stripped both mid-path (features.0.name) and trailing (tags.0).
+#    indices are stripped both mid-path (dimensions.0.score) and trailing (tags.0).
 builder sync --dry-run --print-payload \\
   | jq -r '[paths(scalars)] | .[] | join(".")' \\
   | sed 's/^sessions\\.[0-9]*\\.//' \\
@@ -474,9 +474,9 @@ def analysis_leaf_paths(prefix: str) -> list[str]:
     The path shapes mirror what the verification command's jq/sed pipeline produces:
 
       object   -> prefix.field.child           (build_style.planning)
-      list of objects -> prefix.field.child    (features.0.name, index stripped mid-path)
+      list of objects -> prefix.field.child    (dimensions.0.score, index stripped mid-path)
       list of scalars -> prefix.field          (tags.0, trailing index stripped)
-      map keyed by enum -> one path per key    (work_mix.feature ... work_mix.ops)
+      map keyed by enum -> one path per key    (no such field today; kept for the next one)
       scalar   -> prefix.field                 (nullable ones included: null is a scalar)
     """
     s = json.loads(ANALYSIS_SPEC.read_text())

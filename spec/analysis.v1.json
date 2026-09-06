@@ -16,7 +16,18 @@
     "THE HONESTY RULE. Every string field is bounded, every score carries a one-line",
     "rationale, and `confidence` is required. A field the model cannot ground in the",
     "digest is left null/empty, never guessed. Deterministic stats (lines, prompts, tools,",
-    "tokens) are NOT in here: they come from the engine and cannot be hallucinated.",
+    "tokens) are NOT in here: they come from the engine and cannot be hallucinated. The",
+    "CORPUS numbers (planning ratio, steer rate, code velocity, archetype) are not here",
+    "either: analysis/profile.py COMPUTES those, so no model can write them.",
+    "",
+    "SHORT, NOT AN ESSAY. A reading of one session is a headline of at most 70 characters,",
+    "a summary of AT MOST TWO SENTENCES, and up to three one-line highlights. The long blocks",
+    "nothing ever displayed (features, work_mix, pivots, friction) were REMOVED rather than",
+    "left for a model to fill: every field here costs the reader attention.",
+    "",
+    "NO DASHES. No string a person reads may contain an em dash or an en dash: use a comma,",
+    "a full stop or a colon. It is repeated in the analyst prompt, and analysis/run.py",
+    "rewrites any that survive.",
     "",
     "Prior art acknowledged: YC's Paxel scores five dimensions (steering, execution,",
     "engineering, product instinct, planning) and names archetypes. The dimension names are",
@@ -25,19 +36,16 @@
     "run. Unlike Paxel nothing here is sent to a third party for summarisation."
   ],
   "version": 1,
-  "max_lengths": { "headline": 90, "summary": 700, "short": 140, "medium": 300, "excerpt": 160 },
+  "max_lengths": { "headline": 70, "summary": 260, "short": 140, "medium": 300, "excerpt": 160 },
   "enums": {
     "outcome": ["shipped", "progressed", "explored", "blocked", "abandoned", "maintenance"],
-    "feature_status": ["done", "partial", "started", "reverted"],
     "planning": ["none", "light", "explicit_plan", "plan_mode"],
     "iteration": ["linear", "iterative", "pivoted", "thrashing"],
     "steering": ["hands_off", "guided", "tight_loop", "micromanaged"],
     "verification": ["none", "manual_check", "ran_tests", "tests_added"],
     "scope_control": ["held", "expanded", "narrowed"],
     "archetype": ["architect", "velocity_machine", "quality_guardian", "night_owl", "explorer", "firefighter"],
-    "friction_kind": ["misunderstanding", "tool_failure", "env_issue", "model_error", "scope_creep", "human_error", "waiting"],
     "tone": ["neutral", "terse", "polite", "frustrated", "mixed"],
-    "work_kind": ["feature", "bugfix", "refactor", "infra", "docs", "test", "research", "ops"],
     "dimension": ["steering", "execution", "engineering", "product_instinct", "planning"]
   },
   "fields": [
@@ -47,61 +55,40 @@
     { "name": "digest_hash", "type": "sha256hex", "doc": "hash of the digest that was analysed; lets sync skip an unchanged analysis" },
     { "name": "digest_coverage", "type": "double", "doc": "fraction of the session's events that fit in the digest (1.0 = nothing sampled out)" },
 
-    { "name": "headline", "type": "string", "max": "headline", "doc": "one line: what this session was. Past tense, no trailing period." },
-    { "name": "summary", "type": "string", "max": "summary", "doc": "2-4 sentences: what got done, what did not, how it ended" },
+    { "name": "headline", "type": "string", "max": "headline", "doc": "one line: what this session was. Past tense, no trailing period, no dashes." },
+    { "name": "summary", "type": "string", "max": "summary", "doc": "AT MOST 2 sentences: what got done and how it ended. No dashes." },
+    { "name": "highlights", "type": "list", "item": "string", "max": "short", "max_items": 3, "doc": "up to 3 one-line highlights, each a concrete thing that happened, with a number where the digest gives one. No dashes." },
     { "name": "outcome", "type": "enum", "values": "outcome" },
-
-    { "name": "features", "type": "list", "item": "Feature", "max_items": 8, "doc": "the high-level things that were built or changed" },
-    { "name": "work_mix", "type": "map", "key": "work_kind", "value": "double", "doc": "shares summing to ~1.0 across work kinds present" },
 
     { "name": "build_style", "type": "object", "item": "BuildStyle" },
     { "name": "dimensions", "type": "list", "item": "DimensionScore", "max_items": 5, "doc": "exactly one entry per dimension" },
     { "name": "archetype", "type": "enum", "values": "archetype", "nullable": true, "doc": "null when the session is too short to say" },
 
-    { "name": "decision_patterns", "type": "list", "item": "DecisionPattern", "max_items": 5, "doc": "signature moves in how the person directed the agent, each grounded in a prompt" },
-    { "name": "pivots", "type": "list", "item": "Pivot", "max_items": 5 },
-    { "name": "friction", "type": "list", "item": "Friction", "max_items": 6 },
+    { "name": "decision_patterns", "type": "list", "item": "DecisionPattern", "max_items": 3, "doc": "signature moves in how the person directed the agent, each grounded in a prompt" },
     { "name": "prompting", "type": "object", "item": "Prompting" },
-    { "name": "growth_edge", "type": "list", "item": "string", "max": "medium", "max_items": 3, "doc": "specific things to try next, grounded in THIS session" },
+    { "name": "growth_edge", "type": "list", "item": "string", "max": "medium", "max_items": 3, "doc": "specific things to try next, grounded in THIS session. One short sentence each, no dashes." },
     { "name": "tags", "type": "list", "item": "string", "max": "short", "max_items": 8, "doc": "lowercase, kebab-case" },
     { "name": "confidence", "type": "double", "doc": "0-1: how well the digest supported these conclusions" },
     { "name": "contains_sensitive", "type": "bool", "doc": "the model noticed secrets/PII in the digest; the UI warns before sharing" }
   ],
   "objects": {
-    "Feature": [
-      { "name": "name", "type": "string", "max": "short" },
-      { "name": "status", "type": "enum", "values": "feature_status" },
-      { "name": "detail", "type": "string", "max": "medium", "nullable": true },
-      { "name": "evidence", "type": "list", "item": "int", "max_items": 6, "doc": "digest event ordinals that support this" }
-    ],
     "BuildStyle": [
       { "name": "planning", "type": "enum", "values": "planning" },
       { "name": "iteration", "type": "enum", "values": "iteration" },
       { "name": "steering", "type": "enum", "values": "steering" },
       { "name": "verification", "type": "enum", "values": "verification" },
       { "name": "scope_control", "type": "enum", "values": "scope_control" },
-      { "name": "architecture_note", "type": "string", "max": "medium", "nullable": true, "doc": "how they structured the work, if visible" }
+      { "name": "architecture_note", "type": "string", "max": "medium", "nullable": true, "doc": "how they structured the work, if visible. One sentence, no dashes." }
     ],
     "DimensionScore": [
       { "name": "dimension", "type": "enum", "values": "dimension" },
       { "name": "score", "type": "int", "doc": "0-100" },
-      { "name": "rationale", "type": "string", "max": "short" }
+      { "name": "rationale", "type": "string", "max": "short", "doc": "one line, grounded in the digest. No dashes." }
     ],
     "DecisionPattern": [
       { "name": "pattern", "type": "string", "max": "short" },
       { "name": "prompt_excerpt", "type": "string", "max": "excerpt", "doc": "verbatim from a prompt, trimmed" },
       { "name": "effect", "type": "string", "max": "short", "nullable": true }
-    ],
-    "Pivot": [
-      { "name": "at_minute", "type": "int" },
-      { "name": "from_goal", "type": "string", "max": "short" },
-      { "name": "to_goal", "type": "string", "max": "short" },
-      { "name": "trigger", "type": "string", "max": "short", "nullable": true }
-    ],
-    "Friction": [
-      { "name": "kind", "type": "enum", "values": "friction_kind" },
-      { "name": "description", "type": "string", "max": "short" },
-      { "name": "cost_minutes", "type": "int", "nullable": true }
     ],
     "Prompting": [
       { "name": "tone", "type": "enum", "values": "tone" },
