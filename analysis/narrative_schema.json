@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["archetype_line", "how_you_work", "strengths", "watch_outs", "one_experiment"],
+  "properties": {
+    "archetype_line": {
+      "type": "string",
+      "maxLength": 220,
+      "description": "What this person's archetype means for THEM, in one or two sentences, naming the measurement that earned it. Never a definition of the archetype in general."
+    },
+    "how_you_work": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": { "type": "string", "maxLength": 400 },
+      "description": "Short paragraphs describing the actual shape of their working day: how they open a session, how much rope they give the agent, when they step in, how they verify. Every paragraph cites at least one number from the input."
+    },
+    "strengths": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "evidence"],
+        "properties": {
+          "text": { "type": "string", "maxLength": 160 },
+          "evidence": { "type": "string", "maxLength": 160, "description": "The numbers behind it, copied from the input." }
+        }
+      }
+    },
+    "watch_outs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "evidence"],
+        "properties": {
+          "text": { "type": "string", "maxLength": 160 },
+          "evidence": { "type": "string", "maxLength": 160 }
+        }
+      }
+    },
+    "one_experiment": {
+      "type": "string",
+      "maxLength": 260,
+      "description": "One concrete thing to try in the next session, small enough to do, and tied to a number above so they can tell whether it worked."
+    }
+  }
+}
