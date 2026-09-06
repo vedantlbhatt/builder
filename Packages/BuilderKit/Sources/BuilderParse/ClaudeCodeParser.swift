@@ -23,7 +23,13 @@ public struct ClaudeCodeParser: HarnessParser {
     ///    calls, stop-hook continuations and second roots were filed as rewound (575 records
     ///    on one machine, `scripts/measure_live_path.py`); `on_live_path` is written at
     ///    ingest, so every source must be re-read.
-    public let parserVersion = 3
+    /// 4: a Bash heredoc write attributes its path and its line count (`ShellFileEffect`).
+    ///    Under version 3 the digest read heredocs and the parser did not, so a session
+    ///    written entirely through the shell was described to the analyst as thousands of
+    ///    lines and rendered on the card as none. MEASURED on this repository's container
+    ///    corpus: 2,452 of 2,458 attributable lines. Line counts are stored at ingest, so
+    ///    every source must be re-read.
+    public let parserVersion = 4
 
     private let projectsRoot: String
 
@@ -365,6 +371,17 @@ public struct ClaudeCodeParser: HarnessParser {
                     e.toolID = b.id.string
                     // Read / Edit / Write all put the path at .input.file_path.
                     e.targetPath = b.input.file_path.string
+                    // A shell write has no `file_path` and no `structuredPatch`, so
+                    // without this the file the agent just created is invisible to the
+                    // card while the analyst is told about it in full. Attributed on the
+                    // tool_use block because the count comes from the COMMAND; Edit and
+                    // Write are attributed on their tool_result, so nothing is counted
+                    // twice. See ShellFileEffect for the measurement.
+                    if e.targetPath == nil, let cmd = b.input.command.string {
+                        let effect = ShellFileEffect.of(cmd)
+                        e.targetPath = effect.path
+                        e.linesAdded = effect.approx
+                    }
                 case "thinking":
                     e = base(.thinking, idSuffix: "#th\(i)")
                 case "text":

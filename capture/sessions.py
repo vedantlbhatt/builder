@@ -395,12 +395,18 @@ def build_payload(
     tool_counts = Counter(e.tool for e in tools if e.tool in UPLOADED_TOOLS)
     meaningful = sum(1 for e in s.events if e.kind in _MEANINGFUL_EV_KINDS)
     human_edits = sum(1 for e in s.events if e.kind == "human_edit")
-    # Line deltas over the edit tools only, as the engine counts them (Edit's
-    # structuredPatch; Write's created content). Shell heredoc writes are not counted.
-    added = sum(e.added or 0 for e in tools if e.tool in digest.EDIT_TOOLS)
-    removed = sum(e.removed or 0 for e in tools if e.tool in digest.EDIT_TOOLS)
-    touched = {e.path for e in tools if e.path and e.tool not in digest.SHELL_TOOLS}
-    touched |= {e.path for e in s.events if e.kind == "human_edit" and e.path}
+    # Every event that carries a line count, exactly as `TokenAccountant.agentLines`
+    # sums them: Edit's structuredPatch, Write's created content, AND a Bash heredoc's
+    # body (`ShellFileEffect` on the Swift side, `_bash_file_effect` here). Restricting
+    # this to the edit tools is what made the same session read "+0 lines" on the card
+    # while the analyst was told "+2450" from the digest, which reads heredocs.
+    # MEASURED on this repository's container corpus, 17 root transcripts, 2026-09-06:
+    # 2,452 of 2,458 attributable lines came through the shell.
+    added = sum(e.added or 0 for e in s.events)
+    removed = sum(e.removed or 0 for e in s.events)
+    # `Set(evs.compactMap(\.targetPath))` on the Mac: any event naming a file touched it,
+    # a shell write and a human edit included.
+    touched = {e.path for e in s.events if e.path}
 
     counted = active >= COUNTED_MIN_ACTIVE_SEC or meaningful >= COUNTED_MIN_MEANINGFUL_EVENTS
     unattended = s.presence == 0 and active >= NOTABLE_MIN_ACTIVE_SEC

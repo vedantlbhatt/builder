@@ -242,49 +242,14 @@ public enum SessionDigest {
 
     // MARK: - Shell file effects
 
-    private static let heredoc = regex(
-        #"(?:cat|tee)\s*(?:>>?|-a\s+)?\s*(?<path>[\w./~\-]+)\s*<<\s*-?['"]?(?<delim>\w+)['"]?"#)
-    private static let sedInPlace = regex(#"\bsed\s+-i\S*\s+.*?\s(?<path>[\w./~\-]+\.\w+)(?:\s|$)"#)
-
     /// `(path, approx lines written)` for shell-driven file writes.
     ///
-    /// Agents in permission modes that prefer the shell write files with heredocs instead
-    /// of the Write tool. MEASURED on such a session: 100 Bash calls, 0 Edit/Write calls,
-    /// and every source file in the commit was created by `cat > path <<'EOF'`. Ignoring
-    /// that reports "agent lines +0" on a session that added a thousand. The count is the
-    /// heredoc body length — approximate, labelled so, and better than zero.
+    /// The rule itself lives in `BuilderParse.ShellFileEffect`, because the INGEST parser
+    /// needs the identical one: when only the digest read heredocs, the analyst was told
+    /// "agent lines +2450" about a session whose card said nothing. Kept as a forwarder so
+    /// the digest's own tests keep naming it.
     public static func bashFileEffect(_ command: String) -> (path: String?, approx: Int?) {
-        let ns = command as NSString
-        let whole = NSRange(location: 0, length: ns.length)
-        if let m = heredoc.firstMatch(in: command, range: whole) {
-            // The body is the lines strictly between the opener and the terminator.
-            // FOUND ON A REAL SESSION (Claude Code 2.1.261, `claude -p`, 2026-09-05):
-            // `mkdir -p tests && cat > tests/test_fail.py <<'EOF'\ndef test_fail():\n
-            // assert 1 == 2\nEOF\ngit add -A && git commit -m …` scored +3 under the
-            // older `newlines - 1` rule while git's own result said `2 insertions(+)` —
-            // the terminator line and the commands after it were counted as file
-            // content. Mirrors analysis/digest.py `_bash_file_effect`.
-            let delim = ns.substring(with: m.range(withName: "delim"))
-            var lines = ns.substring(from: m.range.location + m.range.length)
-                .components(separatedBy: "\n")
-            lines.removeFirst()  // the rest of the opener line
-            var n = 0
-            var terminated = false
-            for line in lines {
-                if line.trimmingCharacters(in: .whitespaces) == delim {
-                    terminated = true
-                    break
-                }
-                n += 1
-            }
-            // No terminator (a truncated command): the trailing empty line is not a line.
-            if !terminated, let last = lines.last, last.isEmpty { n -= 1 }
-            return (ns.substring(with: m.range(withName: "path")), max(0, n))
-        }
-        if let m = sedInPlace.firstMatch(in: command, range: whole) {
-            return (ns.substring(with: m.range(withName: "path")), nil)
-        }
-        return (nil, nil)
+        ShellFileEffect.of(command)
     }
 
     // MARK: - Tool lines

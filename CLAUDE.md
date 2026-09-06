@@ -170,6 +170,17 @@ top-level field names, so `tokens.input` and `strip_marks[].ms` came back as "se
 declared". They are the insides of declared fields — but the first person to run it
 publicly would have concluded the claim was false.
 
+**Two counters for one number is the same bug as a wrong number.** `analysis/digest.py`
+has read `cat > path <<'EOF'` writes since it was written; the INGEST parser
+(`ClaudeCodeParser`) only ever read Edit's `structuredPatch` and Write's created content.
+So one session was described to the analyst as "agent lines +2450" and rendered on the card
+as nothing. MEASURED on this repository's container corpus, 17 root transcripts: 2,452 of
+2,458 attributable lines came through the shell, so the card was showing 0.2% of the work.
+The rule now lives once, in `BuilderParse.ShellFileEffect`, and `SessionDigest` forwards to
+it. `sed -i` names a path and returns NO count: the file was touched, the magnitude is not
+in the command, and inventing one would feed `attribution` a guess it would treat as
+measured.
+
 **The density floor is a design constant, not a detail.** At 0.45 the identity amber
 rendered as muddy brown across most of a real strip, because a 71-minute session is 4.2s
 per column and most columns land in the lowest bucket. Density should modulate the colour,
@@ -205,11 +216,11 @@ prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/
 
 | suite | n | protects |
 |---|---|---|
-| `swift test` | 131 | the measured ground truth, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
-| `bun test` | 304 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables |
+| `swift test` | 136 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
+| `bun test` | 378 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes and per-frame change ceiling |
 | `pytest` | 118 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture |
 | `unittest` (analysis/) | 120 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged |
-| `make capture-test` | 53 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth |
+| `make capture-test` | 56 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 
 CI runs on `main`, on `claude/**` branches and on demand. The macOS job is the only Swift
