@@ -10,6 +10,13 @@ export const SHIPPED_MAX_LENGTHS = {
   short: 60,
 } as const;
 
+export type Stage = "idea" | "prototype" | "working" | "shipped" | "maintaining";
+
+/** Legal values for every enum, in spec order, the same order Python and the schema use. */
+export const SHIPPED_ENUMS = {
+  stage: ["idea", "prototype", "working", "shipped", "maintaining"],
+} as const;
+
 export interface ShippedChange {
   /** one thing that is now possible that was not before, in plain words. Not a commit message, not a file name. (max 200 chars) */
   text: string;

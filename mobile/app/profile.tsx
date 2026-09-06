@@ -10,6 +10,8 @@ import { ArchetypeHero } from '../src/profile/ArchetypeHero';
 import { BuilderProfileCard } from '../src/profile/BuilderProfileCard';
 import { ContributionGrid } from '../src/profile/ContributionGrid';
 import { FactList } from '../src/profile/FactList';
+import { ANIMAL_KEY } from './icon';
+import { resolveAnimal } from '../src/pixel/animals';
 import { archetypeSentence } from '../src/profile/narrative';
 import { NarrativeSection } from '../src/profile/NarrativeSection';
 import { ShareBars } from '../src/profile/ShareBars';
@@ -26,10 +28,12 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [builder, setBuilder] = useState<BuilderProfileResponse | null>(null);
+  const [chosenAnimal, setChosenAnimal] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       setProfile(await cache.getProfile());
+      setChosenAnimal(await cache.getKv(ANIMAL_KEY));
       const stored = await cache.getKv(CORPUS_KEY);
       if (stored) {
         try {
@@ -98,6 +102,8 @@ export default function ProfileScreen() {
           archetype={corpus.archetype}
           sessions={corpus.sample.sessions}
           sentence={archetypeSentence(narrative)}
+          animal={resolveAnimal(chosenAnimal, corpus.archetype?.name)}
+          onPressAnimal={() => router.push('/icon' as never)}
         />
       )}
 

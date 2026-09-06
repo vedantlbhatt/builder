@@ -146,6 +146,15 @@ STAMPED_FIELDS: list[str] = [
 
 
 def gen_ts(s: dict) -> str:
+    # The enum unions. gen_narrative.py never emitted these because that spec has no
+    # enums; this one does, and without them the generated interface references a `Stage`
+    # type that does not exist. Caught by `bunx tsc --noEmit`, which is the only gate that
+    # compiles the phone's generated code at all.
+    unions = "\n".join(
+        f"export type {ga.pascal(name)} = " + " | ".join(json.dumps(v) for v in values) + ";"
+        for name, values in s["enums"].items()
+    )
+    enum_table = "\n".join(f"  {name}: {json.dumps(values)}," for name, values in s["enums"].items())
     interfaces = "\n\n".join(
         [ga.ts_interface(s, name, fs) for name, fs in s["objects"].items()]
         + [ga.ts_interface(s, TOP, s["fields"])]
@@ -158,6 +167,13 @@ export const SHIPPED_VERSION = {s["version"]};
 /** Character caps by size class; string fields below name one of these in their doc. */
 export const SHIPPED_MAX_LENGTHS = {{
 {max_lengths}
+}} as const;
+
+{unions}
+
+/** Legal values for every enum, in spec order, the same order Python and the schema use. */
+export const SHIPPED_ENUMS = {{
+{enum_table}
 }} as const;
 
 {interfaces}

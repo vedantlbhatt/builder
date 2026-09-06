@@ -51,6 +51,7 @@ export default function RootLayout() {
       >
         <Stack.Screen name="index" options={{ title: 'Sessions' }} />
         <Stack.Screen name="profile" options={{ title: 'Profile' }} />
+        <Stack.Screen name="icon" options={{ title: 'Your creature' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         <Stack.Screen name="pair" options={{ title: 'Connect your Mac' }} />
         <Stack.Screen name="session/[id]" options={{ title: '' }} />

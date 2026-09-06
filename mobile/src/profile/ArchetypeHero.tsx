@@ -1,7 +1,7 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
-import { animalForArchetype } from '../pixel/animals';
+import { animalForArchetype, type Animal } from '../pixel/animals';
 import { PixelAnimal } from '../pixel/PixelAnimal';
 import { PixelSprite } from '../pixel/PixelSprite';
 import { colors, space } from '../theme';
@@ -25,6 +25,8 @@ export function ArchetypeHero({
   archetype,
   sessions,
   sentence,
+  animal,
+  onPressAnimal,
 }: {
   archetype: CorpusArchetype | null;
   sessions: number;
@@ -34,6 +36,14 @@ export function ArchetypeHero({
    * because the rule is the receipt and this is the claim. Absent is the normal state.
    */
   sentence?: string | null;
+  /**
+   * The creature to draw. Their own pick when they have made one, otherwise the one the
+   * archetype earned. Passed in rather than derived here so this component keeps having
+   * exactly one job.
+   */
+  animal?: Animal | null;
+  /** Opens the picker. Absent on a card that is not the owner's own profile. */
+  onPressAnimal?: () => void;
 }) {
   const name = archetype?.name ?? null;
   const runners = (archetype?.runners_up ?? []).filter((r) => r.score !== null);
@@ -53,7 +63,21 @@ export function ArchetypeHero({
         {/* Bit, not an animal, when there is no type. Every animal in the pack IS an
             archetype, so drawing one here would say "quality guardian" in the picture
             while the words say "no type yet", and the picture is the part people read. */}
-        {name ? <PixelAnimal animal={animalForArchetype(name)} size={64} /> : <PixelSprite state="thinking" size={64} />}
+        {/* Tapping the creature is how the picker is reached. It is the one thing on this
+            screen that is purely theirs, so it is the one thing that should feel pressable. */}
+        <Pressable
+          onPress={onPressAnimal}
+          disabled={!onPressAnimal}
+          accessibilityRole={onPressAnimal ? 'button' : undefined}
+          accessibilityLabel={onPressAnimal ? 'Change your creature' : undefined}
+          hitSlop={10}
+        >
+          {name ? (
+            <PixelAnimal animal={animal ?? animalForArchetype(name)} size={64} />
+          ) : (
+            <PixelSprite state="thinking" size={64} />
+          )}
+        </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={{ color: c.textDim, fontSize: 11, fontWeight: '700', letterSpacing: 1 }}>
             YOUR BUILDER TYPE
