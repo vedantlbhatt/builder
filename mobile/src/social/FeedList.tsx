@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 
 import type { Cursor, FeedItem, FeedPage } from '../data/api';
+import type { ShippedPost } from '../generated/shipped';
 import { api } from '../data/client';
 import { PixelBadge } from '../pixel/PixelBadge';
 import { TimelineStrip } from '../strip/TimelineStrip';
@@ -179,6 +180,11 @@ export function PostRow({
   const s = item.session;
   const headline = item.analysis?.headline ?? null;
   const summary = item.analysis?.summary ?? null;
+  // TWO KINDS OF POST, one row. A session post is one sitting: a duration, a timeline, a
+  // reading of what happened. A build post (0017) is a PROJECT across as many sittings as
+  // it took, so it has no session, no duration and no strip — showing "0s" and an empty
+  // timeline for one would be the row lying about a post that is not about a sitting.
+  const built = item.shipped ?? null;
 
   return (
     <View style={row}>
@@ -194,40 +200,50 @@ export function PostRow({
         <Text style={meta}>· {relativeTime(item.created_at)}</Text>
         {repo && <Text style={meta}>· {repo}</Text>}
         <View style={{ flex: 1 }} />
-        <Text style={[meta, { fontVariant: ['tabular-nums'] }]}>
-          {duration(s.attended_seconds ?? s.active_seconds)}
-        </Text>
+        {s ? (
+          <Text style={[meta, { fontVariant: ['tabular-nums'] }]}>
+            {duration(s.attended_seconds ?? s.active_seconds)}
+          </Text>
+        ) : (
+          <Text style={meta}>shipped</Text>
+        )}
       </View>
 
-      {item.strip ? (
-        <TimelineStrip
-          cols={item.strip.cols}
-          marks={decodeMarks(item.strip.marks)}
-          spanMs={Math.max(1, item.strip.t1_ms - item.strip.t0_ms)}
-          preset="row"
-          width={stripWidth}
-          style={{ marginVertical: space.sm }}
-        />
+      {built ? (
+        <BuildBody shipped={built} />
       ) : (
-        <Text style={[meta, { fontSize: 11, marginVertical: space.sm }]}>
-          timeline not available for this session
-        </Text>
-      )}
+        <>
+          {item.strip ? (
+            <TimelineStrip
+              cols={item.strip.cols}
+              marks={decodeMarks(item.strip.marks)}
+              spanMs={Math.max(1, item.strip.t1_ms - item.strip.t0_ms)}
+              preset="row"
+              width={stripWidth}
+              style={{ marginVertical: space.sm }}
+            />
+          ) : (
+            <Text style={[meta, { fontSize: 11, marginVertical: space.sm }]}>
+              timeline not available for this session
+            </Text>
+          )}
 
-      {headline ? (
-        <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>
-          {headline}
-        </Text>
-      ) : s.title ? (
-        <Text style={{ color: c.text, fontSize: 15, fontWeight: '600' }} numberOfLines={2}>
-          {s.title}
-        </Text>
-      ) : null}
-      {summary ? (
-        <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 18, marginTop: 4 }}>
-          {summary}
-        </Text>
-      ) : null}
+          {headline ? (
+            <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>
+              {headline}
+            </Text>
+          ) : s?.title ? (
+            <Text style={{ color: c.text, fontSize: 15, fontWeight: '600' }} numberOfLines={2}>
+              {s.title}
+            </Text>
+          ) : null}
+          {summary ? (
+            <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 18, marginTop: 4 }}>
+              {summary}
+            </Text>
+          ) : null}
+        </>
+      )}
       {item.caption ? (
         <Text style={{ color: c.text, fontSize: 14, lineHeight: 19, marginTop: space.sm }}>
           {item.caption}
@@ -275,6 +291,104 @@ export function PostRow({
     </View>
   );
 }
+
+/**
+ * A build post's body: what it is, what is new, and the part that was actually hard.
+ *
+ * WHAT MAKES THIS DIFFERENT FROM A SESSION POST. A session post says how somebody worked;
+ * this says what they made. `hard_part` is the field spec/shipped.v1.json exists for — it
+ * is the only thing on this card another builder learns anything from, so it gets its own
+ * block rather than a line in a list, and it is grounded in measured struggle rather than
+ * invented, which is why it is often absent.
+ *
+ * Nothing here is invented when it is missing. Every optional field on the document is a
+ * deliberate null ("the work genuinely does not say"), and a card that filled those in
+ * with encouraging placeholders would be a card about nothing.
+ */
+function BuildBody({ shipped }: { shipped: ShippedPost }) {
+  return (
+    <View style={{ marginTop: space.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
+        <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', lineHeight: 22, flex: 1 }}>
+          {shipped.what}
+        </Text>
+        <Text style={[meta, { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6 }]}>
+          {shipped.stage.replace(/_/g, ' ')}
+        </Text>
+      </View>
+
+      {shipped.why ? (
+        <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 18, marginTop: 4 }}>
+          {shipped.why}
+        </Text>
+      ) : null}
+
+      {shipped.stack.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: space.sm }}>
+          {shipped.stack.map((t) => (
+            <Text key={t} style={chip}>
+              {t}
+            </Text>
+          ))}
+        </View>
+      )}
+
+      {shipped.changes.length > 0 && (
+        <View style={{ marginTop: space.sm }}>
+          {shipped.changes.map((ch, i) => (
+            <View key={`${i}-${ch.text}`} style={{ paddingVertical: 2 }}>
+              <Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>
+                {'\u00b7 '}
+                {ch.text}
+              </Text>
+              {/* The receipt, when the work showed one. A change with evidence is a claim
+                  another builder can check; one without is a claim, and the card says
+                  which it is by whether this line is there. */}
+              {ch.evidence ? (
+                <Text style={[meta, { fontSize: 11, marginLeft: 12 }]}>{ch.evidence}</Text>
+              ) : null}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {shipped.hard_part ? (
+        <View style={hardPart}>
+          <Text style={[meta, { fontSize: 11, fontWeight: '700', letterSpacing: 0.8 }]}>
+            THE HARD PART
+          </Text>
+          <Text style={{ color: c.text, fontSize: 14, lineHeight: 20, marginTop: 4 }}>
+            {shipped.hard_part}
+          </Text>
+        </View>
+      ) : null}
+
+      {shipped.next ? (
+        <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 18, marginTop: space.sm }}>
+          Next: {shipped.next}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+const chip = {
+  color: c.textDim,
+  fontSize: 11,
+  borderWidth: 1,
+  borderColor: c.border,
+  borderRadius: 999,
+  paddingHorizontal: 8,
+  paddingVertical: 3,
+} as const;
+
+const hardPart = {
+  marginTop: space.sm,
+  borderLeftWidth: 2,
+  borderLeftColor: c.accent,
+  paddingLeft: space.md,
+  paddingVertical: 4,
+} as const;
 
 const row = {
   backgroundColor: c.card,

@@ -16,6 +16,7 @@ import {
   replaceItem,
   revertKudos,
   toggleKudos,
+  repoLine,
   updateKudos,
   visibilityLabel,
 } from '../src/social/format';
@@ -151,5 +152,42 @@ describe('isAlreadySharedConflict', () => {
     expect(isAlreadySharedConflict({ status: 403, message: 'this session is already shared' })).toBe(false);
     expect(isAlreadySharedConflict(new Error('already shared'))).toBe(false);
     expect(isAlreadySharedConflict(null)).toBe(false);
+  });
+});
+
+
+describe('a build post is a post about a project, not about a sitting', () => {
+  /**
+   * `posts.session_id` is nullable since 0017. A build post is about a PROJECT across as
+   * many sittings as it took, so it has no session, no duration and no timeline — and the
+   * feed row has to branch rather than read `item.session.repo_name` and crash, or show a
+   * "0s" duration for a post that was never about a length of time.
+   */
+  const buildPost = {
+    session: null,
+    project: 'builder',
+  } as unknown as FeedItem;
+
+  const sessionPost = {
+    session: { repo_name: 'ridegt' },
+    project: null,
+  } as unknown as FeedItem;
+
+  test('a build post is labelled with its project', () => {
+    expect(repoLine(buildPost)).toBe('builder');
+  });
+
+  test('a session post is still labelled from its session', () => {
+    expect(repoLine(sessionPost)).toBe('ridegt');
+  });
+
+  test('a private repo has no public name on either kind, and gets no label', () => {
+    // A hash would read as a bug. Nothing is the honest answer.
+    expect(repoLine({ session: { repo_name: null }, project: null } as unknown as FeedItem)).toBeNull();
+    expect(repoLine({ session: null, project: null } as unknown as FeedItem)).toBeNull();
+  });
+
+  test('a server older than the build post omits the key entirely', () => {
+    expect(repoLine({ session: { repo_name: 'builder' } } as unknown as FeedItem)).toBe('builder');
   });
 });

@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { BuilderNarrative } from '../generated/narrative';
 import type { BuilderReport } from '../generated/report';
+import type { ShippedPost } from '../generated/shipped';
 import type { FeedbackNoteWire } from '../generated/contract';
 import type { Archetype, Dimension, SessionAnalysis } from '../generated/analysis';
 
@@ -427,7 +428,21 @@ export interface FeedItem {
   share_analysis: boolean;
   created_at: string;
   updated_at: string;
-  session: SessionDetail;
+  /**
+   * NULL ON A BUILD POST. A session post is about one sitting and has one; a build post
+   * (0017) is about a PROJECT across as many sittings as it took, so there is no single
+   * session to show. Every reader of this field has to branch, which is the point of
+   * making it nullable rather than inventing an empty session to keep the type simple.
+   */
+  session: SessionDetail | null;
+  /**
+   * The build post itself, or null on a session post. Written on the author's machine by
+   * `python -m analysis shipped` under spec/shipped.v1.json; the server validated it and
+   * stored it whole. Optional on READ because a server older than 0017 omits the key.
+   */
+  shipped?: ShippedPost | null;
+  /** The repository's public name, when it has one. Present on both kinds of post. */
+  project?: string | null;
   strip: SessionStrip | null;
   analysis: FeedAnalysis | null;
   photos: PostMedia[];

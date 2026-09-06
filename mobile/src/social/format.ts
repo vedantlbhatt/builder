@@ -132,7 +132,13 @@ export function authorName(a: { handle: string | null; display_name: string | nu
   return a.handle ?? a.display_name ?? 'someone';
 }
 
-/** What the feed row says about the repo: public name, or nothing at all. */
-export function repoLine(item: Pick<FeedItem, 'session'>): string | null {
-  return item.session.repo_name ?? null;
+/**
+ * What the feed row says about the repo: public name, or nothing at all.
+ *
+ * A build post has no session, so its name comes from the post's own `project`. Both
+ * resolve to the same repository through the same LEFT JOIN on the server; reading only
+ * the session would leave every build post unlabelled.
+ */
+export function repoLine(item: Pick<FeedItem, 'session' | 'project'>): string | null {
+  return item.session?.repo_name ?? item.project ?? null;
 }
