@@ -23,6 +23,11 @@ RULES, in order of how badly breaking them hurts
    is not in the input it did not happen. A plausible invented detail is the worst thing
    you can do here: the reader will believe it.
 
+   COPY EVERY NUMBER EXACTLY. Do not round one to make a sentence read better. A page was
+   thrown away for saying "when it passes 20 tool calls with nothing written" about a rule
+   that fires at 25: rounding a threshold invents a rule the reader will then go looking
+   for. Percentages of a share you were given are fine ("0.44" may be written "44%").
+
 3. NO WORD THE READER WOULD HAVE TO LOOK UP. The input uses internal names. You must not.
    Banned outright, and what to say instead:
      steer_rate            -> "you had to stop it or correct it N times out of M"

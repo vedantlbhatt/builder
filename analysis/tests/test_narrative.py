@@ -172,6 +172,11 @@ class Schema(unittest.TestCase):
         self.assertIn("EVERY SENTENCE HAS SOMETHING ON THE END OF IT", text)
         self.assertIn("NO WORD THE READER WOULD HAVE TO LOOK UP", text)
 
+    def test_the_prompt_forbids_rounding_a_threshold(self):
+        # MEASURED: a page was thrown away for saying "20 tool calls" about a rule that
+        # fires at 25. The check caught it, correctly, and the reader got an empty field.
+        self.assertIn("COPY EVERY NUMBER EXACTLY", nr.PROMPT_PATH.read_text())
+
     def test_the_prompt_names_the_jargon_it_bans_and_what_to_say_instead(self):
         # A ban with no replacement gets ignored: the model still has to say the thing.
         text = nr.PROMPT_PATH.read_text()

@@ -25,35 +25,69 @@ number it rests on.
 
 ## Comparative findings, which are the interesting half
 
-`profile.py` answers "how much, how fast, how often". `patterns.py` answers the question a
-person actually asks, which is **when is it different?** Every finding compares two groups
-of that person's own prompts or sessions and reports the gap, so the sentence carries its
-own evidence.
+`profile.py` answers "how much, how fast, how often". `patterns.py` answers the only
+question worth a paragraph on somebody's profile, which is **what would you change
+tomorrow**.
 
-Seven finders, each one comparison:
+Seven finders, each one comparison, each one with something on the end of it:
 
-| id | compares |
+| id | says |
 |---|---|
-| `short_prompts_get_corrected` | prompts under 10 words against longer ones, by whether the next human act was a correction |
-| `the_opening_prompt` | the first prompt of a sitting against every prompt after it |
-| `after_an_interrupt` | the prompt straight after an interrupt against every other prompt |
-| `the_leash` | the longest hands-off run against the median one, in tool calls |
-| `night_sessions` | sittings started after 22:00 against sittings started in daylight |
-| `verification_habit` | edit bursts that ended in a test against ones that did not |
-| `rework` | files written three or more times in one sitting against files written once or twice |
+| `what_a_shipping_session_looks_like` | the sessions you opened with the most detail shipped a commit N of M times, the ones you opened shortest A of B |
+| `the_spin` | the longest run with no file written, no test and no commit, and what those runs cost you in total |
+| `stuck_in_a_loop` | consecutive failures before anything changed |
+| `fighting_one_file` | the worst rewritten file, with the minutes it took |
+| `when_the_work_lands` | lines an hour by time of day |
+| `short_prompts_get_corrected` | your one-liners are the ones you take back, and each is a round trip paid for twice |
+| `verification_habit` | you test after N% of your editing runs, and what that buys or costs |
 
-**Both bars, or nothing is said.** Both sides need `MIN_GROUP = 5` observations, and the
-gap needs `MIN_LIFT = 1.4` (or `MIN_SHARE_GAP = 0.15` points, because 2% against 1% is a
-2x lift and means nothing). Below either bar the finding is dropped, not softened. A
-sentence that says "you slightly prefer" about three prompts against four reads as insight
-and is noise, which is the exact failure this codebase is written to avoid.
+### Three rules, and the first two are the ones a finding usually fails
 
-MEASURED on a 17-session corpus: four of the seven cleared both bars. The other three were
-refused for sample size, and that is the system working.
+**1. A FINDING NAMES A COST OR A MOVE.** "Your later prompts are shorter than your first"
+is a true sentence with nothing on the other end of it. The same measurement becomes
+useful the moment it is attached to whether the session shipped. If a comparison cannot be
+finished with "so it cost you X" or "so do Y", it does not belong here. This is the rule
+the first version of this module failed, and the page it produced was correct and useless.
 
-Everything here needs PROMPT TEXT, so it runs on the machine that has the transcripts. The
-server never sees prompt wording (`privacy/upload-contract.json`) and therefore cannot
-compute a single one of these.
+**2. NO WORD THE READER WOULD HAVE TO LOOK UP.** Not "steer rate", not "front-loading",
+not "autonomy score 0.361". Internal metric names live in `left`/`right`, where a screen
+can show the working, and never in `text`. There is a test that fails if one leaks.
+
+**3. BOTH SIDES BIG ENOUGH, GAP BIG ENOUGH, OR SAY NOTHING.** `MIN_GROUP = 5` a side and
+`MIN_LIFT = 1.4` (or `MIN_SHARE_GAP = 0.15` points, because 2% against 1% is a 2x lift and
+means nothing). Below either bar the finding is dropped, not softened.
+
+### Four things found by running it
+
+Each of these would have shipped a wrong number, or no number at all.
+
+1. **A failure is the `result_error` event AFTER the call**, not a flag on the call.
+   Walking both kinds and testing `ok` counts the call as a success and its own error as a
+   separate failure, so a run never reaches two. The loop finder silently never fired on a
+   corpus with 128 errors in it.
+2. **"Nothing to show" cannot mean "no file written" alone.** An edit made by a script the
+   agent wrote (`python3 - <<PY`) is a Bash call with no line count anywhere in it, so on
+   this container 46 writes in 1,259 tool calls turned nearly every stretch into "nothing
+   happened". A checkpoint is a write, a test OR a commit, and below one checkpoint per
+   twenty calls the finding is REFUSED: the gaps would be measuring the parser's blind
+   spots and reporting them as the person's wasted time.
+3. **Splitting the opening prompts at their median** put every session on one side the
+   moment the lengths were bimodal, which they are. It splits by rank now: this person's
+   longer half against their shorter half. Requiring a follow-up prompt as well was worse:
+   13 of 18 sessions have exactly one prompt.
+4. **The token cost is a TOTAL and a share, never an average.** MEASURED: the sessions
+   that shipped nothing averaged 36,214 output tokens each against 148,932 for the ones
+   that did, so a sentence built on the averages would have said "your quiet sessions are
+   the cheap ones" while the number a person cares about, a fifth of their spend producing
+   nothing they kept, went unsaid. The average is the wrong statistic and the direction it
+   points is worse than useless.
+
+Token counts come from the ledger, never from summing `Ev.tok_out`, which reports 39,487
+output tokens for 21 hours of real work. Absent is a refusal; zero would be a lie.
+
+Everything here needs PROMPT TEXT, the tool results around it and the timings between, so
+it runs on the machine that has the transcripts. The server never sees prompt wording
+(`privacy/upload-contract.json`) and cannot compute a single one of these.
 
 ## The one rule the model is given, and the check that makes it real
 
@@ -92,6 +126,19 @@ check in their head.
 Every drop is logged with the claim that caused it. A count with nothing behind it cannot
 tell you whether the ban is working or misfiring, which is how both of the above were
 found.
+
+## The order of the input is a stronger instruction than a rule in the prompt
+
+FOUND BY READING THE OUTPUT. With the computed metrics at the top of the input, three of
+four paragraphs were built out of them and read like this:
+
+> Your prompts skew planning over execution 2.33 to 1. About 36.5% of your time is spent
+> with it running on its own.
+
+True, free of jargon after the ban, and still nothing a person can act on. The findings
+are the only material in the input that is guaranteed to carry a cost or a move, so
+`build_input` now leads with them under a heading that says to build the page out of them,
+and demotes the metrics to a block labelled "support, never subject".
 
 ## Refusals travel WITH their reason
 
