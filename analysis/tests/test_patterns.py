@@ -205,6 +205,23 @@ class TheSpin(unittest.TestCase):
         corpus = [sess(events, sid=f"t{i}") for i in range(6)]
         self.assertIsNone(by_id(pt.findings(corpus), "the_spin"))
 
+    def test_the_trailing_stretch_ends_at_the_last_call_not_the_session_end(self):
+        """FOUND BY RUNNING IT: a sitting whose last 50 calls finished in 100 seconds and
+        whose window ran two more hours reported a two hour stretch of going nowhere. The
+        boundary rules extend `endedAt` by the trailing gap, which is right for active
+        time and wrong for this."""
+        quick = [idle(i, T0 + i * 2) for i in range(60)]
+        # Enough ordinary sittings alongside to clear the checkpoint density guard: below
+        # one checkpoint per twenty calls the finding refuses itself, correctly.
+        corpus = [sess(quick, sid=f"q{i}", active=7200.0) for i in range(6)] + [
+            sess([idle(0, T0), idle(1, T0 + 10), write(2, T0 + 20)], sid=f"ok{i}")
+            for i in range(25)
+        ]
+        f = by_id(pt.findings(corpus), "the_spin")
+        self.assertIsNotNone(f)
+        # 60 calls two seconds apart is about two minutes, not two hours.
+        self.assertLess(f.left["worst_seconds"], 300, "the idle tail was credited to the run")
+
     def test_a_corpus_where_no_progress_is_visible_is_refused_not_estimated(self):
         """The guard. A session whose edits went through a script the parser cannot read
         would otherwise be reported as one long stretch of wasted time."""

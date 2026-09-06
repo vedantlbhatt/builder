@@ -286,10 +286,11 @@ MIN_CHECKPOINT_DENSITY = 1 / 20
 
 def _runs_with_nothing_to_show(s: SessionEvents) -> list[tuple[int, float]]:
     """(tool calls, seconds) for every stretch between two checkpoints."""
-    runs, n, start = [], 0, None
+    runs, n, start, last = [], 0, None, 0.0
     for e in s.events:
         if e.kind != "tool":
             continue
+        last = e.ts
         if _checkpoint(e):
             if n and start is not None:
                 runs.append((n, e.ts - start))
@@ -299,7 +300,13 @@ def _runs_with_nothing_to_show(s: SessionEvents) -> list[tuple[int, float]]:
         if start is None:
             start = e.ts
     if n and start is not None:
-        runs.append((n, s.ended_at - start))
+        # The trailing run ends at the LAST TOOL CALL, never at the session end. Using
+        # `ended_at` credits every idle second after the agent stopped to the stretch:
+        # FOUND BY RUNNING IT, a sitting whose last 50 calls finished in 100 seconds and
+        # whose window ran two more hours reported a two hour stretch of going nowhere.
+        # The boundary rules deliberately extend `endedAt` by the trailing gap
+        # (CLAUDE.md), which is right for active time and wrong for this.
+        runs.append((n, last - start))
     return runs
 
 
