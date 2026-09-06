@@ -46,6 +46,11 @@ def main() -> int:
         action="store_true",
         help="print the comparative findings and stop, without calling a model",
     )
+    tr = sub.add_parser(
+        "trends", help="how you build now against how you built before, you against you"
+    )
+    tr.add_argument("path", nargs="?", default="~/.claude/projects")
+    tr.add_argument("--window", type=int, default=30, help="days per window (default 30)")
     ag = sub.add_parser(
         "agents",
         help="several agents at once: who ran, overlapping or one after another, and what landed",
@@ -117,6 +122,9 @@ def main() -> int:
         print(json.dumps(prof, indent=1, default=str))
         return 0
 
+    if a.cmd == "trends":
+        return _trends(a)
+
     if a.cmd == "agents":
         return _agents(a)
 
@@ -165,6 +173,49 @@ def main() -> int:
         sys.stderr.write(f"wrote {a.out}  cost ${res['cost_usd']}  {res['duration_ms']} ms\n")
     else:
         print(text)
+    return 0
+
+
+def _trends(a) -> int:
+    """Two equal windows, back to back. Never a window against all of history: that
+    reports the trend of the corpus growing."""
+    from . import profile as pf_mod
+    from . import trends as tr_mod
+
+    facts, _ = _narrative_inputs(pathlib.Path(a.path).expanduser())
+    now = time.time()
+    edge = now - a.window * 86400
+    floor = now - 2 * a.window * 86400
+    recent = [f for f in facts if f.started_at >= edge]
+    earlier = [f for f in facts if floor <= f.started_at < edge]
+
+    found = tr_mod.compare(pf_mod.corpus_profile(earlier), pf_mod.corpus_profile(recent))
+    if not found:
+        sys.stderr.write(
+            f"not enough on both sides yet: {len(earlier)} sitting(s) in the "
+            f"{a.window} days before last, {len(recent)} since. "
+            f"{tr_mod.MIN_SESSIONS} of each are needed.\n"
+        )
+        return 0
+
+    line = tr_mod.headline(found, a.window)
+    if line:
+        print(f"{line}\n")
+    for t in found:
+        if t.steady:
+            mark, tail = "  steady", ""
+        else:
+            mark = "      up" if t.direction == "up" else "    down"
+            tail = (
+                ""
+                if t.good is None
+                else ("   the way you want it" if t.good else "   worth a look")
+            )
+        print(f"{mark} {abs(t.move):>5.0%}  {t.label:<38} {t.before:>8g} -> {t.now:<8g}{tail}")
+    print(
+        f"\n{found[0].sessions_now} sittings in the last {a.window} days, "
+        f"{found[0].sessions_before} in the {a.window} before that."
+    )
     return 0
 
 
