@@ -86,6 +86,15 @@ REPORT = {
         },
         "reason": None,
     },
+    "languages": {
+        "lines": 10280,
+        "generated_lines_excluded": 0,
+        "languages": [
+            {"name": "Python", "lines": 7942, "files": 45, "share": 0.773},
+            {"name": "TypeScript", "lines": 922, "files": 11, "share": 0.09},
+        ],
+        "reason": None,
+    },
     "prompting": {
         "attempts": 35,
         "clean": 8,
@@ -113,6 +122,7 @@ def test_a_report_round_trips_through_the_profile(client, paired):
     assert got["quality"]["time_to_green"]["median_seconds"] == 117
     assert got["contributions"]["days"][0]["day"] == "2026-09-05"
     assert got["trends"][0]["metric"] == "test_runs_per_hour"
+    assert got["languages"]["languages"][0]["name"] == "Python"
 
 
 def test_a_refused_block_stays_null_rather_than_becoming_a_zero(client, paired):
@@ -133,6 +143,12 @@ def test_a_refused_block_stays_null_rather_than_becoming_a_zero(client, paired):
             "reason": "2 test run(s), 5 needed",
         },
         prompting=None,
+        languages={
+            "lines": 40,
+            "generated_lines_excluded": 3000,
+            "languages": None,
+            "reason": "40 attributable line(s), 200 needed",
+        },
     )
     assert client.put("/v1/profile/report", json=thin, headers=headers).status_code == 200
 
@@ -142,6 +158,10 @@ def test_a_refused_block_stays_null_rather_than_becoming_a_zero(client, paired):
     assert got["prompting"] is None
     assert got["quality"]["first_try_rate"] is None
     assert got["quality"]["reason"] == "2 test run(s), 5 needed"
+    # A refused split still reports what it EXCLUDED. A person whose line count dropped by
+    # three thousand deserves to know where it went.
+    assert got["languages"]["languages"] is None
+    assert got["languages"]["generated_lines_excluded"] == 3000
 
 
 def test_a_second_report_replaces_the_first(client, paired):

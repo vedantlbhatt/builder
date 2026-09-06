@@ -20,7 +20,53 @@ public enum ShellFileEffect {
 
     private static let heredoc = regex(
         #"(?:cat|tee)\s*(?:>>?|-a\s+)?\s*(?<path>[\w./~\-]+)\s*<<\s*-?['"]?(?<delim>\w+)['"]?"#)
+    /// ANY heredoc opener, not only the ones that write a file. Used to SKIP bodies; see
+    /// `commandLines`. `<<<` is a here-STRING and takes no body, so it is excluded — and
+    /// it is excluded from BOTH SIDES. `<<(?!<)` alone still matches the second and third
+    /// `<` of `<<<`, which made `grep x <<< 'hello'` open a heredoc with the delimiter
+    /// `hello` and swallow every command after it.
+    private static let anyHeredoc = regex(#"(?<!<)<<(?!<)\s*-?\s*['"]?(?<delim>\w+)['"]?"#)
     private static let sedInPlace = regex(#"\bsed\s+-i\S*\s+.*?\s(?<path>[\w./~\-]+\.\w+)(?:\s|$)"#)
+
+    /// The indices of the lines of `command` that are COMMANDS, with heredoc bodies
+    /// skipped.
+    ///
+    /// A heredoc body is data. It can contain anything, including text that looks exactly
+    /// like another shell command, and scanning it is how this parser read a piece of
+    /// DOCUMENTATION as a file write. FOUND BY RUNNING IT on this repository's own corpus:
+    /// CLAUDE.md contains the sentence "`analysis/digest.py` has read `cat > path <<'EOF'`
+    /// writes since it was written", and that file is edited through `python3 - <<'PY' … PY`.
+    /// The outer opener is not a `cat` or `tee`, so the old scan skipped past it, found the
+    /// `cat > path <<'EOF'` INSIDE the prose, and attributed 134 lines to a file literally
+    /// named `path` — a file that has never existed, on a corpus of 10,487 attributable
+    /// lines. Mirrors `analysis/digest.py._command_lines`.
+    private static func commandLines(_ lines: [String]) -> [Int] {
+        var out: [Int] = []
+        var i = 0
+        while i < lines.count {
+            out.append(i)
+            let line = lines[i]
+            let ns = line as NSString
+            guard
+                let m = anyHeredoc.firstMatch(
+                    in: line, range: NSRange(location: 0, length: ns.length))
+            else {
+                i += 1
+                continue
+            }
+            // Skip the body: up to and including the terminator, or the rest of the
+            // command when there is none (a truncated call).
+            let delim = ns.substring(with: m.range(withName: "delim"))
+            var j = i + 1
+            while j < lines.count,
+                lines[j].trimmingCharacters(in: .whitespaces) != delim
+            {
+                j += 1
+            }
+            i = j + 1
+        }
+        return out
+    }
 
     /// `(path, approx lines written)`. A `sed -i` names a path but has no countable
     /// magnitude, so it returns a path and a nil count: the file was touched, and by how
@@ -34,34 +80,46 @@ public enum ShellFileEffect {
     /// commands after it were being counted as file content. Mirrors
     /// `analysis/digest.py._bash_file_effect`, which the Python tests pin.
     public static func of(_ command: String) -> (path: String?, approx: Int?) {
-        let ns = command as NSString
-        let whole = NSRange(location: 0, length: ns.length)
-        if let m = heredoc.firstMatch(in: command, range: whole) {
+        let lines = command.components(separatedBy: "\n")
+        let commandIndices = commandLines(lines)
+
+        for i in commandIndices {
+            let line = lines[i]
+            let ns = line as NSString
+            guard
+                let m = heredoc.firstMatch(
+                    in: line, range: NSRange(location: 0, length: ns.length))
+            else { continue }
             let delim = ns.substring(with: m.range(withName: "delim"))
-            var lines = ns.substring(from: m.range.location + m.range.length)
-                .components(separatedBy: "\n")
-            lines.removeFirst()  // the rest of the opener line
+            let body = Array(lines.dropFirst(i + 1))
             var n = 0
             var terminated = false
-            for line in lines {
-                if line.trimmingCharacters(in: .whitespaces) == delim {
+            for bodyLine in body {
+                if bodyLine.trimmingCharacters(in: .whitespaces) == delim {
                     terminated = true
                     break
                 }
                 n += 1
             }
             // No terminator (a truncated command): the trailing empty line is not a line.
-            if !terminated, let last = lines.last, last.isEmpty { n -= 1 }
+            if !terminated, let last = body.last, last.isEmpty { n -= 1 }
             return (ns.substring(with: m.range(withName: "path")), max(0, n))
         }
-        if let m = sedInPlace.firstMatch(in: command, range: whole) {
-            return (ns.substring(with: m.range(withName: "path")), nil)
+
+        for i in commandIndices {
+            let line = lines[i]
+            let ns = line as NSString
+            if let m = sedInPlace.firstMatch(
+                in: line, range: NSRange(location: 0, length: ns.length))
+            {
+                return (ns.substring(with: m.range(withName: "path")), nil)
+            }
         }
         return (nil, nil)
     }
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
-        // Both patterns are constants pinned by the tests; a typo fails the suite rather
+        // Every pattern here is a constant pinned by the tests; a typo fails the suite rather
         // than silently attributing zero lines to every shell write a user makes.
         do {
             return try NSRegularExpression(pattern: pattern)

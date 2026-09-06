@@ -44,6 +44,8 @@ ENUM_FIELDS: dict[str, dict[str, str]] = {
     "ReportGreen": {},
     "ReportQuality": {},
     "ReportPrompting": {},
+    "ReportLanguage": {},
+    "ReportLanguages": {},
     "BuilderReport": {},
 }
 
@@ -141,6 +143,24 @@ class ReportPrompting(BaseModel):
     reason: str | None = Field(default=None, max_length=200)
 
 
+class ReportLanguage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(max_length=80)
+    lines: int
+    files: int
+    share: float
+
+
+class ReportLanguages(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lines: int
+    generated_lines_excluded: int
+    languages: list[ReportLanguage] | None = Field(default=None, max_length=12)
+    reason: str | None = Field(default=None, max_length=200)
+
+
 class BuilderReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -153,3 +173,4 @@ class BuilderReport(BaseModel):
     contributions: ReportContributions | None = None
     quality: ReportQuality | None = None
     prompting: ReportPrompting | None = None
+    languages: ReportLanguages | None = None

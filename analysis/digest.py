@@ -158,7 +158,42 @@ def _looks_like_error(s: str) -> bool:
 _HEREDOC = re.compile(
     r"(?:cat|tee)\s*(?:>>?|-a\s+)?\s*(?P<path>[\w./~\-]+)\s*<<\s*-?['\"]?(?P<delim>\w+)['\"]?"
 )
+#: ANY heredoc opener, not only the ones that write a file. Used to SKIP bodies: see
+#: `_bash_file_effect`. `<<<` is a here-STRING and takes no body, so it is excluded.
+_ANY_HEREDOC = re.compile(r"(?<!<)<<(?!<)\s*-?\s*['\"]?(?P<delim>\w+)['\"]?")
 _SED_I = re.compile(r"\bsed\s+-i\S*\s+.*?\s(?P<path>[\w./~\-]+\.\w+)(?:\s|$)")
+
+
+def _command_lines(command: str):
+    """Every line of `command` that is a COMMAND, with the heredoc bodies skipped.
+
+    Yields `(index, line)`. A heredoc body is data: it can contain anything, including
+    text that looks exactly like another shell command, and scanning it is how this parser
+    read a piece of DOCUMENTATION as a file write.
+
+    FOUND BY RUNNING IT on this repository's own corpus. CLAUDE.md contains the sentence
+    "`analysis/digest.py` has read `cat > path <<'EOF'` writes since it was written", and
+    that file is edited through `python3 - <<'PY' … PY`. The outer opener is not a `cat`
+    or `tee` so the old scan skipped past it, found the `cat > path <<'EOF'` INSIDE the
+    prose, and attributed 134 lines to a file literally named `path` — a file that has
+    never existed, on a corpus of 10,487 attributable lines.
+    """
+    lines = command.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        yield i, line
+        opener = _ANY_HEREDOC.search(line)
+        if opener is None:
+            i += 1
+            continue
+        # Skip the body: everything up to and including the terminator, or the rest of
+        # the command when there is none (a truncated call).
+        delim = opener.group("delim")
+        j = i + 1
+        while j < len(lines) and lines[j].strip() != delim:
+            j += 1
+        i = j + 1
 
 
 def _bash_file_effect(command: str) -> tuple[str | None, int | None]:
@@ -170,30 +205,38 @@ def _bash_file_effect(command: str) -> tuple[str | None, int | None]:
     reports "agent lines +0" on a session that added a thousand. The count is the
     heredoc body length — approximate, labelled so, and better than zero.
 
+    ONLY COMMAND LINES ARE READ, never heredoc bodies (`_command_lines`). A body is data,
+    and this parser once read a shell command quoted inside a documentation file as a
+    write to a file called `path`.
+
     The body is the lines strictly between the opener and the terminator. FOUND ON A REAL
     SESSION (Claude Code 2.1.261, `claude -p`, 2026-09-05): the Bash input
-    `mkdir -p tests && cat > tests/test_fail.py <<'EOF'\\ndef test_fail():\\n    assert 1 ==
-    2\\nEOF\\ngit add -A && git commit -m 'add failing test'` scored +3 under the older
+    `mkdir -p tests && cat > tests/test_fail.py <<'EOF'\ndef test_fail():\n    assert 1 ==
+    2\nEOF\ngit add -A && git commit -m 'add failing test'` scored +3 under the older
     `newlines - 1` rule while git's own result said `2 insertions(+)` — the terminator
     line and the commands after it were being counted as file content.
     """
-    m = _HEREDOC.search(command)
-    if m:
+    lines = command.split("\n")
+    for i, line in _command_lines(command):
+        m = _HEREDOC.search(line)
+        if m is None:
+            continue
         delim = m.group("delim")
-        lines = command[m.end() :].split("\n")[1:]  # drop the rest of the opener line
+        body = lines[i + 1 :]
         n = 0
-        for ln in lines:
+        for ln in body:
             if ln.strip() == delim:
                 break
             n += 1
         else:
             # No terminator (truncated command): don't count a trailing empty line.
-            if lines and lines[-1] == "":
+            if body and body[-1] == "":
                 n -= 1
         return m.group("path"), max(0, n)
-    m = _SED_I.search(command)
-    if m:
-        return m.group("path"), None
+    for _i, line in _command_lines(command):
+        m = _SED_I.search(line)
+        if m:
+            return m.group("path"), None
     return None, None
 
 

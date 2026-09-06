@@ -18,6 +18,9 @@ WHAT IS IN IT, AND WHY EACH BLOCK EARNED ITS PLACE:
   quality        the two of DORA's four questions a transcript can answer, and the module
                  that refuses the other two rather than greping `fix` out of git log.
   prompting      how often a prompt lands cleanly. A COUNT AND NOTHING ELSE.
+  languages      what you actually build in, by lines the agent added. Every code stats
+                 product has this and this one did not; the language NAME is all that
+                 travels, and a name is not a path.
 
 WHAT IT DELIBERATELY LEAVES OUT. `analysis/rules.py` turns recurring failures into
 CLAUDE.md lines, and those lines quote ERROR TEXT, which carries paths and file names. It
@@ -36,6 +39,7 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Sequence
 
+from . import languages as lang_mod
 from . import playbook as pb_mod
 from . import quality as q_mod
 from . import trends as tr_mod
@@ -56,6 +60,7 @@ REPORT_VERSION = 1
 MAX_TRENDS = 24
 MAX_AGENT_TYPES = 12
 MAX_DAYS = 400
+MAX_LANGUAGES = 12
 
 
 def build(
@@ -87,6 +92,7 @@ def build(
         "contributions": _contributions(contributions),
         "quality": _quality(sessions),
         "prompting": _prompting(sessions),
+        "languages": _languages(sessions),
     }
 
 
@@ -195,10 +201,31 @@ def _prompting(sessions: Sequence) -> dict | None:
     }
 
 
+def _languages(sessions: Sequence) -> dict | None:
+    """Lines by language, or the refusal with the count that forced it.
+
+    The names come from a fixed table of extensions in `analysis/languages.py`; the FILES
+    are a count and never a name, because paths do not leave the machine. Generated files
+    are excluded by name and the excluded total is reported, since a person whose line
+    count drops by three thousand after an install deserves to know where it went.
+    """
+    if not sessions:
+        return None
+    s = lang_mod.split(sessions)
+    langs = s["languages"]
+    return {
+        "lines": s["lines"],
+        "generated_lines_excluded": s["generated_lines_excluded"],
+        "languages": langs[:MAX_LANGUAGES] if langs else None,
+        "reason": s["reason"],
+    }
+
+
 __all__ = [
     "DEFAULT_WINDOW_DAYS",
     "MAX_AGENT_TYPES",
     "MAX_DAYS",
+    "MAX_LANGUAGES",
     "MAX_TRENDS",
     "REPORT_VERSION",
     "build",

@@ -294,6 +294,56 @@
         "nullable": true,
         "doc": "why the share is null, when it is."
       }
+    ],
+    "ReportLanguage": [
+      {
+        "name": "name",
+        "type": "string",
+        "max": "label",
+        "doc": "the language, from a fixed table of extensions. `other` is an extension nobody mapped, counted rather than guessed at."
+      },
+      {
+        "name": "lines",
+        "type": "int",
+        "doc": "lines the agent added in it."
+      },
+      {
+        "name": "files",
+        "type": "int",
+        "doc": "distinct files. A count, never a name: paths do not leave the machine."
+      },
+      {
+        "name": "share",
+        "type": "number",
+        "doc": "its share of the attributable lines."
+      }
+    ],
+    "ReportLanguages": [
+      {
+        "name": "lines",
+        "type": "int",
+        "doc": "attributable lines in the window, generated files already excluded."
+      },
+      {
+        "name": "generated_lines_excluded",
+        "type": "int",
+        "doc": "lines nobody wrote: lockfiles, `node_modules`, this repository's own generated Swift, TypeScript and Python. Reported rather than hidden, because a silent exclusion is indistinguishable from a parser that missed the file."
+      },
+      {
+        "name": "languages",
+        "type": "list",
+        "item": "ReportLanguage",
+        "max_items": 12,
+        "nullable": true,
+        "doc": "most lines first, the tail summed into `other`. Null when there were too few attributable lines to split."
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "max": "reason",
+        "nullable": true,
+        "doc": "why the split is null, when it is."
+      }
     ]
   },
   "fields": [
@@ -353,6 +403,13 @@
       "item": "ReportPrompting",
       "nullable": true,
       "doc": "how often a prompt lands cleanly, and nothing else. Null when neither pile has enough in it to be a rate."
+    },
+    {
+      "name": "languages",
+      "type": "object",
+      "item": "ReportLanguages",
+      "nullable": true,
+      "doc": "what you actually build in, by lines the agent added. Null when no session in the window had a countable write."
     }
   ]
 }

@@ -147,5 +147,48 @@ class HeredocLines(unittest.TestCase):
         self.assertEqual(digest._bash_file_effect("printf 'x\\n' >> hello.py"), (None, None))
 
 
+class AHeredocBodyIsData(unittest.TestCase):
+    """A heredoc body can contain anything, including text that looks like a command.
+
+    FOUND BY RUNNING IT on this repository's own corpus. CLAUDE.md contains the sentence
+    "`analysis/digest.py` has read `cat > path <<'EOF'` writes since it was written", and
+    that file is edited through `python3 - <<'PY' … PY`. The outer opener is not a `cat`
+    or a `tee`, so the old scan walked straight past it, found the quoted `cat > path
+    <<'EOF'` inside the PROSE, and attributed 134 lines to a file literally named `path`
+    on a corpus of 10,487 attributable lines. A file that has never existed.
+    """
+
+    def test_a_command_quoted_inside_a_body_is_not_a_write(self):
+        cmd = (
+            "python3 - <<PY\n"
+            "s = \"cat > path <<'EOF'\"\n"
+            "more\n"
+            "lines\n"
+            "PY"
+        )
+        self.assertEqual(digest._bash_file_effect(cmd), (None, None))
+
+    def test_a_sed_quoted_inside_a_body_is_not_a_write_either(self):
+        cmd = "python3 - <<PY\nsed -i s/a/b/ inner.py\nPY"
+        self.assertEqual(digest._bash_file_effect(cmd), (None, None))
+
+    def test_a_real_write_after_a_skipped_body_is_still_found(self):
+        """Skipping is not stopping. The body ends and the command resumes."""
+        cmd = "python3 - <<PY\nprint(1)\nPY\ncat > real.py <<'EOF'\nx = 1\ny = 2\nEOF"
+        self.assertEqual(digest._bash_file_effect(cmd), ("real.py", 2))
+
+    def test_a_here_string_takes_no_body_and_hides_nothing(self):
+        """`<<<` is a here-STRING: one line, no terminator. Treating it as a heredoc opener
+        would swallow the rest of the command looking for a delimiter that never comes."""
+        cmd = "grep x <<< 'hello'\ncat > b.py <<'EOF'\nz = 3\nEOF"
+        self.assertEqual(digest._bash_file_effect(cmd), ("b.py", 1))
+
+    def test_an_unterminated_outer_body_hides_everything_after_it(self):
+        """Which is correct: if the terminator never arrives, the rest of the command IS
+        the body, and nothing in it is a command this parser may read."""
+        cmd = "python3 - <<PY\ncat > x.py <<'EOF'\nnever terminated"
+        self.assertEqual(digest._bash_file_effect(cmd), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

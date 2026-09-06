@@ -120,6 +120,28 @@ export interface ReportPrompting {
   reason?: string | null;
 }
 
+export interface ReportLanguage {
+  /** the language, from a fixed table of extensions. `other` is an extension nobody mapped, counted rather than guessed at. (max 80 chars) */
+  name: string;
+  /** lines the agent added in it. */
+  lines: number;
+  /** distinct files. A count, never a name: paths do not leave the machine. */
+  files: number;
+  /** its share of the attributable lines. */
+  share: number;
+}
+
+export interface ReportLanguages {
+  /** attributable lines in the window, generated files already excluded. */
+  lines: number;
+  /** lines nobody wrote: lockfiles, `node_modules`, this repository's own generated Swift, TypeScript and Python. Reported rather than hidden, because a silent exclusion is indistinguishable from a parser that missed the file. */
+  generated_lines_excluded: number;
+  /** most lines first, the tail summed into `other`. Null when there were too few attributable lines to split. (max 12 items) */
+  languages?: ReportLanguage[] | null;
+  /** why the split is null, when it is. (max 200 chars) */
+  reason?: string | null;
+}
+
 export interface BuilderReport {
   /** the spec version these rules came from. A retuned threshold is a recompute, not a migration. */
   report_version: number;
@@ -139,4 +161,6 @@ export interface BuilderReport {
   quality?: ReportQuality | null;
   /** how often a prompt lands cleanly, and nothing else. Null when neither pile has enough in it to be a rate. */
   prompting?: ReportPrompting | null;
+  /** what you actually build in, by lines the agent added. Null when no session in the window had a countable write. */
+  languages?: ReportLanguages | null;
 }

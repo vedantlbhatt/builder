@@ -33,6 +33,8 @@ Nine things this codebase has already had to refuse, each one found by running i
 | a trend from zero | dividing by zero, or calling it an infinite rise |
 | a trend on a metric either window refused | `None - None` is not "flat" |
 | an archetype from one session | `docs/analysis.md`: never from one run |
+| a language split under 200 lines | a pie chart over 40 lines is a picture of one commit |
+| lockfiles as a language you chose | `bun.lock` alone is 3,000 lines nobody wrote |
 | commits credited to a model | 3 models summed to 134 where git counted 85 |
 
 ---
@@ -202,6 +204,7 @@ contract does not put on the wire:
 
 | block | needs | which is |
 |---|---|---|
+| `languages` | file PATHS, to read an extension off | never on the wire; the language NAME is, and a name is not a path |
 | `trends` | the metrics over two windows | recomputable, kept here so one document describes one moment |
 | `agents` | the subagent SIDECAR transcripts | files on your machine, uploaded by nothing |
 | `quality` | shell command TEXT | a `pytest` from a `git status`; the server has a count of Bash calls |

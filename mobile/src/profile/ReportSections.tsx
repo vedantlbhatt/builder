@@ -37,6 +37,7 @@ export function ReportSections({ report }: { report: BuilderReport }) {
   return (
     <>
       <Trends report={report} />
+      <Languages report={report} />
       <Agents report={report} />
       <Commits report={report} />
       <Habits report={report} />
@@ -108,6 +109,36 @@ function Trends({ report }: { report: BuilderReport }) {
         Two windows of the same length, back to back. A move under 15% is called steady,
         because everything here wobbles by a tenth without anything changing about you.
       </Text>
+    </Section>
+  );
+}
+
+function Languages({ report }: { report: BuilderReport }) {
+  const l = report.languages;
+  if (!l) return null;
+  return (
+    <Section title="What you build in">
+      {l.languages ? (
+        <>
+          <ShareBars
+            tint={c.accent}
+            items={l.languages.map((x) => ({
+              label: x.name,
+              share: x.share,
+              detail: `${x.lines.toLocaleString()} lines`,
+            }))}
+          />
+          <Text style={{ color: c.textDim, fontSize: 11, marginTop: space.sm }}>
+            Lines the agent added, not files and not time: a file count would weigh a
+            one-line config change against a 400-line module.
+            {l.generated_lines_excluded > 0
+              ? ` ${l.generated_lines_excluded.toLocaleString()} lines nobody wrote — lockfiles and generated code — are left out.`
+              : ''}
+          </Text>
+        </>
+      ) : (
+        <Reason text={l.reason ?? 'Not enough written yet to split.'} />
+      )}
     </Section>
   );
 }

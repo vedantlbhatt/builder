@@ -72,6 +72,27 @@ class Shape(unittest.TestCase):
         self.assertEqual(set(doc["trends"][0]), self.object_names("ReportTrend"))
         self.assertEqual(set(doc["agents"]["by_type"][0]), self.object_names("ReportAgentType"))
 
+    def test_the_language_block_has_exactly_the_specs_fields(self):
+        import datetime as dt
+
+        from analysis import patterns as pat
+        from analysis.digest import Ev
+
+        events = [Ev(1, 0.0, "tool", "", tool="Write", added=300, path="/r/a.py")]
+        s = pat.SessionEvents(
+            session_id="s",
+            started_at=0.0,
+            ended_at=60.0,
+            active_seconds=60.0,
+            attended_seconds=60.0,
+            tz_offset_minutes=0,
+            events=events,
+        )
+        doc = rp.build(sessions=[s])
+        assert dt  # the import is what makes this a real session, not decoration
+        self.assertEqual(set(doc["languages"]), self.object_names("ReportLanguages"))
+        self.assertEqual(set(doc["languages"]["languages"][0]), self.object_names("ReportLanguage"))
+
     def test_the_version_matches_the_spec(self):
         """Two places hold this number and `scripts/gen_report.py` copies the spec's into
         both generated halves; a module that stamped a different one would store documents
@@ -151,7 +172,7 @@ class WhatMayTravel(unittest.TestCase):
         have to argue for it."""
         allowed = {
             "metric", "label", "direction",  # ReportTrend
-            "name",  # ReportAgentType: the harness's own type name
+            "name",  # ReportAgentType and ReportLanguage: a subagent type, a language
             "day",  # ReportDay: an ISO date
             "reason",  # a refusal, written by a module in this package
             "trend_headline",  # trends.headline, from LABEL and two numbers
