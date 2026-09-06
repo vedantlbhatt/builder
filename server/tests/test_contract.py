@@ -8,6 +8,7 @@ half: even a hostile or stale client must not be able to push a field into Postg
 import base64
 import json
 from datetime import UTC, datetime, timedelta
+import re
 from pathlib import Path
 
 import pytest
@@ -206,17 +207,18 @@ def test_enum_values_are_enforced():
     with pytest.raises(ValidationError):
         valid_payload(harness="cursor")  # the real value is cursor_ide
     assert "cursor_ide" in ENUM_VALUES["harness"]
-    # The full list, pinned: a value added here must also reach the Postgres `harness`
-    # enum (0001 + 0010), or the first upload carrying it is a 22P02 on the INSERT.
+    # The full list, pinned.
     assert sorted(ENUM_VALUES["harness"]) == [
+        "aider",
         "claude_code",
         "cline",
         "codex",
         "cursor_agent",
         "cursor_ide",
         "gemini_cli",
+        "opencode",
     ]
-    for value in ("gemini_cli", "cline"):
+    for value in ("gemini_cli", "cline", "opencode", "aider"):
         assert valid_payload(harness=value).harness == value
 
     # 'flat' must not be a legal token scope: it would let the ~3x subagent overcount
@@ -224,6 +226,30 @@ def test_enum_values_are_enforced():
     assert "flat" not in ENUM_VALUES["token_scope"]
     with pytest.raises(ValidationError):
         valid_payload(token_scope="flat")
+
+
+def test_every_contract_harness_exists_in_the_postgres_enum():
+    """A contract value the `harness` TYPE does not know is a 500 on every upload.
+
+    MEASURED, 2026-09-06: adding `opencode` and `aider` to the contract regenerated the
+    Pydantic model, the Swift enum and the TypeScript union, and all three accepted an
+    `aider` payload. The database did not — `invalid input value for enum harness: "aider"`
+    on the INSERT, after validation had already passed. The contract generator cannot see a
+    Postgres type, so a contract change that adds an enum value is ALWAYS also a migration,
+    and this reads the migrations rather than trusting a comment to be remembered.
+    """
+    labels: set[str] = set()
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    for path in sorted(versions.glob("*.py")):
+        text_ = path.read_text()
+        # 0001 creates the type; every later migration grows it with ADD VALUE.
+        for m in re.finditer(r"CREATE TYPE harness AS ENUM \(([^)]*)\)", text_):
+            labels |= set(re.findall(r"'([a-z_]+)'", m.group(1)))
+        if "ALTER TYPE harness ADD VALUE" in text_:
+            for m in re.finditer(r"NEW_VALUES = \(([^)]*)\)", text_):
+                labels |= set(re.findall(r'"([a-z_]+)"', m.group(1)))
+    missing = sorted(set(ENUM_VALUES["harness"]) - labels)
+    assert not missing, f"harness values with no migration: {missing}"
 
 
 def test_contract_v2_boundary_fields_and_enums():

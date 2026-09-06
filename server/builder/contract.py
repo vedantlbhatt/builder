@@ -136,7 +136,7 @@ ANONYMOUS_FIELDS = [
 #: Legal values for every enum-typed field, so a client typo is a 422 with a useful
 #: message rather than a constraint violation deep in a batch insert.
 ENUM_VALUES: dict[str, list[str]] = {
-    "harness": ["claude_code", "cline", "codex", "cursor_agent", "cursor_ide", "gemini_cli"],
+    "harness": ["aider", "claude_code", "cline", "codex", "cursor_agent", "cursor_ide", "gemini_cli", "opencode"],
     "time_quality": ["mtime_corrected", "ok"],
     "state": ["final", "live"],
     "end_reason": ["cleared", "day_boundary", "human_returned", "idle_gap", "still_running", "switched_repo"],

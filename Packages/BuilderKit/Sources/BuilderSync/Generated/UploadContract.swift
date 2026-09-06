@@ -201,7 +201,7 @@ public enum UploadContract {
     /// Legal values for every enum-typed field, so a typo becomes a test failure here
     /// rather than a 422 from the server on the user's first sync.
     public static let enumValues: [String: [String]] = [
-        "harness": ["claude_code", "cline", "codex", "cursor_agent", "cursor_ide", "gemini_cli"],
+        "harness": ["aider", "claude_code", "cline", "codex", "cursor_agent", "cursor_ide", "gemini_cli", "opencode"],
         "time_quality": ["mtime_corrected", "ok"],
         "state": ["final", "live"],
         "end_reason": ["cleared", "day_boundary", "human_returned", "idle_gap", "still_running", "switched_repo"],

@@ -13,7 +13,7 @@ import sys
 import time
 import zoneinfo
 
-from . import CLIENT_VERSION, ROOT, repo, sessions
+from . import CLIENT_VERSION, ROOT, harnesses, repo, sessions
 from . import client as cl
 from .discover import iter_root_transcripts
 from .tuning import LIVE_UPLOAD_MIN_INTERVAL_SEC, PAIR_TIMEOUT_SEC
@@ -171,6 +171,17 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
     now = time.time() if now is None else now
     transcripts = iter_root_transcripts(root)
     sources = [sessions.load_source(t) for t in transcripts]
+    # Every other tool on this machine, through the same records and the same cut
+    # (`capture/harnesses.py`). Opt-out rather than opt-in: a person who installed Builder
+    # to see their sessions means all of them, and a store that is not there costs a
+    # `Path.exists()`. One unreadable session is skipped, never fatal.
+    other = [] if getattr(a, "no_other_harnesses", False) else harnesses.discover()
+    for store in other:
+        try:
+            sources.append(harnesses.load(store))
+        except Exception as e:  # noqa: BLE001 - one bad store must not stop the sync
+            if not getattr(a, "quiet", False):
+                print(f"  skipped {store.harness} {store.path.name}: {e}", file=sys.stderr)
     fit_report: dict = {}
     cut = sessions.sessionize_sources(
         sources, tz, now=now, finalize_open=a.finalize, tau=getattr(a, "tau", "auto"),
@@ -185,6 +196,8 @@ def build_payloads(a: argparse.Namespace, now: float | None = None) -> tuple[lis
     payloads: list[dict] = []
     stats = {
         "transcripts": len(transcripts),
+        "other_harness_sessions": len(other),
+        "harnesses": sorted({s.transcript.harness for s in sources}),
         "records": sum(len(s.records) for s in sources),
         "sessions": len(cut),
         "open_skipped": 0,
@@ -357,6 +370,11 @@ def make_parser() -> argparse.ArgumentParser:
     )
     s.add_argument(
         "--analyze", action="store_true", help="attach an analysis via `claude -p` (opt-in)"
+    )
+    s.add_argument(
+        "--no-other-harnesses",
+        action="store_true",
+        help="Claude Code only: skip Codex, Gemini CLI, Cline, opencode and Aider",
     )
     s.add_argument("--quiet", action="store_true", help="only print rejections and errors")
     s.set_defaults(fn=cmd_sync)

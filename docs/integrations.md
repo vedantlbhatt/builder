@@ -33,6 +33,51 @@ not from a corpus on disk. The house rule applies with full force: **a parser wr
 a description ships with a diagnostics-first probe**, so the first real corpus tells us
 what the description got wrong before any number reaches a card.
 
+## Every store reaches the phone
+
+`python -m capture sync` discovers all six stores, not only `~/.claude/projects`.
+`capture/harnesses.py` is the adapter: it reuses `analysis.probe._walk` for discovery, so
+`python -m analysis probe` and the uploader can never disagree about what exists, turns
+each loader's `digest.Ev` list into the thin records the boundary rules read, and then the
+Claude Code code path does the rest. Nothing about how a session is CUT is duplicated: the
+threshold fit, lineage folding, the two clocks, the 04:00 boundary and the three structural
+ends are one implementation for every tool. `--no-other-harnesses` restricts it to Claude
+Code.
+
+Three rules the adapter has to get right, each of which was a wrong number before it did:
+
+* **A child session is not a root.** A Gemini subagent (`meta.kind == "subagent"`) and an
+  opencode child (`is_child`) are excluded, on the same reasoning as Claude Code's sidecar
+  allowlist: the parent's own tool result already reports that work. Decided from the
+  loader's metadata rather than the path, so it holds for an exported file too.
+* **One sitting, one upload.** opencode keeps a SQLite database AND, on any machine
+  upgraded from an older release, the pre-SQLite `storage/session/**.json` tree it was
+  migrated from, and an `opencode export` file may be sitting beside them. All three hold
+  the same sessions. Taking all three triples that person's hours, so `discover` keeps one
+  per session id, database first. Gemini's legacy whole-conversation `.json` is deduped
+  against the `.jsonl` the same way.
+* **Tool names are translated, not dropped.** The wire vocabulary is `Read`, `Edit`,
+  `Write`, `Bash`, which is exactly what the Mac sends. `TOOL_ALIASES` maps each harness's
+  names onto it (`exec_command` and `shell` and `bash` and `run_shell_command` and
+  `execute_command` are all Bash), measured off the fixtures. Without it a Codex session
+  that ran a hundred commands uploads `tool_calls: {}` and the phone says you reached for
+  nothing.
+
+**Tokens are absent, not zero.** Only Claude Code's records carry the per-message usage
+objects the ledger dedupes on. The other loaders report tokens at their own granularity,
+and mapping a per-turn or per-step figure into a per-message ledger would produce a number
+that looks authoritative and is not comparable with the one beside it, so these sessions
+upload `tokens_reported: false`. Hours, prompts, tool calls, lines, files and commits are
+all real.
+
+**A contract enum value is always also a migration.** Adding `opencode` and `aider` to
+`privacy/upload-contract.json` regenerated the Pydantic model, the Swift enum and the
+TypeScript union, and all three accepted an `aider` payload; Postgres answered
+`invalid input value for enum harness: "aider"` on the INSERT and the client got a 500 with
+nothing to act on. `0015_harness_opencode_aider` grows the type, and
+`test_every_contract_harness_exists_in_the_postgres_enum` now reads the migrations so the
+next person does not have to remember.
+
 ## What each source can and cannot say
 
 **Claude Code** is the richest: per-block token usage (with the 1.878x content-block

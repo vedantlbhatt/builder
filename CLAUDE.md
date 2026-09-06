@@ -190,6 +190,22 @@ line in the message. The rule lives in `mobile/src/config/apiBaseUrl.ts`, not in
 config, so `bun test` can run it: a guard nobody has ever executed is a guard nobody should
 trust.
 
+**One sitting in three containers is three sittings.** opencode keeps every session in a
+SQLite database, and a machine upgraded from an older release still has the pre-SQLite
+`storage/session/**.json` tree it was migrated from; an `opencode export` file may be
+sitting beside both. All three hold the same sessions, so discovering "every session file
+under the data directory" TRIPLES that person's hours with no error anywhere.
+`capture/harnesses.py` keeps one container per session id, database first, and Gemini's
+legacy whole-conversation `.json` is deduped against its `.jsonl` the same way.
+
+**A contract enum value is always also a migration.** Adding `opencode` and `aider` to
+`privacy/upload-contract.json` regenerates the Pydantic model, the Swift enum and the
+TypeScript union, and all three accept the new value immediately. Postgres does not: the
+`harness` TYPE is created in `0001` and grown by hand, so the first upload carrying a new
+label is `invalid input value for enum harness` on the INSERT and a 500 the client cannot
+act on. `test_every_contract_harness_exists_in_the_postgres_enum` reads the migrations
+rather than trusting a comment.
+
 **The density floor is a design constant, not a detail.** At 0.45 the identity amber
 rendered as muddy brown across most of a real strip, because a 71-minute session is 4.2s
 per column and most columns land in the lowest bucket. Density should modulate the colour,
@@ -227,9 +243,9 @@ prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/
 |---|---|---|
 | `swift test` | 136 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
 | `bun test` | 389 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes and per-frame change ceiling; the profile screen's archetype wording and its closest-rule fallback |
-| `pytest` | 124 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
+| `pytest` | 125 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
 | `unittest` (analysis/) | 160 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
-| `make capture-test` | 56 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth |
+| `make capture-test` | 71 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth, and that every other harness discovers, dedupes and uploads |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 
 CI runs on `main`, on `claude/**` branches and on demand. The macOS job is the only Swift

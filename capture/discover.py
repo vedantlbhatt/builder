@@ -21,14 +21,25 @@ import pathlib
 @dataclasses.dataclass(frozen=True)
 class Transcript:
     #: The project directory NAME (`-home-user-builder`), never decoded back to a path —
-    #: the encoding is lossy (`/a/b-c`, `/a/b/c` and `/a/b.c` all become `-a-b-c`).
+    #: the encoding is lossy (`/a/b-c`, `/a/b/c` and `/a/b.c` all become `-a-b-c`). For a
+    #: harness other than Claude Code this is that harness's own lineage key
+    #: (`capture/harnesses.py`): the repo for Aider, the project for Gemini, the rollout
+    #: for Codex.
     project_dir: str
     path: pathlib.Path
+    #: Which tool wrote it. Defaults to Claude Code so every existing construction, every
+    #: fixture and every test keeps meaning what it meant.
+    harness: str = "claude_code"
 
     @property
     def descriptor(self) -> str:
-        """The engine's canonical source descriptor: `<projectdir>/<file>.jsonl`."""
-        return f"{self.project_dir}/{self.path.name}"
+        """The canonical source descriptor. `<projectdir>/<file>.jsonl` for Claude Code,
+        exactly as the engine writes it, so a machine that syncs both ways does not file
+        one session twice; for anything else the harness leads, because two tools can name
+        a session directory the same thing and mean different sessions."""
+        if self.harness == "claude_code":
+            return f"{self.project_dir}/{self.path.name}"
+        return f"{self.harness}/{self.project_dir}/{self.path.name}"
 
 
 def is_root_transcript(relative_path: str) -> bool:

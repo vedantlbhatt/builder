@@ -72,7 +72,52 @@ from .tuning import (
 )
 
 #: The tool names the Mac uploads counts for. Everything else is not on the wire.
+#: `SyncCommand` sends exactly these four and nothing else, so capture sends exactly these
+#: four and nothing else: a fifth key from one client and not the other would make "what
+#: you reach for" mean two different things depending on which machine uploaded.
 UPLOADED_TOOLS = ("Read", "Edit", "Write", "Bash")
+
+#: Every other harness's names for the same four acts.
+#:
+#: MEASURED off `spec/fixtures/{codex,gemini,cline,opencode,aider}` on 2026-09-06, which is
+#: what each real writer produced. Without this a Codex session that ran a hundred commands
+#: uploads `tool_calls: {}` and the phone says you reached for nothing, which is a plausible
+#: wrong number rather than a missing one.
+#:
+#: A name that is not here is DROPPED, not bucketed, exactly as the Mac drops everything
+#: outside the four (Aider's `commit`, opencode's `websearch` and `task`). The wire
+#: vocabulary is four words; inventing a fifth here and not on the Mac is the same divergence
+#: this table exists to prevent.
+TOOL_ALIASES: dict[str, dict[str, str]] = {
+    "codex": {"exec_command": "Bash", "shell": "Bash", "apply_patch": "Edit"},
+    "gemini_cli": {
+        "run_shell_command": "Bash",
+        "read_file": "Read",
+        "write_file": "Write",
+        "replace": "Edit",
+    },
+    "cline": {
+        "execute_command": "Bash",
+        "read_file": "Read",
+        "write_to_file": "Write",
+        "replace_in_file": "Edit",
+    },
+    "opencode": {"bash": "Bash", "read": "Read", "write": "Write", "edit": "Edit"},
+    "aider": {"run": "Bash", "apply_edit": "Edit"},
+}
+
+
+def uploaded_tool_counts(events: list[digest.Ev], harness: str) -> dict[str, int]:
+    """`{Read|Edit|Write|Bash: n}` for one session, whatever tool wrote it."""
+    alias = TOOL_ALIASES.get(harness, {})
+    counts: Counter[str] = Counter()
+    for e in events:
+        if e.kind != "tool" or not e.tool:
+            continue
+        name = e.tool if e.tool in UPLOADED_TOOLS else alias.get(e.tool)
+        if name is not None:
+            counts[name] += 1
+    return dict(counts)
 
 #: What the engine calls "meaningful": prompts, tool calls and human edits
 #: (`EventKind.isMeaningful`), the count `Tuning.countedMinMeaningfulEvents` reads.
@@ -120,9 +165,14 @@ def load_source(t: Transcript) -> Source:
 # ----------------------------------------------------------------------------- pooling
 
 
-def pool_key(project_dir: str) -> str:
-    """The lineage key: harness and project directory. Never a cwd (module docstring)."""
-    return f"claude_code|dir:{project_dir}"
+def pool_key(project_dir: str, harness: str = "claude_code") -> str:
+    """The lineage key: harness and project directory. Never a cwd (module docstring).
+
+    The harness leads so two tools working in the same directory are two lineages. They
+    are: a Codex rollout and a Claude Code transcript in one repo are two sittings that
+    happen to share a folder, and folding them together would credit one tool's idle gap
+    to the other's active time."""
+    return f"{harness}|dir:{project_dir}"
 
 
 def dominant_repo(records: list[dict]) -> repo.RepoIdentity | None:
@@ -164,6 +214,12 @@ class Session:
     presence: int
     end_reason: str
     state: str  # "live" | "final"
+
+    @property
+    def harness(self) -> str:
+        """Which tool wrote this sitting. Read back off the pool key, which is built from
+        it, so the payload's `harness` and the lineage it was cut in can never disagree."""
+        return self.pool.split("|", 1)[0]
 
     @property
     def last_record_ts(self) -> float:
@@ -227,7 +283,7 @@ def sessionize_sources(
     events_by_source: dict[str, list[digest.Ev]] = {}
     for src in sources:
         events_by_source[src.source_id] = src.events
-        key = pool_key(src.transcript.project_dir)
+        key = pool_key(src.transcript.project_dir, src.transcript.harness)
         keyed.extend((key, r) for r in src.records)
     pools = mb.fold_by_session_lineage(keyed)
 
@@ -392,7 +448,7 @@ def build_payload(
     wall = s.ended_at - s.started_at
 
     tools = [e for e in s.events if e.kind == "tool"]
-    tool_counts = Counter(e.tool for e in tools if e.tool in UPLOADED_TOOLS)
+    tool_counts = uploaded_tool_counts(s.events, s.harness)
     meaningful = sum(1 for e in s.events if e.kind in _MEANINGFUL_EV_KINDS)
     human_edits = sum(1 for e in s.events if e.kind == "human_edit")
     # Every event that carries a line count, exactly as `TokenAccountant.agentLines`
@@ -431,7 +487,7 @@ def build_payload(
         "client_version": client_version,
         "sessionizer_version": SESSIONIZER_VERSION,
         "active_calc_version": ACTIVE_CALC_VERSION,
-        "harness": "claude_code",
+        "harness": s.harness,
         "agent_observed_at": _iso(observed_at),
         "client_clock_offset_ms": 0,
         "started_at": _iso(s.started_at),
@@ -453,7 +509,7 @@ def build_payload(
         "timeline_fidelity": "full",
         "human_prompt_count": s.prompts,
         "prompt_count_basis": "typed_promptsource",
-        "tool_calls": dict(tool_counts),
+        "tool_calls": tool_counts,
         "files_touched": len(touched),
         # The engine uploads 0 here today (SessionDeriver writes `n_files_created = 0`);
         # capture matches it rather than introduce a number the Mac never sends.
