@@ -33,10 +33,10 @@ describe('pct', () => {
 describe('describeEnd', () => {
   test('human_returned names the autonomous stretch', () => {
     expect(describeEnd({ end_reason: 'human_returned', autonomous_seconds: 6 * 3600 })).toBe(
-      'You came back after 6 h of autonomous work — that started a new session'
+      'You came back after 6 h of autonomous work, so this is a new session'
     );
     expect(describeEnd({ end_reason: 'human_returned', autonomous_seconds: 9000 })).toBe(
-      'You came back after 2.5 h of autonomous work — that started a new session'
+      'You came back after 2.5 h of autonomous work, so this is a new session'
     );
   });
   test('day_boundary is the 04:00 split', () => {

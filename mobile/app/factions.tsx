@@ -156,7 +156,7 @@ export default function FactionsScreen() {
             style={{ color: c.accent, fontSize: 36, fontWeight: '800', letterSpacing: 4, fontVariant: ['tabular-nums'] }}
             selectable
           >
-            {justCreated.join_code ?? '—'}
+            {justCreated.join_code ?? '·'}
           </Text>
           <View style={{ flexDirection: 'row', gap: space.sm, marginTop: space.sm }}>
             {justCreated.join_code && (
@@ -283,14 +283,14 @@ function Board({ board, onShare }: { board: FactionBoard; onShare: (share: boole
         <View key={m.handle ?? `${i}`} style={{ flexDirection: 'row', paddingVertical: 6, borderTopWidth: 1, borderTopColor: c.border }}>
           <Text style={[td, { width: 28 }]}>{i + 1}</Text>
           <Text style={[td, { flex: 1, fontWeight: m.you ? '700' : '400' }]} numberOfLines={1}>
-            {m.handle ?? m.display_name ?? '—'}
+            {m.handle ?? m.display_name ?? '·'}
             {m.role === 'admin' ? ' ·adm' : ''}
           </Text>
           <Text style={[td, num, !m.share_hours && { color: c.textDim }]}>
             {m.share_hours ? duration(m.attended_seconds) : 'private'}
           </Text>
-          <Text style={[td, num, { width: 44 }]}>{m.share_hours ? m.sessions : '—'}</Text>
-          <Text style={[td, num]}>{m.share_hours ? duration(m.longest_attended_seconds) : '—'}</Text>
+          <Text style={[td, num, { width: 44 }]}>{m.share_hours ? m.sessions : '·'}</Text>
+          <Text style={[td, num]}>{m.share_hours ? duration(m.longest_attended_seconds) : '·'}</Text>
         </View>
       ))}
       {me && (

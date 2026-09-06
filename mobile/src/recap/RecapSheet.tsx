@@ -99,7 +99,7 @@ export function RecapSheet({
   const { reset } = flow;
 
   // The sheet stays mounted between openings. Each opening starts from the session and,
-  // in edit mode, the shown — not from whatever the last opening left behind.
+  // in edit mode, the post, not from whatever the last opening left behind.
   useEffect(() => {
     if (!visible) return;
     setTitle(defaultTitle(session));
@@ -114,7 +114,7 @@ export function RecapSheet({
     setCheering(true);
     const timer = setTimeout(() => setCheering(false), CELEBRATION_MS);
     return () => clearTimeout(timer);
-    // Reads the session and shown as they are at opening time; a later re-read of the
+    // Reads the session and post as they are at opening time; a later re-read of the
     // detail must not wipe what the person has typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
@@ -158,10 +158,10 @@ export function RecapSheet({
           return;
         }
         if (e instanceof ApiError && e.status === 0) {
-          setProblem("Couldn't reach the server. Your recap is still here — try again in a moment.");
+          setProblem("Couldn't reach the server. Your recap is still here. Try again in a moment.");
           return;
         }
-        setProblem(e instanceof Error ? e.message : 'Could not shown — try again.');
+        setProblem(e instanceof Error ? e.message : 'Could not post. Try again.');
         return;
       }
       setSubmitting(false);
@@ -197,7 +197,7 @@ export function RecapSheet({
             </Pressable>
           )}
           <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center' }}>
-            {flow.uploading ? 'Uploading' : editing ? 'Edit shown' : 'Session recap'}
+            {flow.uploading ? 'Uploading' : editing ? 'Edit post' : 'Session recap'}
           </Text>
           {flow.uploading ? (
             <Pressable onPress={() => void flow.finish()} disabled={busy} hitSlop={8}>
@@ -219,7 +219,7 @@ export function RecapSheet({
             intro={
               editing
                 ? 'Your changes are saved. The new photos and voice note are on their way.'
-                : 'Your shown is up. Its photos and voice note are on their way.'
+                : 'Your post is up. Its photos and voice note are on their way.'
             }
           />
         ) : (
@@ -259,7 +259,7 @@ export function RecapSheet({
                   style={input}
                 />
                 <Text style={{ color: c.textDim, fontSize: 11, marginTop: 4 }}>
-                  Goes on your shown. The session keeps the title your editor gave it.
+                  Goes on your post. The session keeps the title your editor gave it.
                 </Text>
               </>
             )}
@@ -333,7 +333,7 @@ export function RecapSheet({
               />
               {editing && shown.audio ? (
                 <Text style={{ color: c.textDim, fontSize: 11, marginTop: 6 }}>
-                  This shown already has its voice note.
+                  This post already has its voice note.
                 </Text>
               ) : null}
             </View>

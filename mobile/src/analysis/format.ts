@@ -37,13 +37,13 @@ export function describeEnd(s: EndFields): string | null {
   const reason: EndReason | undefined = s.end_reason;
   switch (reason) {
     case 'human_returned':
-      return `You came back after ${hoursText(s.autonomous_seconds ?? 0)} of autonomous work — that started a new session`;
+      return `You came back after ${hoursText(s.autonomous_seconds ?? 0)} of autonomous work, so this is a new session`;
     case 'day_boundary':
       return 'Split at 04:00 while running unattended';
     case 'cleared':
-      return 'Ended with /clear — the next prompt started a new session';
+      return 'Ended with /clear. The next prompt started a new session';
     case 'switched_repo':
-      return 'You started working in another repo — that started a new session';
+      return 'You started working in another repo, so this is a new session';
     default:
       return null;
   }
@@ -74,7 +74,7 @@ export function analysisFooter(
 }
 
 export const SENSITIVE_WARNING =
-  'This analysis mentions something that looks sensitive — check before sharing.';
+  'This analysis mentions something that looks sensitive. Check before sharing.';
 
 /** "t+38m" / "t+2h 05m" for the pivot timeline. */
 export function pivotTime(atMinute: number): string {

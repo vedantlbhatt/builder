@@ -65,7 +65,7 @@ const BUCKET_COPY: Record<string, string> = {
  * words". Leading with either produces a card that reads like a screenshotted ticket.
  */
 export function headline(m: CardModel): string {
-  if (m.isPersonalRecord) return `${duration(m.activeSeconds)} — longest session yet`;
+  if (m.isPersonalRecord) return `${duration(m.activeSeconds)}, longest session yet`;
 
   if (
     m.attribConfidence !== 'none' &&
@@ -79,7 +79,7 @@ export function headline(m: CardModel): string {
       // count, so this is a lower bound. The hedge is also the more impressive phrasing.
       return m.agentLineBucket === 'mostly_you'
         ? copy
-        : `${copy} ${m.modelName} — at least`;
+        : `${copy} ${m.modelName}, at least`;
     }
   }
 

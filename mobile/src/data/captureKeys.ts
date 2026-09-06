@@ -63,7 +63,7 @@ PY`,
 /** Same rule as the server: trimmed, 1-64 characters. Null when fine. */
 export function captureKeyNameProblem(raw: string): string | null {
   const t = raw.trim();
-  if (!t) return 'Give the key a name — where it will live, like "claude.ai/code".';
+  if (!t) return 'Give the key a name: where it will live, like "claude.ai/code".';
   if (t.length > CAPTURE_KEY_NAME_MAX) return `At most ${CAPTURE_KEY_NAME_MAX} characters.`;
   return null;
 }

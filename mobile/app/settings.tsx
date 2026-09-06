@@ -175,7 +175,7 @@ export default function SettingsScreen() {
       {!signedIn ? (
         <Section title="Account">
           <Text style={{ color: c.textDim, fontSize: 13, marginBottom: space.md }}>
-            Builder works without an account — you are seeing a sample session. Sign in to
+            Builder works without an account. You are seeing a sample session. Sign in to
             sync your own from the Mac agent.
           </Text>
           <AppleAuthentication.AppleAuthenticationButton
@@ -281,8 +281,8 @@ export default function SettingsScreen() {
       <Section title="Privacy">
         <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 19 }}>
           Your prompts, your code, your diffs and your file names never leave your machine.
-          What syncs is timings, counts, the shape of the session, and — only for
-          repositories you mark public — the repository name and the title your editor
+          What syncs is timings, counts, the shape of the session, and, only for
+          repositories you mark public, the repository name and the title your editor
           already wrote to your own disk.
           {'\n\n'}
           The Mac agent is open source, and `builder sync --dry-run --print-payload` prints
@@ -400,7 +400,7 @@ function CaptureKeysPanel() {
     <>
       <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 19, marginBottom: space.sm }}>
         Sessions from claude.ai/code run in a cloud container the Mac agent never sees. A
-        capture key lets that container upload them — and do nothing else.
+        capture key lets that container upload them, and do nothing else.
       </Text>
 
       {created && (
@@ -415,7 +415,7 @@ function CaptureKeysPanel() {
           }}
         >
           <Text style={{ color: c.text, fontSize: 13, fontWeight: '700' }}>
-            {created.name} — copy it now
+            {created.name}: copy it now
           </Text>
           <Text style={{ color: c.textDim, fontSize: 11, marginTop: space.xs, lineHeight: 16 }}>
             This is the only time the key is shown. {CAPTURE_KEY_PASTE_HINT}
