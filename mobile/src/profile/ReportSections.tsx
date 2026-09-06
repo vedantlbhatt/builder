@@ -150,10 +150,10 @@ function Agents({ report }: { report: BuilderReport }) {
   return (
     <Section title="Agents you ran">
       <Text style={{ color: c.text, fontSize: 15, lineHeight: 22 }}>{fanoutLine(a)}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xl, marginTop: space.md }}>
-        <Stat label="At once, on average" value={`${a.parallelism.toFixed(1)}x`} />
-        <Stat label="Peak" value={String(a.max_concurrent)} />
-        <Stat label="Agent time" value={shortDuration(a.agent_seconds)} />
+      <View style={{ flexDirection: 'row', marginTop: space.md }}>
+        <Stat label="At once, on average" value={`${a.parallelism.toFixed(1)}x`} flex />
+        <Stat label="Peak" value={String(a.max_concurrent)} flex />
+        <Stat label="Agent time" value={shortDuration(a.agent_seconds)} flex />
       </View>
       {a.by_type.length > 1 && (
         <View style={{ marginTop: space.md }}>
@@ -186,10 +186,13 @@ function Commits({ report }: { report: BuilderReport }) {
   const streak = streakLine(co);
   return (
     <Section title="What you shipped">
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xl }}>
-        <Stat label="With an agent" value={co.assisted.toLocaleString()} />
-        <Stat label="On your own" value={co.alone.toLocaleString()} />
-        <Stat label="Days you shipped" value={String(co.active_days)} />
+      {/* Three equal columns, not a wrapping row. At `gap: xl` the third stat wrapped to
+          its own line with a full row of empty space above it, which reads as a bug rather
+          than as a wrap. */}
+      <View style={{ flexDirection: 'row' }}>
+        <Stat label="With an agent" value={co.assisted.toLocaleString()} flex />
+        <Stat label="On your own" value={co.alone.toLocaleString()} flex />
+        <Stat label="Days you shipped" value={String(co.active_days)} flex />
       </View>
       {share !== null && (
         <View style={{ marginTop: space.md }}>
@@ -283,9 +286,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, flex }: { label: string; value: string; flex?: boolean }) {
   return (
-    <View>
+    <View style={flex ? { flex: 1, paddingRight: space.sm } : undefined}>
       <Text style={{ color: c.text, fontSize: 20, fontWeight: '700' }}>{value}</Text>
       <Text style={{ color: c.textDim, fontSize: 12 }}>{label}</Text>
     </View>

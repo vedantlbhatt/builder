@@ -6,7 +6,7 @@ import { PixelAnimal } from '../pixel/PixelAnimal';
 import { PixelSprite } from '../pixel/PixelSprite';
 import { colors, space } from '../theme';
 import type { CorpusArchetype } from '../data/api';
-import { archetypeTitle, closestRule } from './format';
+import { archetypeTitle, closestRule, ruleSentence } from './format';
 
 const c = colors('dark');
 
@@ -113,7 +113,7 @@ export function ArchetypeHero({
             with nothing under it is a horoscope; this one is a threshold on a single
             named metric, so saying which one is the difference between a claim and a
             result. */}
-        {archetype?.rule ??
+        {(archetype && ruleSentence(archetype)) ??
           (closest
             ? `Nothing you do is extreme enough to name yet. Closest is ${archetypeTitle(
                 closest.name

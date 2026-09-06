@@ -308,14 +308,17 @@ export function PostRow({
 function BuildBody({ shipped }: { shipped: ShippedPost }) {
   return (
     <View style={{ marginTop: space.sm }}>
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: space.sm }}>
-        <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', lineHeight: 22, flex: 1 }}>
-          {shipped.what}
-        </Text>
-        <Text style={[meta, { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6 }]}>
-          {shipped.stage.replace(/_/g, ' ')}
-        </Text>
-      </View>
+      {/* The stage ABOVE the title, not beside it. Beside it, a four-line title wrapped
+          under a floating word in the corner; a title is the thing being read and nothing
+          should flow around it. */}
+      <Text
+        style={[meta, { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }]}
+      >
+        {shipped.stage.replace(/_/g, ' ')}
+      </Text>
+      <Text style={{ color: c.text, fontSize: 17, fontWeight: '700', lineHeight: 22 }}>
+        {shipped.what}
+      </Text>
 
       {shipped.why ? (
         <Text style={{ color: c.textDim, fontSize: 13, lineHeight: 18, marginTop: 4 }}>
@@ -336,16 +339,24 @@ function BuildBody({ shipped }: { shipped: ShippedPost }) {
       {shipped.changes.length > 0 && (
         <View style={{ marginTop: space.sm }}>
           {shipped.changes.map((ch, i) => (
-            <View key={`${i}-${ch.text}`} style={{ paddingVertical: 2 }}>
-              <Text style={{ color: c.text, fontSize: 14, lineHeight: 20 }}>
-                {'\u00b7 '}
-                {ch.text}
-              </Text>
+            <View key={`${i}-${ch.text}`} style={{ paddingVertical: 3 }}>
+              {/* The bullet is its own column. Inline, a wrapped line ran back to the left
+                  margin and the list stopped reading as a list. */}
+              <View style={{ flexDirection: 'row' }}>
+                <Text style={{ color: c.textDim, fontSize: 14, lineHeight: 20, width: 12 }}>
+                  {'\u00b7'}
+                </Text>
+                <Text style={{ color: c.text, fontSize: 14, lineHeight: 20, flex: 1 }}>
+                  {ch.text}
+                </Text>
+              </View>
               {/* The receipt, when the work showed one. A change with evidence is a claim
                   another builder can check; one without is a claim, and the card says
                   which it is by whether this line is there. */}
               {ch.evidence ? (
-                <Text style={[meta, { fontSize: 11, marginLeft: 12 }]}>{ch.evidence}</Text>
+                <Text style={[meta, { fontSize: 11, marginLeft: 12, lineHeight: 15 }]}>
+                  {ch.evidence}
+                </Text>
               ) : null}
             </View>
           ))}

@@ -102,17 +102,22 @@ export function streakLine(c: ReportContributions): string | null {
 }
 
 /**
- * Time to green in words, or the reason there is none.
+ * Time to green as the VALUE beside a "Back to green" label, or null when nothing in the
+ * window failed and then passed.
  *
- * Both halves matter. "2 minutes back to green" is the useful answer; "5 test runs, 5
- * needed" is the useful non-answer, and it tells the person exactly what would make the
- * number appear. An empty card tells them the app is broken.
+ * It does not repeat the label. Found by looking at it: the row read "Back to green — 2m
+ * back to green, 2 runs typically", which says the same three words twice in eleven.
+ *
+ * Null rather than a zero. A refused recovery rendered as "0m" would read as the best
+ * possible score for a corpus that has no score at all; the section prints the module's
+ * own reason instead, and "5 test runs, 5 needed" tells a person what would make the
+ * number appear.
  */
 export function greenLine(q: ReportQuality): string | null {
   if (!q.time_to_green) return null;
   const g = q.time_to_green;
   const tries = g.median_attempts > 1 ? `, ${g.median_attempts} runs typically` : '';
-  return `${shortDuration(g.median_seconds)} back to green${tries}.`;
+  return `${shortDuration(g.median_seconds)}${tries}`;
 }
 
 /** Which sections have anything to say at all, so the screen can skip its own header. */

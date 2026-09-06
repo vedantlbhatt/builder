@@ -161,7 +161,13 @@ describe('time to green', () => {
   });
 
   test('the median recovery and how many runs it took', () => {
-    expect(greenLine(quality())).toBe('2m back to green, 2 runs typically.');
+    expect(greenLine(quality())).toBe('2m, 2 runs typically');
+  });
+
+  test('the value does not repeat its own label', () => {
+    // The row read "Back to green — 2m back to green, 2 runs typically": the same three
+    // words twice in eleven.
+    expect(greenLine(quality())).not.toContain('back to green');
   });
 
   test('one run is not worth saying twice', () => {
@@ -171,7 +177,7 @@ describe('time to green', () => {
           time_to_green: { n: 3, median_seconds: 60, worst_seconds: 90, median_attempts: 1 },
         })
       )
-    ).toBe('1m back to green.');
+    ).toBe('1m');
   });
 
   test('nothing failed and then passed, so there is no number and no zero', () => {

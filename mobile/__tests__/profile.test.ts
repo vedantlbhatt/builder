@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 
-import { archetypeTitle, closestRule } from '../src/profile/format';
+import { archetypeTitle, closestRule, ruleSentence } from '../src/profile/format';
 import { animalForArchetype, CORPUS_ARCHETYPE_ANIMALS, DEFAULT_ANIMAL } from '../src/pixel/animals';
 
 describe('archetypeTitle', () => {
@@ -60,5 +60,39 @@ describe('closestRule', () => {
     // be a number the server explicitly declined to state.
     expect(closestRule([scored('architect', null, 2.4, null)])).toBeNull();
     expect(closestRule([])).toBeNull();
+  });
+});
+
+
+describe('the rule under the archetype carries the number that earned it', () => {
+  /**
+   * FOUND BY LOOKING AT IT in a browser: the hero showed "Velocity Machine" over the bare
+   * phrase "agent lines per active hour" — the metric's NAME and no number anywhere. The
+   * "no clear type" fallback beneath it had been building the full sentence all along, so
+   * the case that matters more said less.
+   */
+  test('the winning rule reads as a result, not a label', () => {
+    expect(
+      ruleSentence({ rule: 'agent lines per active hour', value: 1086.2, threshold: 487 })
+    ).toBe('agent lines per active hour: 1086 against 487.');
+  });
+
+  test('a small ratio keeps the precision it has', () => {
+    expect(ruleSentence({ rule: 'prompts under ten words', value: 0.44, threshold: 0.3 })).toBe(
+      'prompts under ten words: 0.44 against 0.30.'
+    );
+    expect(ruleSentence({ rule: 'test runs an hour', value: 5.75, threshold: 3 })).toBe(
+      'test runs an hour: 5.8 against 3.'
+    );
+  });
+
+  test('a server that sends no numbers gets the rule alone rather than "null against null"', () => {
+    expect(ruleSentence({ rule: 'agent lines per active hour', value: null, threshold: null })).toBe(
+      'agent lines per active hour'
+    );
+  });
+
+  test('no rule is nothing, so the card falls through to its own explanation', () => {
+    expect(ruleSentence({ rule: null, value: null, threshold: null })).toBeNull();
   });
 });
