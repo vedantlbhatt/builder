@@ -116,7 +116,12 @@ export default function ProfileScreen() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xl, marginTop: space.md }}>
             <Stat label="Prompts" value={corpus.totals.total_prompts.toLocaleString()} />
             <Stat label="Agent lines" value={corpus.totals.total_lines_added.toLocaleString()} />
-            <Stat label="Commits" value={corpus.totals.total_commits.toLocaleString()} />
+            {/* Absent, not zero. Two sessions that overlapped in one repo both counted
+                the commits in between, so the sum would read high; the row is dropped
+                rather than shown wrong. */}
+            {corpus.totals.total_commits !== null && (
+              <Stat label="Commits" value={corpus.totals.total_commits.toLocaleString()} />
+            )}
             <Stat label="Tool calls" value={corpus.totals.total_tool_calls.toLocaleString()} />
           </View>
         )}

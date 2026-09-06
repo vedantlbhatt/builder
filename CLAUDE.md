@@ -206,6 +206,15 @@ label is `invalid input value for enum harness` on the INSERT and a 500 the clie
 act on. `test_every_contract_harness_exists_in_the_postgres_enum` reads the migrations
 rather than trusting a comment.
 
+**A correct per-session number can be an incorrect corpus total.** Every session asks git
+what landed in its own window (plus the 30-minute attribution lookback), which is right on
+its own card: "19 commits landed while you worked". Two sessions running AT ONCE in one
+repository both get the same commits, so the SUM is not the number of commits. MEASURED on
+this container: eleven sessions summed to 98 where `git log` over the same day counted 75,
+because parallel agent sessions overlapped and one ran entirely inside another. The corpus
+total is refused (`overlapping_session_windows`) rather than reported 31% high, and null is
+not zero: the phone drops the row instead of claiming nothing was committed.
+
 **The density floor is a design constant, not a detail.** At 0.45 the identity amber
 rendered as muddy brown across most of a real strip, because a 71-minute session is 4.2s
 per column and most columns land in the lowest bucket. Density should modulate the colour,
@@ -244,7 +253,7 @@ prompt), `docs/integrations.md` (where every tool keeps its transcripts), `docs/
 | `swift test` | 136 | the measured ground truth, that a shell-written file reaches the card, the strip fixtures, the boundary fixtures (v3: lineage pooling, the threshold fitter against the Python fit), the Codex and Gemini fixtures, the live-path fixtures, digest parity with the Python reference, the analysis scheduler's retry rules |
 | `bun test` | 389 | that the phone decodes the strip identically to the Mac; the Api refresh/retry rules; the cache's live→final rules; the social helpers and the upload flow; the notification-tap routing; the mascot's frames and motion tables; the eight-animal pack's frames, palette recipes and per-frame change ceiling; the profile screen's archetype wording and its closest-rule fallback |
 | `pytest` | 125 | that undeclared fields cannot be stored, that RLS is real (as builder_app, through the routes), auth bootstrap, contract v2/v3, social, capture keys and their scope, the notification horizon, the hook channel's parity with capture, the corpus profile's server-side refusals |
-| `unittest` (analysis/) | 160 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
+| `unittest` (analysis/) | 164 | the Codex, Gemini, Cline, opencode and Aider loaders against their synthetic fixtures AND the real writers' output; Claude Code stats unchanged; every corpus metric's refusal reasons and the archetype rules |
 | `make capture-test` | 71 | boundary parity of the cloud uploader (v3 pooling), contract conformance (nested walk), refresh-on-401 rotation, capture-key auth, and that every other harness discovers, dedupes and uploads |
 | CI `reference` job | — | the boundary fixtures are what `scripts/measure_boundaries.py` produces |
 

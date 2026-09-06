@@ -255,7 +255,7 @@ def corpus_metrics(db, user_id: str, window_days: int) -> dict | None:
     rows = db.execute(
         text(
             """
-            SELECT s.id, s.started_at, s.ended_at, s.tz_offset_minutes,
+            SELECT s.id, s.repo_id, s.started_at, s.ended_at, s.tz_offset_minutes,
                    s.active_seconds, s.attended_seconds, s.autonomous_seconds, s.unattended,
                    st.tool_calls, st.human_prompt_count, st.lines_added_agent,
                    st.commit_count, st.models, st.tok_out, st.tokens_reported
@@ -319,6 +319,11 @@ def _session_fact(ap, r):
         write_events=None,
         commit_count=r.commit_count or 0,
         commit_basis=ap.COMMITS_GIT_LOG,
+        # Which repo, so the corpus total can tell whether two overlapping sessions were
+        # asking git the same question. Two agents running at once in one repository both
+        # count every commit in the overlap, and the SUM of correct per-session numbers is
+        # then wrong (analysis/profile.py, COMMITS_OVERLAPPING).
+        repo=str(r.repo_id) if r.repo_id else None,
         commit_times=None,
         output_tokens_by_model=tokens,
         prompts=None,

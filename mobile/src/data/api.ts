@@ -301,7 +301,13 @@ export interface CorpusProfile {
     total_hours: number;
     total_prompts: number;
     total_lines_added: number;
-    total_commits: number;
+    /**
+     * Null when the corpus holds two sessions that overlapped in one repository. Each
+     * session's own count is right; the SUM is not, because both asked git what landed in
+     * their window and both got the same commits. `commit_basis` says
+     * `overlapping_session_windows` when that is why.
+     */
+    total_commits: number | null;
     commit_basis: string;
     total_tool_calls: number;
   };

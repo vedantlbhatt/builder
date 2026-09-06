@@ -88,6 +88,18 @@ TEST_RUNS_LOWER_BOUND = "test_commands_in_the_digest_lower_bound"
 COMMITS_GIT_LOG = "git_log_window"
 COMMITS_TOOL_CALLS = "git_commit_tool_calls_lower_bound"
 COMMITS_ABSENT = "absent"
+#: Two sessions that overlap in time in the SAME repository both ask git what landed in
+#: their window, and both get the same commits. The per-session number is right (it answers
+#: "what landed while you were working"); the SUM is not, and the sum is what a corpus total
+#: is. MEASURED on this container, 2026-09-06: eleven sessions summed to 98 commits where
+#: `git log` over the same day counted 75, because parallel agent sessions in one repo
+#: overlapped, one of them entirely inside another. Refused rather than reported 31% high.
+COMMITS_OVERLAPPING = "overlapping_session_windows"
+
+#: Tuning.tauCommitAttributionSec. `capture/sessions.py` asks git for commits from
+#: `started_at - this` so a commit made just after a session ends still lands on it; two
+#: windows therefore overlap whenever their sessions are within half an hour of each other.
+COMMIT_ATTRIBUTION_SEC = 1800.0
 
 #: What agent lines were counted from. `uploaded_agent_lines` is what a stored session
 #: carries: since `ShellFileEffect` landed, BOTH clients credit edit tools and shell
@@ -158,6 +170,10 @@ class SessionFact:
     write_events: int | None = None
     commit_count: int = 0
     commit_basis: str = COMMITS_ABSENT
+    #: Which repository the session ran in, when it is known. Only used to decide whether
+    #: two overlapping sessions could be claiming the same commits; `None` is treated as
+    #: its own repository, because a session with no repo has no git window either.
+    repo: str | None = None
     #: Wall-clock times of the commits, when they are known one by one. The stored strip
     #: marks are deduped for rendering, so the server passes None and the commit night
     #: share comes back None rather than wrong.
@@ -355,6 +371,36 @@ def _active_by_hour(sessions: Sequence[SessionFact]) -> dict[int, float]:
     return out
 
 
+def _corpus_commits(ss: Sequence[SessionFact]) -> tuple[int | None, str]:
+    """(total, basis) for a whole corpus, or (None, COMMITS_OVERLAPPING).
+
+    A `git_log_window` count is per session and correct there. Summing it is only correct
+    when no two sessions in one repository could have seen the same commit, which means no
+    two attribution windows in that repository overlap. When any pair does, the total is
+    refused: a number 31% high is worse than an absent one, and the reason is nameable.
+
+    A count that came from tool calls is a stated lower bound already and is summed as one.
+    """
+    known = [s for s in ss if s.commit_basis != COMMITS_ABSENT]
+    if not known:
+        return 0, COMMITS_ABSENT
+    basis = known[0].commit_basis
+    if basis != COMMITS_GIT_LOG:
+        return sum(s.commit_count for s in known), basis
+
+    by_repo: dict[str | None, list[SessionFact]] = {}
+    for s in known:
+        by_repo.setdefault(s.repo, []).append(s)
+    for group in by_repo.values():
+        windows = sorted(
+            (s.started_at - COMMIT_ATTRIBUTION_SEC, s.ended_at) for s in group
+        )
+        for (_, prev_end), (next_start, _) in zip(windows, windows[1:]):
+            if next_start < prev_end:
+                return None, COMMITS_OVERLAPPING
+    return sum(s.commit_count for s in known), basis
+
+
 def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None) -> dict:
     """Every corpus metric, each with its basis, its sample and its reason for absence."""
     ss = [s for s in sessions]
@@ -373,17 +419,19 @@ def corpus_profile(sessions: Iterable[SessionFact], *, now: float | None = None)
     tool_known = [s for s in ss if s.tool_basis != TOOLS_ABSENT]
     lines_total = sum(s.lines_added_agent for s in ss)
     lines_known = [s for s in ss if s.lines_basis != LINES_ABSENT]
-    commits_total = sum(s.commit_count for s in ss)
+    # Commits cannot simply be summed. Every session asks git what landed in its own
+    # window (plus the half-hour attribution lookback), so two sessions running at once in
+    # one repository both count the same commits. See COMMITS_OVERLAPPING.
+    commits_total, commits_basis = _corpus_commits(ss)
 
     totals = {
         "total_sessions": n_sessions,
         "total_hours": round(active_hours, 2),
         "total_prompts": prompt_total,
         "total_lines_added": lines_total,
+        # None, not 0, when the windows overlap: 0 would read as "you committed nothing".
         "total_commits": commits_total,
-        "commit_basis": next(
-            (x.commit_basis for x in ss if x.commit_basis != COMMITS_ABSENT), COMMITS_ABSENT
-        ),
+        "commit_basis": commits_basis,
         "total_tool_calls": tool_total,
     }
 

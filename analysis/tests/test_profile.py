@@ -345,3 +345,70 @@ class Facts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommitsCannotSimplyBeSummed(unittest.TestCase):
+    """Two sessions running at once in one repo both count the commits in the overlap.
+
+    MEASURED on this container, 2026-09-06: eleven Claude Code sessions summed to 98
+    commits where `git log` over the same day counted 75. One session ran 05:45 to 05:57
+    entirely inside another running 04:55 to 06:17; two more sat inside a third; and two
+    23:0x sessions covered the same three commits. The per-session number is right, and it
+    is the SUM that is the wrong number, which is exactly the failure this repo names first.
+    """
+
+    @staticmethod
+    def _fact(session_id: str, start: float, end: float, commits: int, repo: str | None):
+        return pf.SessionFact(
+            session_id=session_id,
+            started_at=start,
+            ended_at=end,
+            active_seconds=end - start,
+            attended_seconds=end - start,
+            autonomous_seconds=0.0,
+            commit_count=commits,
+            commit_basis=pf.COMMITS_GIT_LOG,
+            repo=repo,
+        )
+
+    def test_disjoint_windows_in_one_repo_sum_exactly(self):
+        day = 1_780_000_000.0
+        far = day + 4 * pf.COMMIT_ATTRIBUTION_SEC
+        p = pf.corpus_profile(
+            [self._fact("a", day, day + 600, 5, "r1"), self._fact("b", far, far + 600, 4, "r1")]
+        )
+        self.assertEqual(p["totals"]["total_commits"], 9)
+        self.assertEqual(p["totals"]["commit_basis"], pf.COMMITS_GIT_LOG)
+
+    def test_an_overlap_in_one_repo_refuses_the_total(self):
+        day = 1_780_000_000.0
+        p = pf.corpus_profile(
+            [
+                self._fact("a", day, day + 4_800, 19, "r1"),
+                # 05:45 inside 04:55 to 06:17, the real shape from the container.
+                self._fact("b", day + 3_000, day + 3_700, 6, "r1"),
+            ]
+        )
+        # None, never 0: a zero here reads as "you committed nothing".
+        self.assertIsNone(p["totals"]["total_commits"])
+        self.assertEqual(p["totals"]["commit_basis"], pf.COMMITS_OVERLAPPING)
+
+    def test_the_attribution_lookback_counts_as_overlap(self):
+        # `capture/sessions.py` asks git from `started_at - 1800`, so two sessions half an
+        # hour apart in one repo are still both claiming the commits in between.
+        day = 1_780_000_000.0
+        p = pf.corpus_profile(
+            [
+                self._fact("a", day, day + 600, 3, "r1"),
+                self._fact("b", day + 900, day + 1_500, 3, "r1"),
+            ]
+        )
+        self.assertIsNone(p["totals"]["total_commits"])
+
+    def test_overlapping_sessions_in_DIFFERENT_repos_still_sum(self):
+        # Two repos cannot share a commit, so there is nothing to double count.
+        day = 1_780_000_000.0
+        p = pf.corpus_profile(
+            [self._fact("a", day, day + 4_800, 19, "r1"), self._fact("b", day + 3_000, day + 3_700, 6, "r2")]
+        )
+        self.assertEqual(p["totals"]["total_commits"], 25)
